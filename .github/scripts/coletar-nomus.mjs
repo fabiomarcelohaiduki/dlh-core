@@ -34,6 +34,9 @@ const SUPABASE_URL = (process.env.SUPABASE_URL ?? "").replace(/\/+$/, "");
 const CRON_SECRET = process.env.CRON_DISPATCH_SECRET;
 const ANON = process.env.SUPABASE_ANON_KEY;
 const RECURSO = process.env.NOMUS_RECURSO ?? "processos";
+// A JANELA de coleta (data de corte) vive no cockpit (config_ingestao.
+// data_inicial) e e aplicada pela Edge Function nomus-ingerir. Este runner so
+// puxa e empurra; nao filtra por data.
 
 const TAMANHO_LOTE = posInt(process.env.NOMUS_TAMANHO_LOTE, 14);
 const PAUSA_LOTE_MS = posInt(process.env.NOMUS_PAUSA_LOTE_MS, 5_000);

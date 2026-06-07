@@ -77,20 +77,24 @@ export interface RecursoPatch {
 export interface SalvarIngestaoConfigInput {
   fonte: FonteTipo;
   janelaDias?: number;
+  /** Data de corte 'YYYY-MM-DD' (Nomus): ignora processos criados antes dela.
+   *  null limpa o filtro (volta a coletar tudo). */
+  dataInicial?: string | null;
   recursos?: Record<string, RecursoPatch>;
 }
 
 /**
- * PUT /ingestao-config — persiste janela e recursos/tipos da fonte. As
- * alteracoes valem na PROXIMA execucao (sem redeploy); o backend faz merge
- * raso por recurso (campos nao enviados sao preservados). data_inicial NAO e
- * exposta nesta entrega. Variaveis em camelCase; payload em snake_case.
+ * PUT /ingestao-config — persiste janela/data_inicial e recursos/tipos da
+ * fonte. As alteracoes valem na PROXIMA execucao (sem redeploy); o backend faz
+ * merge raso por recurso (campos nao enviados sao preservados). Variaveis em
+ * camelCase; payload em snake_case.
  */
 export function salvarIngestaoConfig(
   input: SalvarIngestaoConfigInput,
 ): Promise<{ ok: boolean }> {
   const body: Record<string, unknown> = { fonte: input.fonte };
   if (input.janelaDias !== undefined) body.janela_dias = input.janelaDias;
+  if (input.dataInicial !== undefined) body.data_inicial = input.dataInicial;
   if (input.recursos !== undefined) {
     const recursos: Record<string, Record<string, unknown>> = {};
     for (const [key, patch] of Object.entries(input.recursos)) {

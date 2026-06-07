@@ -7,9 +7,6 @@ import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import type { RecursoConfig } from "@/lib/api/types";
 
-const MIN_JANELA = 1;
-const MAX_JANELA = 365;
-
 /**
  * Recursos da fonte Nomus (config_ingestao.recursos). `processos` e o unico
  * ATIVO/editavel nesta entrega; os demais sao futuros — visiveis e desligados
@@ -120,17 +117,18 @@ function TipoToggle({
 /**
  * cmp-nomus-cfg-form — Configuracao da ingestao Nomus (US-04/US-05).
  *
- * Toggles de recursos e de tipos por recurso + edicao da janela (dias).
+ * Toggles de recursos e de tipos por recurso + data de corte da coleta
+ * (data_inicial): o processo do Nomus nao tem data de alteracao, entao a janela
+ * movel por dias nao se aplica; o corte e por DATA DE CRIACAO (>= data_inicial).
  * Consome useIngestaoConfig (GET) para hidratar e useSalvarIngestaoConfig (PUT)
  * para persistir; as alteracoes valem na PROXIMA execucao (sem redeploy).
- * data_inicial NAO e exposta nesta entrega. Estados de loading (skeleton) e
- * erro (inline) presentes na leitura e na gravacao.
+ * Estados de loading (skeleton) e erro (inline) presentes na leitura e gravacao.
  */
 export function NomusCfgForm() {
   const config = useIngestaoConfig("nomus");
   const salvar = useSalvarIngestaoConfig();
 
-  const [janelaDias, setJanelaDias] = useState<number>(7);
+  const [dataInicial, setDataInicial] = useState<string>("");
   const [recursos, setRecursos] = useState<RecursosState>({});
   const [dirty, setDirty] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<Feedback | null>(null);
@@ -139,13 +137,10 @@ export function NomusCfgForm() {
   // Hidratacao unica quando o GET resolve (nao sobrescreve edicoes do usuario).
   useEffect(() => {
     if (hydratedRef.current || !config.data) return;
-    setJanelaDias(config.data.janelaDias ?? 7);
+    setDataInicial(config.data.dataInicial ?? "");
     setRecursos(hydrate(config.data.recursos));
     hydratedRef.current = true;
   }, [config.data]);
-
-  const janelaInvalida =
-    !Number.isInteger(janelaDias) || janelaDias < MIN_JANELA || janelaDias > MAX_JANELA;
 
   function toggleRecurso(key: string, ativo: boolean) {
     setRecursos((prev) => ({ ...prev, [key]: { ...prev[key], ativo } }));
@@ -166,12 +161,13 @@ export function NomusCfgForm() {
   }
 
   async function handleSave() {
-    if (janelaInvalida || salvar.isPending) return;
+    if (salvar.isPending) return;
     setSaveFeedback(null);
     try {
       await salvar.mutateAsync({
         fonte: "nomus",
-        janelaDias,
+        // String vazia limpa o corte (coleta tudo); senao envia 'YYYY-MM-DD'.
+        dataInicial: dataInicial.trim() === "" ? null : dataInicial,
         recursos: Object.fromEntries(
           RECURSOS.map((r) => [
             r.key,
@@ -184,7 +180,7 @@ export function NomusCfgForm() {
     } catch (err) {
       const message =
         err instanceof ApiError && (err.status === 400 || err.status === 422)
-          ? "Dados inválidos: revise a janela e as seleções."
+          ? "Dados inválidos: revise a data e as seleções."
           : "Não foi possível salvar a configuração. Tente novamente.";
       setSaveFeedback({ kind: "err", message });
     }
@@ -236,30 +232,21 @@ export function NomusCfgForm() {
       <div className="section-title" style={{ margin: "0 0 16px" }}>
         <h3>Janela de coleta</h3>
       </div>
-      <div className={cn("field", janelaInvalida && "invalid")} style={{ maxWidth: 300 }}>
-        <label htmlFor="nomus-janela">Janela de dias</label>
-        <div className="input-affix">
-          <input
-            type="number"
-            id="nomus-janela"
-            min={MIN_JANELA}
-            max={MAX_JANELA}
-            value={Number.isNaN(janelaDias) ? "" : janelaDias}
-            aria-invalid={janelaInvalida}
-            onChange={(e) => {
-              setJanelaDias(e.target.valueAsNumber);
-              setDirty(true);
-              setSaveFeedback(null);
-            }}
-          />
-          <span className="suffix">dias</span>
-        </div>
-        <div className="err-msg">
-          <TriangleAlert aria-hidden="true" />
-          {`Informe um valor entre ${MIN_JANELA} e ${MAX_JANELA} dias.`}
-        </div>
+      <div className="field" style={{ maxWidth: 300 }}>
+        <label htmlFor="nomus-data-inicial">Coletar a partir de</label>
+        <input
+          type="date"
+          id="nomus-data-inicial"
+          value={dataInicial}
+          onChange={(e) => {
+            setDataInicial(e.target.value);
+            setDirty(true);
+            setSaveFeedback(null);
+          }}
+        />
         <div className="helper">
-          Ingerir apenas registros alterados dentro desta janela (coleta incremental).
+          Ignora processos com <b>data de criação</b> anterior a esta data. Deixe em branco para
+          coletar todo o histórico.
         </div>
       </div>
 
@@ -310,7 +297,7 @@ export function NomusCfgForm() {
         <button
           className="btn btn-primary"
           type="submit"
-          disabled={salvar.isPending || janelaInvalida}
+          disabled={salvar.isPending}
         >
           {salvar.isPending ? (
             <Loader2 className="spin" aria-hidden="true" />
@@ -324,7 +311,7 @@ export function NomusCfgForm() {
           type="button"
           onClick={() => {
             if (config.data) {
-              setJanelaDias(config.data.janelaDias ?? 7);
+              setDataInicial(config.data.dataInicial ?? "");
               setRecursos(hydrate(config.data.recursos));
             }
             setDirty(false);

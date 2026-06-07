@@ -149,6 +149,24 @@ async function loadTiposAtivos(
     : [];
 }
 
+/**
+ * Janela do cockpit (config_ingestao.data_inicial): ignora processos cuja
+ * data de criacao seja anterior a esta data. Retorna 'YYYY-MM-DD' ou null
+ * (sem filtro). O Nomus nao filtra por data server-side; este e o corte.
+ */
+async function loadDataInicial(service: ServiceClient, fonteId: string): Promise<string | null> {
+  const { data, error } = await service
+    .from("config_ingestao")
+    .select("data_inicial")
+    .eq("fonte_id", fonteId)
+    .maybeSingle();
+  if (error) {
+    throw new HttpError(500, "config_query_failed", "falha ao consultar a config de ingestao");
+  }
+  const raw = (data as { data_inicial: string | null } | null)?.data_inicial ?? null;
+  return typeof raw === "string" && raw.length >= 10 ? raw.slice(0, 10) : null;
+}
+
 interface ExecCounters {
   inicioMs: number;
   novos: number;
@@ -313,6 +331,7 @@ async function handler(req: Request): Promise<Response> {
     // Processa o LOTE recebido (trabalho limitado por invocacao).
     // -----------------------------------------------------------------
     const tiposAtivos = await loadTiposAtivos(service, fonte.id, recurso);
+    const dataInicial = await loadDataInicial(service, fonte.id);
     const env = getEnv();
     const embeddingProvider = env.embeddingsEndpoint ? createEmbeddingProvider() : undefined;
     const ctx: PersistContext = { execucaoId, recurso, tiposAtivos, embeddingProvider };
@@ -325,6 +344,16 @@ async function handler(req: Request): Promise<Response> {
     for (const raw of input.processos) {
       const record = mapRawProcesso(raw);
       if (!record) {
+        ignorados += 1;
+        continue;
+      }
+      // Janela do cockpit: corta processos criados antes de data_inicial.
+      // Sem data de criacao legivel o registro NAO e descartado (evita perda).
+      if (
+        dataInicial &&
+        typeof record.data_criacao === "string" &&
+        record.data_criacao.slice(0, 10) < dataInicial
+      ) {
         ignorados += 1;
         continue;
       }
