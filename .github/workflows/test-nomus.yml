@@ -1,0 +1,23 @@
+name: Teste conexao Nomus (Fase 0)
+
+# Disparo manual apenas. Valida se a nuvem (GitHub Actions / Node) conecta no
+# Nomus antes de construir o coletor completo.
+on:
+  workflow_dispatch:
+
+jobs:
+  testar-conexao:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Testar conexao com o Nomus
+        env:
+          NOMUS_API_KEY: ${{ secrets.NOMUS_API_KEY }}
+        run: node .github/scripts/test-nomus.mjs
