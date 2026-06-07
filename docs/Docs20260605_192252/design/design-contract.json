@@ -1,0 +1,1241 @@
+{
+  "version": "1.0",
+  "project": "DLH Core — Substrato + cockpit de ingestão (MVP / Fase 1)",
+  "visual": {
+    "direction": "Software dark utilitário, zinc off-black com um único acento âmbar dessaturado; densidade balanceada, sem cara de landing page",
+    "density": "balanced",
+    "tokens": {
+      "colors": {
+        "bg": "#0b0b0e",
+        "surface": "#141418",
+        "surface2": "#1a1a20",
+        "border": "#272730",
+        "fg": "#e9e9ec",
+        "muted": "#9b9ba5",
+        "accent": "#d99a3c",
+        "ok": "#5cbf86",
+        "run": "#6f9bd9",
+        "warn": "#d9b14a",
+        "err": "#dd6b62"
+      },
+      "typography": {
+        "display": "-apple-system / Segoe UI / Inter",
+        "body": "-apple-system / Segoe UI / Inter",
+        "mono": "ui-monospace / JetBrains Mono"
+      },
+      "spacing": {
+        "xs": "4px",
+        "sm": "8px",
+        "md": "14px",
+        "lg": "24px"
+      },
+      "radii": {
+        "sm": "6px",
+        "md": "10px",
+        "lg": "14px"
+      }
+    }
+  },
+  "navigation": {
+    "primary": [
+      {
+        "id": "nav-dashboard",
+        "label": "Dashboard",
+        "targetScreenId": "dashboard",
+        "userStoryIds": [
+          "US-00",
+          "US-15"
+        ]
+      },
+      {
+        "id": "nav-execucoes",
+        "label": "Execuções",
+        "targetScreenId": "execucoes",
+        "userStoryIds": [
+          "US-00",
+          "US-04",
+          "US-05"
+        ]
+      },
+      {
+        "id": "nav-erros",
+        "label": "Erros",
+        "targetScreenId": "erros",
+        "userStoryIds": [
+          "US-00",
+          "US-16"
+        ]
+      },
+      {
+        "id": "nav-fontes",
+        "label": "Fontes e credenciais",
+        "targetScreenId": "fontes",
+        "userStoryIds": [
+          "US-00",
+          "US-07"
+        ]
+      },
+      {
+        "id": "nav-ingestao",
+        "label": "Configuração da ingestão",
+        "targetScreenId": "ingestao",
+        "userStoryIds": [
+          "US-00",
+          "US-03",
+          "US-20"
+        ]
+      },
+      {
+        "id": "nav-api",
+        "label": "API LLM-ready",
+        "targetScreenId": "api",
+        "userStoryIds": [
+          "US-00",
+          "US-17",
+          "US-18"
+        ]
+      }
+    ],
+    "secondary": [
+      {
+        "id": "nav-edital",
+        "label": "Detalhe do edital",
+        "targetScreenId": "edital",
+        "userStoryIds": [
+          "US-14"
+        ]
+      }
+    ]
+  },
+  "screens": [
+    {
+      "id": "login",
+      "userStoryIds": [
+        "US-00",
+        "US-21"
+      ],
+      "title": "Login",
+      "route": "#login",
+      "purpose": "Autenticar o usuário interno via conta Google (Supabase Auth) antes de acessar o cockpit",
+      "states": [
+        "idle",
+        "loading",
+        "error",
+        "success"
+      ],
+      "actions": [
+        {
+          "id": "action-login-google",
+          "label": "Entrar com Google",
+          "type": "submit",
+          "userStoryIds": [
+            "US-21"
+          ],
+          "apiExpectationIds": [
+            "api-auth-google"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-sessao"
+      ]
+    },
+    {
+      "id": "dashboard",
+      "userStoryIds": [
+        "US-00",
+        "US-15",
+        "US-16",
+        "US-04",
+        "US-05",
+        "US-02"
+      ],
+      "title": "Dashboard",
+      "route": "#dashboard",
+      "purpose": "Mostrar a saúde da ingestão, status das execuções e erros recentes; disparar coleta sob demanda",
+      "states": [
+        "loading",
+        "success",
+        "processing",
+        "error",
+        "empty"
+      ],
+      "actions": [
+        {
+          "id": "action-coleta-demanda",
+          "label": "Executar coleta agora",
+          "type": "button",
+          "userStoryIds": [
+            "US-04"
+          ],
+          "apiExpectationIds": [
+            "api-coleta-demanda"
+          ]
+        },
+        {
+          "id": "action-ver-execucoes",
+          "label": "Ver todas as execuções",
+          "type": "navigate",
+          "userStoryIds": [
+            "US-15"
+          ],
+          "apiExpectationIds": []
+        },
+        {
+          "id": "action-investigar-erro",
+          "label": "Investigar erro",
+          "type": "navigate",
+          "userStoryIds": [
+            "US-16",
+            "US-14"
+          ],
+          "apiExpectationIds": []
+        }
+      ],
+      "dataRequirementIds": [
+        "data-healthcheck",
+        "data-execucao",
+        "data-erro"
+      ]
+    },
+    {
+      "id": "execucoes",
+      "userStoryIds": [
+        "US-15",
+        "US-04",
+        "US-05",
+        "US-02"
+      ],
+      "title": "Execuções de sincronização",
+      "route": "#execucoes",
+      "purpose": "Listar o histórico de coletas agendadas e sob demanda, com contagem incremental de novos e alterados",
+      "states": [
+        "loading",
+        "success",
+        "processing",
+        "empty"
+      ],
+      "actions": [
+        {
+          "id": "action-coleta-demanda-exec",
+          "label": "Coleta sob demanda",
+          "type": "button",
+          "userStoryIds": [
+            "US-04"
+          ],
+          "apiExpectationIds": [
+            "api-coleta-demanda"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-execucao"
+      ]
+    },
+    {
+      "id": "erros",
+      "userStoryIds": [
+        "US-16"
+      ],
+      "title": "Erros de ingestão",
+      "route": "#erros",
+      "purpose": "Listar e filtrar erros de coleta, tratamento de arquivos e indexação/embedding",
+      "states": [
+        "loading",
+        "success",
+        "empty"
+      ],
+      "actions": [
+        {
+          "id": "action-filtrar-erro",
+          "label": "Filtrar por etapa",
+          "type": "filter",
+          "userStoryIds": [
+            "US-16"
+          ],
+          "apiExpectationIds": [
+            "api-listar-erros"
+          ]
+        },
+        {
+          "id": "action-abrir-edital",
+          "label": "Investigar aviso",
+          "type": "navigate",
+          "userStoryIds": [
+            "US-14"
+          ],
+          "apiExpectationIds": [
+            "api-detalhe-edital"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-erro"
+      ]
+    },
+    {
+      "id": "edital",
+      "userStoryIds": [
+        "US-14",
+        "US-10",
+        "US-08",
+        "US-19",
+        "US-09",
+        "US-06"
+      ],
+      "title": "Detalhe do edital",
+      "route": "#edital",
+      "purpose": "Investigar um aviso específico a partir de um erro: pipeline, conteúdo verbatim, payload bruto integral e índice semântico",
+      "states": [
+        "loading",
+        "success",
+        "error"
+      ],
+      "actions": [
+        {
+          "id": "action-reprocessar",
+          "label": "Reprocessar indexação",
+          "type": "button",
+          "userStoryIds": [
+            "US-08",
+            "US-16"
+          ],
+          "apiExpectationIds": [
+            "api-reprocessar"
+          ]
+        },
+        {
+          "id": "action-voltar-erros",
+          "label": "Voltar aos erros",
+          "type": "navigate",
+          "userStoryIds": [
+            "US-16"
+          ],
+          "apiExpectationIds": []
+        }
+      ],
+      "dataRequirementIds": [
+        "data-edital"
+      ]
+    },
+    {
+      "id": "fontes",
+      "userStoryIds": [
+        "US-07",
+        "US-02"
+      ],
+      "title": "Fontes e credenciais",
+      "route": "#fontes",
+      "purpose": "Visualizar a fonte Effecti e o estado da conexão; atualizar e testar credenciais sem editar código",
+      "states": [
+        "idle",
+        "loading",
+        "success",
+        "error"
+      ],
+      "actions": [
+        {
+          "id": "action-salvar-cred",
+          "label": "Salvar credencial",
+          "type": "submit",
+          "userStoryIds": [
+            "US-07"
+          ],
+          "apiExpectationIds": [
+            "api-salvar-credencial"
+          ]
+        },
+        {
+          "id": "action-testar-conexao",
+          "label": "Testar conexão",
+          "type": "button",
+          "userStoryIds": [
+            "US-07"
+          ],
+          "apiExpectationIds": [
+            "api-testar-conexao"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-fonte"
+      ]
+    },
+    {
+      "id": "ingestao",
+      "userStoryIds": [
+        "US-03",
+        "US-20",
+        "US-04"
+      ],
+      "title": "Configuração da ingestão",
+      "route": "#ingestao",
+      "purpose": "Configurar frequência, janela de dias, modalidades e portais a ingerir; disparar coleta sob demanda",
+      "states": [
+        "idle",
+        "success",
+        "error",
+        "processing"
+      ],
+      "actions": [
+        {
+          "id": "action-salvar-cfg",
+          "label": "Salvar configuração",
+          "type": "submit",
+          "userStoryIds": [
+            "US-03",
+            "US-20"
+          ],
+          "apiExpectationIds": [
+            "api-salvar-config"
+          ]
+        },
+        {
+          "id": "action-coleta-demanda-cfg",
+          "label": "Executar coleta agora",
+          "type": "button",
+          "userStoryIds": [
+            "US-04"
+          ],
+          "apiExpectationIds": [
+            "api-coleta-demanda"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-config-ingestao"
+      ]
+    },
+    {
+      "id": "api",
+      "userStoryIds": [
+        "US-17",
+        "US-18"
+      ],
+      "title": "API LLM-ready",
+      "route": "#api",
+      "purpose": "Expor para validação humana os endpoints consumidos pela Lia: item verbatim, busca semântica e contexto MCP",
+      "states": [
+        "idle",
+        "loading",
+        "success",
+        "empty"
+      ],
+      "actions": [
+        {
+          "id": "action-busca-semantica",
+          "label": "Buscar",
+          "type": "submit",
+          "userStoryIds": [
+            "US-18"
+          ],
+          "apiExpectationIds": [
+            "api-busca-semantica"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-busca-semantica"
+      ]
+    }
+  ],
+  "components": [
+    {
+      "id": "cmp-gbtn",
+      "name": "Botão Entrar com Google",
+      "type": "form",
+      "usedInScreenIds": [
+        "login"
+      ],
+      "props": {
+        "provider": "google"
+      },
+      "states": [
+        "idle",
+        "loading",
+        "error"
+      ]
+    },
+    {
+      "id": "cmp-sidebar",
+      "name": "Navegação persistente",
+      "type": "nav",
+      "usedInScreenIds": [
+        "dashboard",
+        "execucoes",
+        "erros",
+        "fontes",
+        "ingestao",
+        "api",
+        "edital"
+      ],
+      "props": {},
+      "states": [
+        "active"
+      ]
+    },
+    {
+      "id": "cmp-stat-card",
+      "name": "Card de KPI",
+      "type": "card",
+      "usedInScreenIds": [
+        "dashboard"
+      ],
+      "props": {},
+      "states": []
+    },
+    {
+      "id": "cmp-runs-table",
+      "name": "Tabela de execuções",
+      "type": "table",
+      "usedInScreenIds": [
+        "dashboard",
+        "execucoes"
+      ],
+      "props": {},
+      "states": [
+        "processing",
+        "empty"
+      ]
+    },
+    {
+      "id": "cmp-erros-table",
+      "name": "Tabela de erros",
+      "type": "table",
+      "usedInScreenIds": [
+        "dashboard",
+        "erros"
+      ],
+      "props": {},
+      "states": [
+        "empty"
+      ]
+    },
+    {
+      "id": "cmp-status-pill",
+      "name": "Pill de status",
+      "type": "badge",
+      "usedInScreenIds": [
+        "dashboard",
+        "execucoes",
+        "erros",
+        "edital",
+        "fontes"
+      ],
+      "props": {},
+      "states": [
+        "ok",
+        "run",
+        "warn",
+        "err",
+        "idle"
+      ]
+    },
+    {
+      "id": "cmp-pipeline",
+      "name": "Pipeline do item",
+      "type": "indicator",
+      "usedInScreenIds": [
+        "edital"
+      ],
+      "props": {},
+      "states": [
+        "done",
+        "error",
+        "skip"
+      ]
+    },
+    {
+      "id": "cmp-cred-form",
+      "name": "Formulário de credencial",
+      "type": "form",
+      "usedInScreenIds": [
+        "fontes"
+      ],
+      "props": {},
+      "states": [
+        "idle",
+        "loading",
+        "success",
+        "error"
+      ]
+    },
+    {
+      "id": "cmp-cfg-form",
+      "name": "Formulário de configuração da ingestão",
+      "type": "form",
+      "usedInScreenIds": [
+        "ingestao"
+      ],
+      "props": {},
+      "states": [
+        "idle",
+        "success",
+        "error"
+      ]
+    },
+    {
+      "id": "cmp-search",
+      "name": "Playground de busca semântica",
+      "type": "form",
+      "usedInScreenIds": [
+        "api"
+      ],
+      "props": {},
+      "states": [
+        "idle",
+        "loading",
+        "success",
+        "empty"
+      ]
+    }
+  ],
+  "dataRequirements": [
+    {
+      "id": "data-sessao",
+      "name": "Sessão autenticada",
+      "description": "Sessão Google validada via Supabase Auth para o perfil interno único",
+      "fields": [
+        {
+          "name": "email",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "provider",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "token",
+          "typeHint": "string",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "login"
+      ],
+      "userStoryIds": [
+        "US-21"
+      ]
+    },
+    {
+      "id": "data-healthcheck",
+      "name": "Healthcheck da ingestão",
+      "description": "Estado de saúde do pipeline e contadores do substrato",
+      "fields": [
+        {
+          "name": "statusIngestao",
+          "typeHint": "enum(operacional,degradado,parado)",
+          "required": true
+        },
+        {
+          "name": "ultimaSync",
+          "typeHint": "datetime",
+          "required": true
+        },
+        {
+          "name": "totalAvisos",
+          "typeHint": "number",
+          "required": true
+        },
+        {
+          "name": "itensComErro",
+          "typeHint": "number",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "dashboard"
+      ],
+      "userStoryIds": [
+        "US-15"
+      ]
+    },
+    {
+      "id": "data-execucao",
+      "name": "Execução de sincronização",
+      "description": "Registro de uma coleta agendada ou sob demanda, com contagem incremental",
+      "fields": [
+        {
+          "name": "id",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "inicio",
+          "typeHint": "datetime",
+          "required": true
+        },
+        {
+          "name": "gatilho",
+          "typeHint": "enum(agendada,manual)",
+          "required": true
+        },
+        {
+          "name": "janelaDias",
+          "typeHint": "number",
+          "required": false
+        },
+        {
+          "name": "novos",
+          "typeHint": "number",
+          "required": true
+        },
+        {
+          "name": "alterados",
+          "typeHint": "number",
+          "required": true
+        },
+        {
+          "name": "duracao",
+          "typeHint": "string",
+          "required": false
+        },
+        {
+          "name": "status",
+          "typeHint": "enum(concluida,em_andamento,erro)",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "dashboard",
+        "execucoes"
+      ],
+      "userStoryIds": [
+        "US-15",
+        "US-04",
+        "US-05",
+        "US-02"
+      ]
+    },
+    {
+      "id": "data-erro",
+      "name": "Erro de ingestão",
+      "description": "Falha em coleta, tratamento de arquivo ou indexação, ligada a um aviso",
+      "fields": [
+        {
+          "name": "id",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "severidade",
+          "typeHint": "enum(alta,media,baixa)",
+          "required": true
+        },
+        {
+          "name": "etapa",
+          "typeHint": "enum(Coleta,Tratamento,Indexação)",
+          "required": true
+        },
+        {
+          "name": "avisoId",
+          "typeHint": "string",
+          "required": false
+        },
+        {
+          "name": "mensagem",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "quando",
+          "typeHint": "datetime",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "dashboard",
+        "erros"
+      ],
+      "userStoryIds": [
+        "US-16"
+      ]
+    },
+    {
+      "id": "data-edital",
+      "name": "Detalhe do edital/aviso",
+      "description": "Aviso persistido com conteúdo verbatim, payload bruto integral e estado de indexação",
+      "fields": [
+        {
+          "name": "id",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "modalidade",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "orgao",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "objeto",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "conteudoVerbatim",
+          "typeHint": "text",
+          "required": true
+        },
+        {
+          "name": "payloadBruto",
+          "typeHint": "json",
+          "required": true
+        },
+        {
+          "name": "chunks",
+          "typeHint": "number",
+          "required": false
+        },
+        {
+          "name": "embeddingsOk",
+          "typeHint": "number",
+          "required": false
+        }
+      ],
+      "sourceScreenIds": [
+        "edital"
+      ],
+      "userStoryIds": [
+        "US-14",
+        "US-10",
+        "US-08",
+        "US-19",
+        "US-09"
+      ]
+    },
+    {
+      "id": "data-fonte",
+      "name": "Fonte de ingestão e credencial",
+      "description": "Fonte Effecti, estado de conexão e credencial cifrada",
+      "fields": [
+        {
+          "name": "nome",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "tipo",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "endpointBase",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "estadoConexao",
+          "typeHint": "enum(conectada,erro,nao_configurada)",
+          "required": true
+        },
+        {
+          "name": "token",
+          "typeHint": "secret",
+          "required": false
+        }
+      ],
+      "sourceScreenIds": [
+        "fontes"
+      ],
+      "userStoryIds": [
+        "US-07"
+      ]
+    },
+    {
+      "id": "data-config-ingestao",
+      "name": "Configuração da ingestão",
+      "description": "Frequência, janela, modalidades e portais selecionados para a coleta",
+      "fields": [
+        {
+          "name": "frequencia",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "horarioReferencia",
+          "typeHint": "string",
+          "required": false
+        },
+        {
+          "name": "janelaDias",
+          "typeHint": "number",
+          "required": true
+        },
+        {
+          "name": "modalidades",
+          "typeHint": "string[]",
+          "required": true
+        },
+        {
+          "name": "portais",
+          "typeHint": "string[]",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "ingestao"
+      ],
+      "userStoryIds": [
+        "US-03",
+        "US-20"
+      ]
+    },
+    {
+      "id": "data-busca-semantica",
+      "name": "Consulta semântica LLM-ready",
+      "description": "Consulta em linguagem natural e itens recuperados por relevância",
+      "fields": [
+        {
+          "name": "query",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "results",
+          "typeHint": "array",
+          "required": true
+        },
+        {
+          "name": "score",
+          "typeHint": "number",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "api"
+      ],
+      "userStoryIds": [
+        "US-18",
+        "US-17"
+      ]
+    }
+  ],
+  "apiExpectations": [
+    {
+      "id": "api-auth-google",
+      "operation": "POST /auth/google",
+      "screenIds": [
+        "login"
+      ],
+      "actionIds": [
+        "action-login-google"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "provider": "google",
+        "redirectTo": "string"
+      },
+      "responseShape": {
+        "token": "string",
+        "user": {
+          "email": "string",
+          "perfil": "interno"
+        }
+      },
+      "userStoryIds": [
+        "US-21"
+      ]
+    },
+    {
+      "id": "api-healthcheck",
+      "operation": "GET /ingestao/healthcheck",
+      "screenIds": [
+        "dashboard"
+      ],
+      "actionIds": [],
+      "methodHint": "GET",
+      "requestShape": {},
+      "responseShape": {
+        "statusIngestao": "string",
+        "ultimaSync": "string",
+        "totalAvisos": "number",
+        "itensComErro": "number"
+      },
+      "userStoryIds": [
+        "US-15"
+      ]
+    },
+    {
+      "id": "api-coleta-demanda",
+      "operation": "POST /ingestao/coletar",
+      "screenIds": [
+        "dashboard",
+        "execucoes",
+        "ingestao"
+      ],
+      "actionIds": [
+        "action-coleta-demanda",
+        "action-coleta-demanda-exec",
+        "action-coleta-demanda-cfg"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "fonte": "effecti",
+        "janelaDias": "number"
+      },
+      "responseShape": {
+        "execucaoId": "string",
+        "status": "em_andamento"
+      },
+      "userStoryIds": [
+        "US-04",
+        "US-05",
+        "US-02"
+      ]
+    },
+    {
+      "id": "api-listar-execucoes",
+      "operation": "GET /ingestao/execucoes",
+      "screenIds": [
+        "dashboard",
+        "execucoes"
+      ],
+      "actionIds": [],
+      "methodHint": "GET",
+      "requestShape": {
+        "limit": "number"
+      },
+      "responseShape": {
+        "items": "Execucao[]"
+      },
+      "userStoryIds": [
+        "US-15",
+        "US-05"
+      ]
+    },
+    {
+      "id": "api-listar-erros",
+      "operation": "GET /ingestao/erros",
+      "screenIds": [
+        "dashboard",
+        "erros"
+      ],
+      "actionIds": [
+        "action-filtrar-erro"
+      ],
+      "methodHint": "GET",
+      "requestShape": {
+        "etapa": "string"
+      },
+      "responseShape": {
+        "items": "Erro[]"
+      },
+      "userStoryIds": [
+        "US-16"
+      ]
+    },
+    {
+      "id": "api-detalhe-edital",
+      "operation": "GET /substrato/avisos/:id",
+      "screenIds": [
+        "edital"
+      ],
+      "actionIds": [
+        "action-abrir-edital"
+      ],
+      "methodHint": "GET",
+      "requestShape": {
+        "id": "string"
+      },
+      "responseShape": {
+        "id": "string",
+        "conteudoVerbatim": "string",
+        "payloadBruto": "object",
+        "indice": "object"
+      },
+      "userStoryIds": [
+        "US-14",
+        "US-10",
+        "US-19",
+        "US-08"
+      ]
+    },
+    {
+      "id": "api-reprocessar",
+      "operation": "POST /substrato/avisos/:id/reindexar",
+      "screenIds": [
+        "edital"
+      ],
+      "actionIds": [
+        "action-reprocessar"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "id": "string"
+      },
+      "responseShape": {
+        "status": "string"
+      },
+      "userStoryIds": [
+        "US-08",
+        "US-16"
+      ]
+    },
+    {
+      "id": "api-salvar-credencial",
+      "operation": "PUT /fontes/effecti/credencial",
+      "screenIds": [
+        "fontes"
+      ],
+      "actionIds": [
+        "action-salvar-cred"
+      ],
+      "methodHint": "PUT",
+      "requestShape": {
+        "token": "secret"
+      },
+      "responseShape": {
+        "ok": "boolean"
+      },
+      "userStoryIds": [
+        "US-07"
+      ]
+    },
+    {
+      "id": "api-testar-conexao",
+      "operation": "POST /fontes/effecti/testar",
+      "screenIds": [
+        "fontes"
+      ],
+      "actionIds": [
+        "action-testar-conexao"
+      ],
+      "methodHint": "POST",
+      "requestShape": {},
+      "responseShape": {
+        "estadoConexao": "string",
+        "latenciaMs": "number"
+      },
+      "userStoryIds": [
+        "US-07"
+      ]
+    },
+    {
+      "id": "api-salvar-config",
+      "operation": "PUT /ingestao/config",
+      "screenIds": [
+        "ingestao"
+      ],
+      "actionIds": [
+        "action-salvar-cfg"
+      ],
+      "methodHint": "PUT",
+      "requestShape": {
+        "frequencia": "string",
+        "janelaDias": "number",
+        "modalidades": "string[]",
+        "portais": "string[]"
+      },
+      "responseShape": {
+        "ok": "boolean"
+      },
+      "userStoryIds": [
+        "US-03",
+        "US-20"
+      ]
+    },
+    {
+      "id": "api-busca-semantica",
+      "operation": "POST /substrato/busca-semantica",
+      "screenIds": [
+        "api"
+      ],
+      "actionIds": [
+        "action-busca-semantica"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "query": "string",
+        "topK": "number"
+      },
+      "responseShape": {
+        "results": [
+          {
+            "id": "string",
+            "score": "number",
+            "verbatim": "string"
+          }
+        ]
+      },
+      "userStoryIds": [
+        "US-18",
+        "US-17"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "id": "delta-001",
+      "type": "assumption",
+      "description": "O Design Plan determinístico previa apenas 2 telas (login + principal). Para tornar a SPA operacional e evitar uma única tela genérica, a 'principal' foi decomposta em telas funcionais reais (dashboard, execucoes, erros, edital, fontes, ingestao, api) sem ampliar escopo: todas as user stories cobertas continuam sendo as aprovadas.",
+      "impact": "low",
+      "relatedUserStoryIds": [
+        "US-00",
+        "US-15",
+        "US-16",
+        "US-14",
+        "US-07",
+        "US-03",
+        "US-20",
+        "US-17",
+        "US-18"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-002",
+      "type": "assumption",
+      "description": "US-17 e US-18 são definidas como API/MCP sem tela própria. Foi criada a tela 'api' apenas como console de validação humana (endpoints + playground de busca semântica) para o fundador conferir implementabilidade; não introduz fluxo de produto novo.",
+      "impact": "low",
+      "relatedUserStoryIds": [
+        "US-17",
+        "US-18"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-003",
+      "type": "unclear",
+      "description": "US-02, US-05, US-08, US-09, US-10 e US-19 são processos de background sem UI própria. São representadas como estados/dados nas telas (status de execução incremental, pipeline do item, conteúdo verbatim e payload bruto integral no detalhe do edital), não como telas dedicadas.",
+      "impact": "low",
+      "relatedUserStoryIds": [
+        "US-02",
+        "US-05",
+        "US-08",
+        "US-09",
+        "US-10",
+        "US-19"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-004",
+      "type": "assumption",
+      "description": "US-06 (enriquecimento cognitivo) é explicitamente Fase 2. Aparece no pipeline do edital como etapa 'não executado na Fase 1', sem ação executável, para deixar a fronteira de escopo visível sem implementar o fluxo.",
+      "impact": "low",
+      "relatedUserStoryIds": [
+        "US-06",
+        "US-09"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-005",
+      "type": "assumption",
+      "description": "Modelo de embedding 'bge-m3 local' e portal futuro 'PNCP' são placeholders coerentes com a nota de discovery (evitar API paga de embeddings) — valores ilustrativos, a confirmar na fase técnica.",
+      "impact": "low",
+      "relatedUserStoryIds": [
+        "US-08",
+        "US-18"
+      ],
+      "requiresRequirementsChange": false
+    }
+  ]
+}

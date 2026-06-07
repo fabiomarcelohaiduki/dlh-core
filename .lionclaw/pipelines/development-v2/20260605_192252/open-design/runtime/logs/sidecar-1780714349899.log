@@ -1,0 +1,12 @@
+
+> open-design@0.6.0 tools-dev C:\Users\Dell\lionclawv1.0\vendor\open-design
+> pnpm exec tools-dev "run" "web" "--daemon-port" "50565" "--web-port" "50566"
+
+
+  Open Design dev server ready
+
+  ➜  Web:    http://127.0.0.1:50566/
+  ➜  Daemon: http://127.0.0.1:50565/
+
+  Press Ctrl+C to stop
+

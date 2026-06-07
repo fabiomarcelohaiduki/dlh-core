@@ -1,0 +1,597 @@
+// =====================================================================
+// _shared/nomus-pipeline.ts
+// Pipeline de persistencia e indexacao do Nomus (US-08/US-10, RF-15/RF-19).
+//
+// Reaproveita o PADRAO do pipeline Effecti (persistencia com dedup, decisao
+// de reindexacao, isolamento de falha por item) com CONTRATO DE DADOS PROPRIO
+// do Nomus (CollectedRecord -> nomus_processos / memoria_chunks).
+//
+// Caracteristicas:
+//   - Dedup por nomus_id (upsert onConflict=nomus_id). empresa NAO compoe a
+//     dedup (US-08). payload_bruto preservado verbatim, nunca mutado (SEC-08).
+//   - Decisao de reindexacao por hash do conteudo canonico (descricao+nome+
+//     etapa): difere -> reindexa (status_indexacao='pendente'); igual -> nao
+//     reindexa (US-10/RF-19).
+//   - Indexacao idempotente em memoria_chunks (origem='processo'): limpa os
+//     chunks do registro antes de regravar (DD-01). bge-m3, vector(1024).
+//   - Falha de um item vira linha em erros_ingestao (origem/recurso/registro_id,
+//     SEM payload - SEC-09) e o lote CONTINUA (RNF-05).
+//   - Processamento em BLOCOS com checkpoint (RF-20): runNomusBlock avanca
+//     pagina a pagina de checkpoint.pagina_atual, encerrando por teto de
+//     paginas (NOMUS_BLOCO_MAX_PAGINAS) ou tempo (NOMUS_BLOCO_MAX_MS).
+//
+// Toda escrita usa service_role server-side (SEC-05). NUNCA usa Claude na
+// ingestao (embeddings bge-m3 self-hosted, RNF-04).
+// =====================================================================
+
+import { type SupabaseClient } from "@supabase/supabase-js";
+import { type CollectedRecord } from "./collected.ts";
+import { type NomusConnector } from "./nomus-connector.ts";
+import {
+  EmbeddingError,
+  type EmbeddingProvider,
+  generateAndStoreMemoriaChunks,
+} from "./embeddings.ts";
+import { hashConteudoCanonico } from "./hash.ts";
+import { errorMessage, recordIngestErro } from "./ingest-errors.ts";
+import { captureException } from "./audit.ts";
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+// ---------------------------------------------------------------------
+// Checkpoint (execucoes.checkpoint jsonb) - secao 2.1.5
+// ---------------------------------------------------------------------
+
+export type CheckpointModo = "incremental" | "backfill";
+export type CheckpointFase = "coleta" | "concluido";
+
+export interface NomusCheckpoint {
+  /** Proxima pagina a coletar (1-indexed). */
+  pagina_atual: number;
+  /** Limite inferior da janela (ISO-8601). */
+  janela_inicio: string;
+  /** Limite superior da janela (ISO-8601). */
+  janela_fim: string;
+  /** Modo do ciclo: incremental (janela movel) ou backfill (data_inicial). */
+  modo: CheckpointModo;
+  /** Ultima pagina integralmente processada. */
+  concluido_paginas_ate: number;
+  /** Fase corrente da execucao. */
+  fase: CheckpointFase;
+  /** Tentativas de retomada apos erro (teto NOMUS_MAX_RETOMADAS). */
+  tentativas_retomada: number;
+}
+
+/** Monta o checkpoint inicial de uma nova execucao. */
+export function buildInitialCheckpoint(
+  modo: CheckpointModo,
+  since: Date,
+  until: Date,
+): NomusCheckpoint {
+  return {
+    pagina_atual: 1,
+    janela_inicio: since.toISOString(),
+    janela_fim: until.toISOString(),
+    modo,
+    concluido_paginas_ate: 0,
+    fase: "coleta",
+    tentativas_retomada: 0,
+  };
+}
+
+/**
+ * Valida/normaliza um checkpoint vindo do banco (jsonb). Retorna null quando
+ * invalido (sem pagina_atual/janela_inicio) — usado para decidir se uma
+ * execucao em erro pode ser retomada.
+ */
+export function parseCheckpoint(raw: unknown): NomusCheckpoint | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const pagina = typeof o.pagina_atual === "number" ? o.pagina_atual : NaN;
+  const janelaInicio = typeof o.janela_inicio === "string" ? o.janela_inicio : "";
+  if (!Number.isFinite(pagina) || pagina < 1 || janelaInicio === "") return null;
+  const janelaFim = typeof o.janela_fim === "string" && o.janela_fim !== ""
+    ? o.janela_fim
+    : new Date().toISOString();
+  return {
+    pagina_atual: Math.floor(pagina),
+    janela_inicio: janelaInicio,
+    janela_fim: janelaFim,
+    modo: o.modo === "backfill" ? "backfill" : "incremental",
+    concluido_paginas_ate: typeof o.concluido_paginas_ate === "number"
+      ? Math.max(0, Math.floor(o.concluido_paginas_ate))
+      : 0,
+    fase: o.fase === "concluido" ? "concluido" : "coleta",
+    tentativas_retomada: typeof o.tentativas_retomada === "number"
+      ? Math.max(0, Math.floor(o.tentativas_retomada))
+      : 0,
+  };
+}
+
+// ---------------------------------------------------------------------
+// Tuning por env (mesmo PADRAO do conector: lido em runtime, saneado)
+// ---------------------------------------------------------------------
+
+function envInt(name: string, fallback: number): number {
+  let raw: string | undefined;
+  try {
+    raw = Deno.env.get(name);
+  } catch {
+    return fallback;
+  }
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+export function nomusBlocoMaxPaginas(): number {
+  return envInt("NOMUS_BLOCO_MAX_PAGINAS", 10);
+}
+
+export function nomusBlocoMaxMs(): number {
+  return envInt("NOMUS_BLOCO_MAX_MS", 50_000);
+}
+
+export function nomusMaxRetomadas(): number {
+  return envInt("NOMUS_MAX_RETOMADAS", 3);
+}
+
+// ---------------------------------------------------------------------
+// Persistencia + indexacao de UM registro (isolamento de falha por item)
+// ---------------------------------------------------------------------
+
+export type PersistAcao = "inserido" | "atualizado" | "ignorado";
+
+export interface PersistOutcome {
+  acao: PersistAcao;
+  reindexado: boolean;
+  registroId: string | null;
+}
+
+export interface PersistContext {
+  execucaoId: string;
+  recurso: string;
+  /** Allowlist de tipos a ingerir; lista vazia => nada e ingerido. */
+  tiposAtivos: string[];
+  /** Opcional: ausente => registro fica 'pendente' p/ indexacao futura. */
+  embeddingProvider?: EmbeddingProvider;
+}
+
+/**
+ * Persiste um CollectedRecord em nomus_processos com dedup por nomus_id e
+ * decide a reindexacao por hash do conteudo canonico. Quando reindexa, regrava
+ * memoria_chunks de forma idempotente. Lanca em falha (capturada pelo lote).
+ */
+export async function persistAndIndexRecord(
+  db: SupabaseClient,
+  ctx: PersistContext,
+  record: CollectedRecord,
+): Promise<PersistOutcome> {
+  // 1. Allowlist por tipo: lista vazia => nada e ingerido; tipo fora da
+  //    allowlist => ignorado (sem persistir).
+  if (ctx.tiposAtivos.length === 0) {
+    return { acao: "ignorado", reindexado: false, registroId: null };
+  }
+  if (!record.tipo || !ctx.tiposAtivos.includes(record.tipo)) {
+    return { acao: "ignorado", reindexado: false, registroId: null };
+  }
+
+  // 2. Hash do conteudo canonico (descricao+nome+etapa) -> decide reindex.
+  const novoHash = hashConteudoCanonico({
+    descricao: record.descricao,
+    nome: record.nome,
+    etapa: record.etapa,
+  });
+
+  const { data: existing, error: selError } = await db
+    .from("nomus_processos")
+    .select("id, hash_conteudo")
+    .eq("nomus_id", record.nomus_id)
+    .maybeSingle();
+  if (selError) {
+    throw new Error(`falha ao consultar processo existente: ${selError.message}`);
+  }
+
+  const reindexar = !existing ||
+    (existing as { hash_conteudo: string | null }).hash_conteudo !== novoHash;
+
+  // 3. Upsert do snapshot vigente (payload_bruto verbatim, nunca mutado).
+  const row: Record<string, unknown> = {
+    nomus_id: record.nomus_id,
+    tipo: record.tipo,
+    etapa: record.etapa,
+    empresa: record.empresa,
+    pessoa: record.pessoa,
+    nome: record.nome,
+    reportador: record.reportador,
+    responsavel: record.responsavel,
+    descricao: record.descricao,
+    data_criacao: record.data_criacao,
+    data_alteracao: record.data_alteracao,
+    payload_bruto: record.payload_bruto ?? {},
+    hash_conteudo: novoHash,
+  };
+  // So marca 'pendente' quando vai reindexar; quando nao, omite a coluna para
+  // nao sobrescrever o status_indexacao corrente (upsert grava o que for dado).
+  if (reindexar) row.status_indexacao = "pendente";
+
+  const { data: upserted, error: upError } = await db
+    .from("nomus_processos")
+    .upsert(row, { onConflict: "nomus_id", ignoreDuplicates: false })
+    .select("id")
+    .single();
+  if (upError || !upserted) {
+    throw new Error(`falha ao persistir processo: ${upError?.message ?? "sem id"}`);
+  }
+  const registroId = String((upserted as { id: string }).id);
+  const acao: PersistAcao = existing ? "atualizado" : "inserido";
+
+  // 4. Reindexacao (apenas quando o conteudo mudou e ha provider configurado).
+  if (!reindexar) return { acao, reindexado: false, registroId };
+  if (!ctx.embeddingProvider) {
+    // Sem provider (v0): mantem 'pendente' para indexar numa fase posterior.
+    return { acao, reindexado: false, registroId };
+  }
+
+  try {
+    await setStatusIndexacao(db, registroId, "em_andamento");
+    await generateAndStoreMemoriaChunks(
+      db,
+      {
+        origem: "processo",
+        tipo: processoOrigemFina(record),
+        registroId,
+        verbatim: buildProcessoVerbatim(record),
+        provider: ctx.embeddingProvider,
+      },
+    );
+    await setStatusIndexacao(db, registroId, "concluida");
+  } catch (err) {
+    await setStatusIndexacao(db, registroId, "erro");
+    throw err;
+  }
+
+  return { acao, reindexado: true, registroId };
+}
+
+// ---------------------------------------------------------------------
+// Processamento de UM bloco de paginas (checkpoint/retomada)
+// ---------------------------------------------------------------------
+
+export interface BlockDeps {
+  /** service_role: escrita server-side contornando RLS (SEC-05). */
+  db: SupabaseClient;
+  connector: NomusConnector;
+  /** Opcional: ausente => itens ficam 'pendente' (sem embeddings). */
+  embeddingProvider?: EmbeddingProvider;
+  /** Fonte da execucao (para atualizar fontes.ultima_coleta_em ao concluir). */
+  fonteId: string;
+}
+
+export interface BlockParams {
+  execucaoId: string;
+  recurso: string;
+  tiposAtivos: string[];
+  checkpoint: NomusCheckpoint;
+  signal?: AbortSignal;
+}
+
+export interface BlockOutcome {
+  estado: "em_andamento" | "concluida" | "erro";
+  concluido: boolean;
+  checkpoint: NomusCheckpoint;
+  processadosSucesso: number;
+  processadosErro: number;
+}
+
+interface Counters {
+  novos: number;
+  alterados: number;
+  sucesso: number;
+  erro: number;
+  inicioMs: number;
+}
+
+/**
+ * Processa UM bloco de paginas a partir de checkpoint.pagina_atual, encerrando
+ * por teto de paginas (NOMUS_BLOCO_MAX_PAGINAS) ou tempo (NOMUS_BLOCO_MAX_MS).
+ * Salva o checkpoint apos cada pagina (Realtime). Conclui a execucao quando a
+ * varredura chega ao fim (pagina vazia); falha de infra -> 'erro' preservando
+ * o checkpoint para retomada.
+ */
+export async function runNomusBlock(
+  deps: BlockDeps,
+  params: BlockParams,
+): Promise<BlockOutcome> {
+  const { db, connector, embeddingProvider, fonteId } = deps;
+  const { execucaoId, recurso, tiposAtivos } = params;
+  const checkpoint: NomusCheckpoint = { ...params.checkpoint };
+
+  const maxPaginas = nomusBlocoMaxPaginas();
+  const maxMs = nomusBlocoMaxMs();
+  const startMs = Date.now();
+
+  const counters = await loadCounters(db, execucaoId);
+
+  const since = new Date(checkpoint.janela_inicio);
+  const until = checkpoint.janela_fim ? new Date(checkpoint.janela_fim) : new Date();
+
+  await updateExecucao(db, execucaoId, {
+    status: "em_andamento",
+    etapa_atual: "coleta",
+    checkpoint,
+  });
+
+  const ctx: PersistContext = { execucaoId, recurso, tiposAtivos, embeddingProvider };
+  let paginasNoBloco = 0;
+
+  try {
+    while (true) {
+      if (params.signal?.aborted) break;
+      if (paginasNoBloco >= maxPaginas) break;
+      if (Date.now() - startMs >= maxMs) break;
+
+      const page = await connector.collectPage(checkpoint.pagina_atual, {
+        sinceDate: since,
+        untilDate: until,
+        signal: params.signal,
+      });
+
+      // Pagina vazia => fim da varredura: conclui a execucao.
+      if (page.vazia) {
+        checkpoint.fase = "concluido";
+        await finalizeConcluida(db, execucaoId, fonteId, checkpoint, counters);
+        return {
+          estado: "concluida",
+          concluido: true,
+          checkpoint,
+          processadosSucesso: counters.sucesso,
+          processadosErro: counters.erro,
+        };
+      }
+
+      for (const record of page.records) {
+        if (params.signal?.aborted) break;
+        try {
+          const outcome = await persistAndIndexRecord(db, ctx, record);
+          if (outcome.acao === "ignorado") continue;
+          counters.sucesso += 1;
+          if (outcome.acao === "inserido") counters.novos += 1;
+          else counters.alterados += 1;
+        } catch (err) {
+          // Falha isolada do item: registra e segue (RNF-05). Mensagem SEM
+          // payload (SEC-09): apenas nomus_id + motivo.
+          counters.erro += 1;
+          const etapa = err instanceof EmbeddingError ? "Indexacao" : "Persistencia";
+          await recordIngestErro(db, {
+            execucaoId,
+            severidade: "media",
+            etapa,
+            origem: processoOrigemFina(record),
+            recurso,
+            registroId: await resolveProcessoId(db, record.nomus_id),
+            mensagem: `falha ao processar processo ${record.nomus_id}: ${errorMessage(err)}`,
+          });
+        }
+      }
+
+      checkpoint.pagina_atual += 1;
+      checkpoint.concluido_paginas_ate = checkpoint.pagina_atual - 1;
+      paginasNoBloco += 1;
+
+      await updateExecucao(db, execucaoId, {
+        checkpoint,
+        novos: counters.novos,
+        alterados: counters.alterados,
+        processados_sucesso: counters.sucesso,
+        processados_erro: counters.erro,
+      });
+    }
+
+    // Bloco encerrado por teto (ainda ha paginas): permanece em_andamento com
+    // o checkpoint salvo, para o orquestrador retomar no proximo tique.
+    await updateExecucao(db, execucaoId, {
+      status: "em_andamento",
+      checkpoint,
+      novos: counters.novos,
+      alterados: counters.alterados,
+      processados_sucesso: counters.sucesso,
+      processados_erro: counters.erro,
+    });
+    return {
+      estado: "em_andamento",
+      concluido: false,
+      checkpoint,
+      processadosSucesso: counters.sucesso,
+      processadosErro: counters.erro,
+    };
+  } catch (err) {
+    // Falha de infra (coleta caiu / fonte fora do ar): estado 'erro'
+    // PRESERVANDO o checkpoint para retomada automatica (ate o teto).
+    await recordIngestErro(db, {
+      execucaoId,
+      severidade: "alta",
+      etapa: "Coleta",
+      origem: `processo-${recurso}`,
+      recurso,
+      mensagem: `falha de coleta no recurso ${recurso}: ${errorMessage(err)}`,
+    });
+    await updateExecucao(db, execucaoId, {
+      status: "erro",
+      etapa_atual: null,
+      checkpoint,
+      novos: counters.novos,
+      alterados: counters.alterados,
+      processados_sucesso: counters.sucesso,
+      processados_erro: counters.erro,
+    });
+    await captureException(err, { scope: "nomus-pipeline", phase: "bloco", execucaoId });
+    return {
+      estado: "erro",
+      concluido: false,
+      checkpoint,
+      processadosSucesso: counters.sucesso,
+      processadosErro: counters.erro,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------
+// Helpers de conteudo / origem
+// ---------------------------------------------------------------------
+
+/**
+ * Texto verbatim indexado de um processo: concatena os campos canonicos
+ * disponiveis (nome, etapa, descricao). Vazio quando nenhum campo existe.
+ */
+export function buildProcessoVerbatim(record: CollectedRecord): string {
+  return [record.nome, record.etapa, record.descricao]
+    .filter((v): v is string => typeof v === "string" && v.trim() !== "")
+    .join("\n\n");
+}
+
+/**
+ * Discriminador fino de origem do processo (ex.: 'processo-venda-governamental').
+ * Usado em memoria_chunks.tipo e erros_ingestao.origem (RF-34).
+ */
+export function processoOrigemFina(record: CollectedRecord): string {
+  return `processo-${slugTipo(record.tipo)}`;
+}
+
+function slugTipo(tipo: string | null): string {
+  const base = (tipo ?? "processo")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return base || "processo";
+}
+
+// ---------------------------------------------------------------------
+// Helpers de estado / execucao
+// ---------------------------------------------------------------------
+
+interface ExecucaoPatch {
+  status?: string;
+  etapa_atual?: string | null;
+  fim?: string;
+  duracao?: string;
+  checkpoint?: NomusCheckpoint;
+  novos?: number;
+  alterados?: number;
+  total_processar?: number;
+  processados_sucesso?: number;
+  processados_erro?: number;
+  pendentes?: number;
+}
+
+async function loadCounters(db: SupabaseClient, execucaoId: string): Promise<Counters> {
+  const { data } = await db
+    .from("execucoes")
+    .select("novos, alterados, processados_sucesso, processados_erro, inicio")
+    .eq("id", execucaoId)
+    .maybeSingle();
+  const row = (data ?? {}) as {
+    novos?: number | null;
+    alterados?: number | null;
+    processados_sucesso?: number | null;
+    processados_erro?: number | null;
+    inicio?: string | null;
+  };
+  const inicioMs = row.inicio ? Date.parse(row.inicio) : Date.now();
+  return {
+    novos: row.novos ?? 0,
+    alterados: row.alterados ?? 0,
+    sucesso: row.processados_sucesso ?? 0,
+    erro: row.processados_erro ?? 0,
+    inicioMs: Number.isFinite(inicioMs) ? inicioMs : Date.now(),
+  };
+}
+
+async function finalizeConcluida(
+  db: SupabaseClient,
+  execucaoId: string,
+  fonteId: string,
+  checkpoint: NomusCheckpoint,
+  counters: Counters,
+): Promise<void> {
+  const fim = new Date();
+  await updateExecucao(db, execucaoId, {
+    status: "concluida",
+    etapa_atual: null,
+    fim: fim.toISOString(),
+    duracao: formatDuration(Date.now() - counters.inicioMs),
+    checkpoint,
+    novos: counters.novos,
+    alterados: counters.alterados,
+    processados_sucesso: counters.sucesso,
+    processados_erro: counters.erro,
+  });
+
+  const { error } = await db
+    .from("fontes")
+    .update({ ultima_coleta_em: fim.toISOString() })
+    .eq("id", fonteId);
+  if (error) {
+    console.error("[nomus-pipeline] falha ao atualizar fontes.ultima_coleta_em", {
+      fonteId,
+      error: error.message,
+    });
+  }
+}
+
+async function updateExecucao(
+  db: SupabaseClient,
+  execucaoId: string,
+  patch: ExecucaoPatch,
+): Promise<void> {
+  const { error } = await db.from("execucoes").update(patch).eq("id", execucaoId);
+  if (error) {
+    console.error("[nomus-pipeline] falha ao atualizar execucao", {
+      execucaoId,
+      error: error.message,
+    });
+  }
+}
+
+async function setStatusIndexacao(
+  db: SupabaseClient,
+  registroId: string,
+  status: "pendente" | "em_andamento" | "concluida" | "erro",
+): Promise<void> {
+  const { error } = await db
+    .from("nomus_processos")
+    .update({ status_indexacao: status })
+    .eq("id", registroId);
+  if (error) {
+    console.error("[nomus-pipeline] falha ao atualizar status_indexacao", {
+      registroId,
+      status,
+      error: error.message,
+    });
+  }
+}
+
+async function resolveProcessoId(db: SupabaseClient, nomusId: string): Promise<string | null> {
+  const { data } = await db
+    .from("nomus_processos")
+    .select("id")
+    .eq("nomus_id", nomusId)
+    .maybeSingle();
+  return data ? String((data as { id: string }).id) : null;
+}
+
+/** Formata milissegundos em duracao legivel (ex.: "1m 23s"). */
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
+/** Janela movel padrao (em dias) a partir de agora. */
+export function janelaMovel(janelaDias: number, until: Date = new Date()): Date {
+  return new Date(until.getTime() - janelaDias * MS_PER_DAY);
+}

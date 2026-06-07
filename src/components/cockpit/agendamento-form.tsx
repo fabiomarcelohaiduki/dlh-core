@@ -1,0 +1,252 @@
+"use client";
+
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { CalendarClock, Check, Loader2, TriangleAlert } from "lucide-react";
+import { useSalvarAgendamento } from "@/hooks/use-admin";
+import { ApiError } from "@/lib/api/client";
+import { cn } from "@/lib/utils";
+import type { AgendamentoState } from "@/lib/api/types";
+
+/**
+ * Frequencias recorrentes do ciclo GLOBAL. 'manual' (desligado) e expresso
+ * pelo proprio toggle "ativo"; nao aparece como opcao de frequencia.
+ */
+const FREQUENCIAS = [
+  { value: "horaria", label: "A cada hora" },
+  { value: "diaria", label: "Uma vez ao dia" },
+  { value: "semanal", label: "Uma vez por semana" },
+  { value: "mensal", label: "Uma vez por mês" },
+] as const;
+
+/** Dias da semana (LOCAL); 0 = domingo. O substrato ajusta o fuso para UTC. */
+const DIAS_SEMANA = [
+  { value: 0, label: "Domingo" },
+  { value: 1, label: "Segunda" },
+  { value: 2, label: "Terça" },
+  { value: 3, label: "Quarta" },
+  { value: 4, label: "Quinta" },
+  { value: 5, label: "Sexta" },
+  { value: 6, label: "Sábado" },
+] as const;
+
+/**
+ * Schema cliente (espelha agendamentoConfigSchema do backend). horario em
+ * 'HH:MM' local; diaSemana 0..6; diaMes 1..28. Mantidos sempre com valores
+ * validos (defaults) e exibidos conforme a frequencia, evitando refinamentos.
+ */
+const agSchema = z.object({
+  ativo: z.boolean(),
+  frequencia: z.enum(["horaria", "diaria", "semanal", "mensal"]),
+  horarioReferencia: z
+    .string()
+    .regex(/^([01]?\d|2[0-3]):[0-5]\d$/, "Use HH:MM (00:00 a 23:59)."),
+  diaSemana: z.number().int().min(0).max(6),
+  diaMes: z
+    .number({ invalid_type_error: "Informe um dia entre 1 e 28." })
+    .int("Use um dia inteiro.")
+    .min(1, "Informe um dia entre 1 e 28.")
+    .max(28, "Informe um dia entre 1 e 28."),
+});
+type AgValues = z.infer<typeof agSchema>;
+
+type Feedback = { kind: "ok" | "err"; message: string };
+
+function toDefaults(initial: AgendamentoState): AgValues {
+  const freq = initial.frequencia === "manual" ? "diaria" : initial.frequencia;
+  return {
+    ativo: initial.ativo,
+    frequencia: freq,
+    horarioReferencia: initial.horarioReferencia ?? "07:00",
+    diaSemana: initial.diaSemana ?? 1,
+    diaMes: initial.diaMes ?? 1,
+  };
+}
+
+/**
+ * cmp-agendamento-form — Agendamento GLOBAL do ciclo de coleta.
+ *
+ * Um unico relogio governa a coleta de TODAS as fontes (orquestrador
+ * sequencial: uma fonte por vez, sem sobreposicao). O toggle "ativo" liga/
+ * desliga o ciclo; frequencia + horario definem a cadencia. Salvar reescreve
+ * o pg_cron no substrato (sem redeploy) via PUT /agendamento/config.
+ */
+export function AgendamentoForm({ initial }: { initial: AgendamentoState }) {
+  const salvar = useSalvarAgendamento();
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    watch,
+    setValue,
+    formState: { errors, isDirty },
+  } = useForm<AgValues>({
+    resolver: zodResolver(agSchema),
+    defaultValues: toDefaults(initial),
+  });
+
+  const ativo = watch("ativo");
+  const frequencia = watch("frequencia");
+
+  async function onSubmit(values: AgValues) {
+    setFeedback(null);
+    try {
+      const res = await salvar.mutateAsync({
+        ativo: values.ativo,
+        frequencia: values.frequencia,
+        horarioReferencia: values.horarioReferencia,
+        diaSemana: values.frequencia === "semanal" ? values.diaSemana : null,
+        diaMes: values.frequencia === "mensal" ? values.diaMes : null,
+      });
+      reset(values);
+      setFeedback({
+        kind: "ok",
+        message: values.ativo
+          ? `Agendamento salvo · ciclo ligado${res.agendamento ? ` (${res.agendamento})` : ""}`
+          : "Agendamento salvo · ciclo desligado",
+      });
+    } catch (err) {
+      const message =
+        err instanceof ApiError && err.status === 400
+          ? "Dados inválidos: revise a frequência e o horário."
+          : "Não foi possível salvar o agendamento. Tente novamente.";
+      setFeedback({ kind: "err", message });
+    }
+  }
+
+  return (
+    <form className="card form-card" onSubmit={handleSubmit(onSubmit)} noValidate>
+      <div className="section-title" style={{ margin: "0 0 6px" }}>
+        <div className="titles">
+          <h3>Agendamento do ciclo</h3>
+          <p>
+            Um único relógio governa a coleta de todas as fontes, uma por vez (sem sobreposição).
+            Cada fonte mantém apenas a janela e os filtros.
+          </p>
+        </div>
+      </div>
+
+      <label
+        className={cn("chk", ativo && "on")}
+        style={{ margin: "14px 0 18px", maxWidth: 360 }}
+      >
+        <input
+          type="checkbox"
+          checked={ativo}
+          onChange={(e) => {
+            setValue("ativo", e.target.checked, { shouldDirty: true });
+            setFeedback(null);
+          }}
+        />
+        <div className="t">
+          Ciclo de coleta ligado
+          <small>{ativo ? "Coletando automaticamente na cadência abaixo." : "Coleta automática pausada (somente coleta manual)."}</small>
+        </div>
+      </label>
+
+      <div className="grid-fields">
+        <div className="field">
+          <label htmlFor="ag-freq">Frequência</label>
+          <select id="ag-freq" {...register("frequencia")}>
+            {FREQUENCIAS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+          <div className="helper">Com que frequência o ciclo dispara a coleta.</div>
+        </div>
+
+        <div className={cn("field", errors.horarioReferencia && "invalid")}>
+          <label htmlFor="ag-hora">Horário (fuso de Brasília)</label>
+          <input
+            type="time"
+            id="ag-hora"
+            aria-invalid={Boolean(errors.horarioReferencia)}
+            {...register("horarioReferencia")}
+          />
+          <div className="err-msg">
+            <TriangleAlert aria-hidden="true" />
+            {errors.horarioReferencia?.message ?? "Use HH:MM (00:00 a 23:59)."}
+          </div>
+          <div className="helper">
+            {frequencia === "horaria"
+              ? "Na frequência horária, apenas os minutos são usados."
+              : "Horário local (America/São_Paulo); o substrato converte para UTC."}
+          </div>
+        </div>
+      </div>
+
+      {frequencia === "semanal" && (
+        <div className="field" style={{ maxWidth: 300 }}>
+          <label htmlFor="ag-dow">Dia da semana</label>
+          <select id="ag-dow" {...register("diaSemana", { valueAsNumber: true })}>
+            {DIAS_SEMANA.map((d) => (
+              <option key={d.value} value={d.value}>
+                {d.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {frequencia === "mensal" && (
+        <div className={cn("field", errors.diaMes && "invalid")} style={{ maxWidth: 300 }}>
+          <label htmlFor="ag-dom">Dia do mês</label>
+          <div className="input-affix">
+            <input
+              type="number"
+              id="ag-dom"
+              min={1}
+              max={28}
+              aria-invalid={Boolean(errors.diaMes)}
+              {...register("diaMes", { valueAsNumber: true })}
+            />
+            <span className="suffix">dia</span>
+          </div>
+          <div className="err-msg">
+            <TriangleAlert aria-hidden="true" />
+            {errors.diaMes?.message ?? "Informe um dia entre 1 e 28."}
+          </div>
+          <div className="helper">De 1 a 28 (evita meses sem o dia 29/30/31).</div>
+        </div>
+      )}
+
+      <div className="form-foot" style={{ marginTop: 22 }}>
+        <button className="btn btn-primary" type="submit" disabled={salvar.isPending}>
+          {salvar.isPending ? (
+            <Loader2 className="spin" aria-hidden="true" />
+          ) : (
+            <CalendarClock aria-hidden="true" />
+          )}
+          <span>{salvar.isPending ? "Salvando…" : "Salvar agendamento"}</span>
+        </button>
+        <button
+          className="btn"
+          type="button"
+          onClick={() => {
+            reset(toDefaults(initial));
+            setFeedback(null);
+          }}
+          disabled={!isDirty || salvar.isPending}
+        >
+          Descartar alterações
+        </button>
+        {feedback && (
+          <span className={cn("save-note", feedback.kind === "err" && "err")}>
+            {feedback.kind === "err" ? (
+              <TriangleAlert aria-hidden="true" />
+            ) : (
+              <Check aria-hidden="true" />
+            )}
+            {feedback.message}
+          </span>
+        )}
+      </div>
+    </form>
+  );
+}

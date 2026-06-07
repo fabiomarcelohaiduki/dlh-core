@@ -1,0 +1,769 @@
+{
+  "project": {
+    "id": "a08eb4821e3d67871e4d10f5146eaff7",
+    "name": "DLH Core",
+    "description": "",
+    "path": "C:\\Users\\Dell\\dlh-core",
+    "stack": [],
+    "config": {
+      "max_rounds_per_sprint": 3,
+      "use_playwright": false,
+      "evaluator_agent_id": "harness-evaluator",
+      "planner_agent_id": "harness-planner"
+    }
+  },
+  "sprints": [
+    {
+      "id": "sprint-001",
+      "index": 0,
+      "name": "Substrato de dados: schema, RLS, triggers e seed",
+      "description": "Cria o substrato unico no Supabase/PostgreSQL: extensoes, todas as tabelas da secao 2, indices (incluindo HNSW para busca vetorial), RLS em todas as tabelas, triggers de auditoria/updated_at, job pg_cron, view de healthcheck e seed inicial. Fundacao da qual todas as demais sprints dependem.",
+      "coder_agent_id": "postgres-pro",
+      "stack": [
+        "postgresql",
+        "supabase",
+        "pgvector",
+        "sql"
+      ],
+      "features": [
+        {
+          "id": "feat-001",
+          "name": "Extensoes e tabelas do substrato",
+          "description": "Migracoes SQL que habilitam extensoes e criam todas as tabelas com PKs UUID e FKs conforme a secao 2.1 da SPEC.",
+          "acceptance_criteria": [
+            "Habilita as extensoes pgvector, pgcrypto (gen_random_uuid) e pg_cron via migration",
+            "Cria as tabelas avisos, aviso_arquivos, aviso_chunks, execucoes, erros_ingestao, fontes, config_ingestao, contas_autorizadas e audit_log com todos os campos, tipos e defaults exatamente como na secao 2.1",
+            "Define UNIQUE(effecti_id) em avisos e UNIQUE(valor) em contas_autorizadas",
+            "Cria as FKs com ON DELETE CASCADE em aviso_arquivos.aviso_id e aviso_chunks.aviso_id, e as demais FKs (execucao_origem_id, execucao_id, aviso_id nullable, fonte_id) conforme o diagrama ER",
+            "Campo aviso_chunks.embedding usa tipo vector(1024)"
+          ]
+        },
+        {
+          "id": "feat-002",
+          "name": "Indices e busca vetorial HNSW",
+          "description": "Cria os indices de performance e o indice vetorial para busca semantica.",
+          "acceptance_criteria": [
+            "Cria indice em avisos.data_captura e indice composto em avisos(modalidade, portal)",
+            "Cria indice HNSW sobre aviso_chunks.embedding usando vector_cosine_ops",
+            "A migration aplica sem erro em um banco PostgreSQL limpo com pgvector habilitado"
+          ]
+        },
+        {
+          "id": "feat-003",
+          "name": "RLS em todas as tabelas",
+          "description": "Habilita Row Level Security em todas as tabelas com a policy unica do MVP baseada em contas_autorizadas.",
+          "acceptance_criteria": [
+            "RLS habilitado (ENABLE ROW LEVEL SECURITY) nas 9 tabelas listadas na secao 2.2",
+            "Policy concede acesso pleno quando o e-mail do usuario autenticado consta em contas_autorizadas (por e-mail OU dominio) com ativo = true",
+            "fontes.token_cifrado nunca e exposto a um cliente nao autorizado (validado pela policy de SELECT)",
+            "A policy considera dominio derivado da parte apos @ do e-mail autenticado"
+          ]
+        },
+        {
+          "id": "feat-004",
+          "name": "Triggers de auditoria, updated_at e pg_cron",
+          "description": "Implementa o audit trail via triggers, atualizacao automatica de updated_at e o job agendado de coleta.",
+          "acceptance_criteria": [
+            "Trigger de auditoria grava em audit_log (tabela, registro_id, acao insert/update/delete, dados_anteriores, dados_novos, usuario, quando) nas tabelas avisos, fontes, config_ingestao e contas_autorizadas",
+            "Trigger de set updated_at = now() aplicado em avisos, fontes e config_ingestao",
+            "Job pg_cron configurado para disparar a Edge Function de coleta conforme config_ingestao (a chamada HTTP pode ser placeholder/comentada ate a Edge Function existir, mas o job e criado)"
+          ]
+        },
+        {
+          "id": "feat-005",
+          "name": "View vw_healthcheck e seed inicial",
+          "description": "Cria a view derivada de healthcheck e os registros semente para onboarding.",
+          "acceptance_criteria": [
+            "Cria a view vw_healthcheck derivando statusIngestao, ultimaSync, totalAvisos e itensComErro de execucoes + avisos + erros_ingestao",
+            "Seed insere 1 fonte Effecti (nome 'Effecti', tipo 'effecti', endpoint_base preenchido, estado_conexao 'nao_configurada', token_cifrado null)",
+            "Seed insere 1 config_ingestao default vinculada a Effecti (janela_dias 15, modalidades '{}', portais '{}', frequencia placeholder)",
+            "Seed insere ao menos 1 registro em contas_autorizadas (tipo 'dominio' ou 'email', ativo = true)",
+            "Nao ha seed de avisos, execucoes ou erros (estados empty reais no primeiro acesso)"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "C:\\Users\\Dell\\dlh-core\\supabase\\migrations\\ (criar as migracoes aqui)"
+        ],
+        "key_interfaces": [
+          "Tabelas: avisos, aviso_arquivos, aviso_chunks, execucoes, erros_ingestao, fontes, config_ingestao, contas_autorizadas, audit_log",
+          "View: vw_healthcheck",
+          "Chave de deduplicacao: avisos.effecti_id (UNIQUE, usado em upsert futuro)"
+        ],
+        "architecture_notes": "Substrato unico Supabase (RNF-14): schema public no MVP, PKs UUID via gen_random_uuid(). Realtime sera habilitado em execucoes (front observa progresso ao vivo). Mudanca de dimensao do embedding fica isolada em aviso_chunks. Siga EXATAMENTE os campos da secao 2 da SPEC, sem inventar colunas. A coluna role em contas_autorizadas e gancho de Fase 2 e NAO deve ser implementada agora."
+      },
+      "dependencies": [],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": false,
+        "affectedScreenIds": [],
+        "affectedComponentIds": [],
+        "designArtifactPath": null
+      }
+    },
+    {
+      "id": "sprint-002",
+      "index": 1,
+      "name": "Backend: fundacao compartilhada, auth e endpoints de leitura",
+      "description": "Implementa os modulos _shared (auth, supabase, audit), a Edge Function de autenticacao Google com validacao de allowlist, e os endpoints de leitura (healthcheck, listar execucoes, listar erros, detalhe do edital). Estabelece o padrao de Edge Function protegida usado pelas sprints seguintes.",
+      "coder_agent_id": "backend-developer",
+      "stack": [
+        "typescript",
+        "deno",
+        "supabase-edge-functions"
+      ],
+      "features": [
+        {
+          "id": "feat-006",
+          "name": "Modulos compartilhados _shared",
+          "description": "Cria os helpers reutilizaveis de autenticacao/autorizacao, clientes Supabase e auditoria/observabilidade.",
+          "acceptance_criteria": [
+            "_shared/auth.ts valida a sessao Supabase e compara o e-mail autenticado com contas_autorizadas (e-mail OU dominio, ativo = true); conta nao autorizada retorna 403 com mensagem clara e dispara signOut",
+            "_shared/supabase.ts expoe clientes anon e service_role e helpers que respeitam RLS",
+            "_shared/audit.ts oferece helper de registro de acao sensivel e integracao com Sentry (DSN via env)",
+            "Todos os endpoints protegidos reutilizam _shared/auth.ts para enforcement server-side na borda"
+          ]
+        },
+        {
+          "id": "feat-007",
+          "name": "Edge Function auth-google",
+          "description": "Endpoint de autenticacao via Google OAuth com validacao de allowlist no callback.",
+          "acceptance_criteria": [
+            "POST /auth/google recebe { provider: 'google', redirectTo: string } e integra o fluxo Supabase Auth (OAuth Google)",
+            "No callback valida o e-mail contra contas_autorizadas; autorizado retorna { token, user: { email, perfil: 'interno' } }",
+            "E-mail fora da allowlist ou com ativo = false resulta em signOut imediato e 403 'acesso negado' sem sessao valida",
+            "Falha tecnica do OAuth retorna erro distinto de 'nao autorizado' (causas separadas conforme secao 4.5.1)"
+          ]
+        },
+        {
+          "id": "feat-008",
+          "name": "Endpoints de leitura de monitoramento",
+          "description": "Endpoints GET de healthcheck, execucoes e erros consumidos pelo Dashboard, Execucoes e Erros.",
+          "acceptance_criteria": [
+            "GET /ingestao/healthcheck le vw_healthcheck e retorna { statusIngestao, ultimaSync, totalAvisos, itensComErro } mapeando Saudavel/Atencao/Falha",
+            "GET /ingestao/execucoes aceita { limit } e retorna { items: Execucao[] } ordenado por inicio desc",
+            "GET /ingestao/erros aceita { etapa } (opcional) e retorna { items: Erro[] } filtrando por etapa quando informado",
+            "Todos exigem sessao autorizada via _shared/auth.ts; chamada sem sessao retorna 401"
+          ]
+        },
+        {
+          "id": "feat-009",
+          "name": "Endpoint de detalhe do edital",
+          "description": "Endpoint GET que retorna o detalhe completo de um aviso para a tela de investigacao de erro.",
+          "acceptance_criteria": [
+            "GET /substrato/avisos/:id retorna { id, conteudoVerbatim, payloadBruto, indice } com chunks/embeddings (metadados), arquivos e payload bruto integral",
+            "id inexistente/invalido retorna erro tratavel (404) para o front exibir 'edital nao encontrado/indisponivel'",
+            "Exige sessao autorizada; conteudoVerbatim e payloadBruto nunca expostos em rota publica"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "C:\\Users\\Dell\\dlh-core\\supabase\\migrations\\ (schema da sprint-001)",
+          "C:\\Users\\Dell\\dlh-core\\supabase\\functions\\_shared\\ (criar modulos aqui)",
+          "C:\\Users\\Dell\\dlh-core\\.env.example (referencia secao 5.3 da SPEC)"
+        ],
+        "key_interfaces": [
+          "Tabelas/view: execucoes, erros_ingestao, avisos, aviso_arquivos, aviso_chunks, contas_autorizadas, vw_healthcheck",
+          "Tipos de resposta: Execucao[], Erro[], { statusIngestao, ultimaSync, totalAvisos, itensComErro }, { id, conteudoVerbatim, payloadBruto, indice }",
+          "Endpoints: POST /auth/google, GET /ingestao/healthcheck, GET /ingestao/execucoes, GET /ingestao/erros, GET /substrato/avisos/:id"
+        ],
+        "architecture_notes": "Runtime Deno/TypeScript em Supabase Edge Functions sobre o substrato da sprint-001. Enforcement em dupla camada: validacao server-side (_shared/auth.ts) somada a RLS no Postgres (defense in depth). Estrutura de pastas conforme secao 3.1. Variaveis sensiveis via env (secao 5.3); segredos reais ficam no Vault, nunca no .env de producao. Siga as 11 apiExpectations da secao 3.2 sem criar endpoint fora do Design Lock."
+      },
+      "dependencies": [
+        "sprint-001"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": false,
+        "affectedScreenIds": [],
+        "affectedComponentIds": [],
+        "designArtifactPath": null
+      }
+    },
+    {
+      "id": "sprint-003",
+      "index": 2,
+      "name": "Backend: fontes/credenciais (Vault), config de ingestao e conector Effecti",
+      "description": "Implementa a gestao de credenciais via Supabase Vault (salvar/testar conexao), o endpoint de configuracao da ingestao e o conector Effecti reutilizavel (paginacao, backoff, sync incremental, dedupe). Prepara a base de coleta consumida pela sprint do pipeline.",
+      "coder_agent_id": "backend-developer",
+      "stack": [
+        "typescript",
+        "deno",
+        "supabase-edge-functions"
+      ],
+      "features": [
+        {
+          "id": "feat-010",
+          "name": "Credencial Effecti no Vault",
+          "description": "Endpoints para gravar e testar a credencial Effecti sem nunca expor o segredo.",
+          "acceptance_criteria": [
+            "PUT /fontes/effecti/credencial recebe { token } (secret), grava no Supabase Vault e atualiza fontes.token_cifrado com a referencia; retorna { ok: boolean } e nunca o segredo",
+            "POST /fontes/effecti/testar le o segredo do Vault em runtime, testa o Effecti e retorna { estadoConexao, latenciaMs }",
+            "O teste trata timeout, 401 (credencial invalida) e 429 (rate limit) com mensagem especifica por causa e atualiza fontes.estado_conexao (conectada/erro/nao_configurada)",
+            "Token vazio e bloqueado por validacao server-side (zod); acoes registram audit trail"
+          ]
+        },
+        {
+          "id": "feat-011",
+          "name": "Configuracao da ingestao",
+          "description": "Endpoint para persistir frequencia, janela e filtros de modalidades/portais.",
+          "acceptance_criteria": [
+            "PUT /ingestao/config recebe { frequencia, janelaDias, modalidades, portais } e persiste em config_ingestao",
+            "Validacao server-side rejeita janelaDias <= 0 ou acima do maximo e modalidades/portais conforme regras da secao 4.5.1",
+            "Alteracoes valem na proxima execucao sem redeploy (sem reiniciar o job em andamento)",
+            "Exige sessao autorizada e registra audit trail da acao sensivel"
+          ]
+        },
+        {
+          "id": "feat-012",
+          "name": "Conector Effecti reutilizavel",
+          "description": "Modulo de conector Effecti com paginacao, backoff e sync incremental, extensivel a novos conectores.",
+          "acceptance_criteria": [
+            "_shared/effecti-connector.ts implementa coleta com paginacao e backoff exponencial em rate limit/429 (RNF-10)",
+            "Sync incremental pela data de captura dentro da janela configurada, com dedupe por effecti_id (upsert)",
+            "A interface do conector e desacoplada de fontes.tipo, permitindo novos conectores sem refatorar o existente (apenas Effecti ativo no MVP)",
+            "Le a credencial via Vault em runtime, nunca de .env em producao"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "C:\\Users\\Dell\\dlh-core\\supabase\\functions\\_shared\\auth.ts (sprint-002)",
+          "C:\\Users\\Dell\\dlh-core\\supabase\\functions\\_shared\\supabase.ts (sprint-002)",
+          "C:\\Users\\Dell\\dlh-core\\supabase\\functions\\_shared\\audit.ts (sprint-002)"
+        ],
+        "key_interfaces": [
+          "Tabelas: fontes (token_cifrado referencia o Vault), config_ingestao",
+          "Endpoints: PUT /fontes/effecti/credencial, POST /fontes/effecti/testar, PUT /ingestao/config",
+          "Modulo: _shared/effecti-connector.ts (paginacao, backoff, dedupe por effecti_id)"
+        ],
+        "architecture_notes": "Credencial Effecti somente no Supabase Vault (RNF-02): fontes.token_cifrado guarda apenas a referencia; o segredo real nunca trafega para o cliente nem e retornado via PostgREST. Reutilize _shared/auth.ts da sprint-002 para enforcement. O conector deve ser a base extensivel (RF-11/RNF-15). pg_cron ja foi criado na sprint-001 e dispara a coleta conforme config_ingestao."
+      },
+      "dependencies": [
+        "sprint-001",
+        "sprint-002"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": false,
+        "affectedScreenIds": [],
+        "affectedComponentIds": [],
+        "designArtifactPath": null
+      }
+    },
+    {
+      "id": "sprint-004",
+      "index": 3,
+      "name": "Backend: pipeline de ingestao (coleta, tratamento, indexacao, persistencia)",
+      "description": "Implementa a orquestracao assincrona da ingestao item-a-item, o tratamento de arquivos (download/OCR/descompactacao/extracao verbatim), a indexacao por embeddings plugaveis, o reprocesso por item e a notificacao de falha. Coracao funcional do backend.",
+      "coder_agent_id": "backend-developer",
+      "stack": [
+        "typescript",
+        "deno",
+        "supabase-edge-functions",
+        "pgvector"
+      ],
+      "features": [
+        {
+          "id": "feat-013",
+          "name": "Orquestracao da coleta sob demanda",
+          "description": "Endpoint que cria a execucao e dispara o pipeline assincrono com anti-duplo-disparo.",
+          "acceptance_criteria": [
+            "POST /ingestao/coletar recebe { fonte: 'effecti', janelaDias } e cria execucao em_andamento, retornando { execucaoId, status: 'em_andamento' }",
+            "Recusa novo disparo enquanto houver execucao em_andamento (anti-duplo-disparo)",
+            "Processa avisos item a item em lotes, atualizando etapa_atual (coleta/tratamento/indexacao/persistencia) e contadores (novos, alterados, total_processar, processados_sucesso, processados_erro, pendentes)",
+            "Mesmo pipeline serve coleta agendada (pg_cron) e sob demanda; falha por item isolada vira erro do item sem derrubar o lote"
+          ]
+        },
+        {
+          "id": "feat-014",
+          "name": "Tratamento de arquivos de edital",
+          "description": "Download e extracao verbatim de arquivos a partir do link, com fallback OCR.",
+          "acceptance_criteria": [
+            "_shared/file-processing.ts baixa o binario por link e armazena em bucket privado do Supabase Storage (aviso_arquivos.storage_path)",
+            "Extrai texto verbatim por tipo: PDF nativo, DOC/DOCX, descompactacao ZIP/RAR; OCR apenas como fallback sem camada de texto",
+            "Grava aviso_arquivos.texto_extraido integro e seta status_tratamento (ok/erro/nao_suportado)",
+            "Extensao nao suportada ou falha gera erro visivel em erros_ingestao sem travar o lote"
+          ]
+        },
+        {
+          "id": "feat-015",
+          "name": "Indexacao por embeddings plugaveis",
+          "description": "Geracao de chunks e embeddings via provider plugavel sem custo por token.",
+          "acceptance_criteria": [
+            "_shared/embeddings.ts define interface de provider trocavel via config; default bge-m3 local com vector(1024)",
+            "Faz chunking do conteudo verbatim e grava aviso_chunks (ordem, conteudo, embedding) preservando o verbatim integro em avisos.conteudo_verbatim",
+            "Atualiza avisos.status_indexacao conforme progresso do pipeline",
+            "Zero custo Claude por token na ingestao (RNF-04)"
+          ]
+        },
+        {
+          "id": "feat-016",
+          "name": "Reprocesso por item",
+          "description": "Endpoint que reprocessa um unico aviso (re-extracao e/ou reindexacao).",
+          "acceptance_criteria": [
+            "POST /substrato/avisos/:id/reindexar reprocessa apenas o item: re-extracao a partir do binario no Storage e/ou reindexacao dos embeddings do verbatim",
+            "Retorna { status } e atualiza erros_ingestao.status_reprocesso evitando disparo duplicado para o mesmo item",
+            "Exige sessao autorizada e registra audit trail"
+          ]
+        },
+        {
+          "id": "feat-017",
+          "name": "Notificacao proativa de falha",
+          "description": "Envio de e-mail transacional quando o healthcheck entra em Falha ou a sync falha por completo.",
+          "acceptance_criteria": [
+            "_shared/notify.ts envia e-mail transacional (Resend/SMTP) para os destinatarios de config (ALERT_EMAIL_RECIPIENTS) quando healthcheck = Falha (parado) ou sync falha completa",
+            "Excecoes das Edge Functions sao reportadas ao Sentry complementando logs nativos do Supabase",
+            "Falhas individuais por item nao disparam alerta global (apenas falha total ou estado parado)"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "C:\\Users\\Dell\\dlh-core\\supabase\\functions\\_shared\\effecti-connector.ts (sprint-003)",
+          "C:\\Users\\Dell\\dlh-core\\supabase\\functions\\_shared\\auth.ts (sprint-002)",
+          "C:\\Users\\Dell\\dlh-core\\supabase\\functions\\_shared\\supabase.ts (sprint-002)"
+        ],
+        "key_interfaces": [
+          "Modulos: _shared/pipeline.ts, _shared/file-processing.ts, _shared/embeddings.ts, _shared/notify.ts",
+          "Tabelas: execucoes (Realtime), avisos, aviso_arquivos, aviso_chunks, erros_ingestao",
+          "Endpoints: POST /ingestao/coletar, POST /substrato/avisos/:id/reindexar"
+        ],
+        "architecture_notes": "Orquestracao assincrona com estado no banco (secao 3.2 decisoes): cada item atualiza etapa_atual/contadores e o Realtime de execucoes reflete ao vivo no front. Dedupe por effecti_id (upsert) ja vem do conector da sprint-003. Binario preservado para recuperabilidade (links Effecti expiram). Embeddings dimensao 1024 (HNSW criado na sprint-001). Falha por item isolada NAO derruba o lote (RNF-05)."
+      },
+      "dependencies": [
+        "sprint-001",
+        "sprint-002",
+        "sprint-003"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": false,
+        "affectedScreenIds": [],
+        "affectedComponentIds": [],
+        "designArtifactPath": null
+      }
+    },
+    {
+      "id": "sprint-005",
+      "index": 4,
+      "name": "Backend: busca semantica e API LLM-ready /v1 da Lia",
+      "description": "Implementa o endpoint de busca semantica versionado (/v1) com busca vetorial pgvector (HNSW cosine), aceitando sessao humana (playground) e token de servico read-only da Lia guardado no Vault. Fecha a camada de consumo programatico do substrato.",
+      "coder_agent_id": "backend-developer",
+      "stack": [
+        "typescript",
+        "deno",
+        "supabase-edge-functions",
+        "pgvector"
+      ],
+      "features": [
+        {
+          "id": "feat-018",
+          "name": "Busca semantica vetorial",
+          "description": "Endpoint que gera embedding da query e retorna top-K por similaridade de cosseno.",
+          "acceptance_criteria": [
+            "POST /substrato/busca-semantica (prefixo /v1) recebe { query, topK } e retorna { results: [{ id, score, verbatim }] }",
+            "Gera o embedding da query via mesmo provider plugavel da ingestao e faz busca HNSW vector_cosine_ops em aviso_chunks resolvendo para avisos.conteudo_verbatim",
+            "topK e normalizado/limitado no payload; query vazia e rejeitada por validacao",
+            "Substrato sem embeddings indexados retorna lista vazia (distinto de query valida sem resultados)"
+          ]
+        },
+        {
+          "id": "feat-019",
+          "name": "Token de servico da Lia e versionamento /v1",
+          "description": "Autenticacao por API key de servico read-only distinta da sessao humana e da service_role.",
+          "acceptance_criteria": [
+            "O endpoint /v1 aceita API key de servico (Bearer) com escopo read-only + busca semantica, guardada no Vault e rotacionavel/revogavel",
+            "Aceita tambem a sessao do cockpit (playground/validacao humana) sem expor a API key no front",
+            "Token de servico e distinto da sessao humana e da service_role (RNF-01); chamadas sem credencial valida retornam 401",
+            "Contrato versionado /v1 estavel para consumo agentico (RNF-17)"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "C:\\Users\\Dell\\dlh-core\\supabase\\functions\\_shared\\embeddings.ts (sprint-004)",
+          "C:\\Users\\Dell\\dlh-core\\supabase\\functions\\_shared\\auth.ts (sprint-002)"
+        ],
+        "key_interfaces": [
+          "Endpoint: POST /v1/substrato/busca-semantica",
+          "Tabelas: aviso_chunks.embedding (HNSW), avisos.conteudo_verbatim",
+          "Provider de embeddings plugavel reutilizado da ingestao (sprint-004)"
+        ],
+        "architecture_notes": "Reutilize o provider de embeddings da sprint-004 para gerar o vetor da query (dimensao 1024). A Lia atua somente como consumidora (sem orquestrar subagentes na Fase 1). LIA_SERVICE_API_KEY fica no Vault. A tela 'api' usa a sessao do cockpit, nunca a service key no front."
+      },
+      "dependencies": [
+        "sprint-001",
+        "sprint-002",
+        "sprint-004"
+      ],
+      "complexity": "medium",
+      "estimated_rounds": 2,
+      "metadata": {
+        "touchesUI": false,
+        "affectedScreenIds": [],
+        "affectedComponentIds": [],
+        "designArtifactPath": null
+      }
+    },
+    {
+      "id": "sprint-006",
+      "index": 5,
+      "name": "Frontend: setup, design system, shell/sidebar e login",
+      "description": "Cria o app Next.js 15 (App Router) com Tailwind + shadcn em dark mode, replica os tokens visuais travados, configura o middleware de protecao de rotas via @supabase/ssr, monta o shell do cockpit (route group + sidebar persistente) e implementa a tela de login com botao Google.",
+      "coder_agent_id": "nextjs-developer",
+      "stack": [
+        "nextjs",
+        "typescript",
+        "tailwind",
+        "shadcn",
+        "supabase"
+      ],
+      "features": [
+        {
+          "id": "feat-020",
+          "name": "Scaffold Next.js + tokens visuais",
+          "description": "Projeto Next.js 15 com Tailwind/shadcn em dark mode e tokens do Design Lock.",
+          "acceptance_criteria": [
+            "App Next.js 15 (App Router) + TypeScript com Tailwind CSS, shadcn/ui (dark mode) e Lucide icons configurados",
+            "Tokens de cores (bg #0b0b0e, surface #141418, surface2 #1a1a20, border #272730, fg #e9e9ec, muted #9b9ba5, accent #d99a3c, ok #5cbf86, run #6f9bd9, warn #d9b14a, err #dd6b62) mapeados em CSS variables + theme Tailwind",
+            "Espacamentos (xs 4 / sm 8 / md 14 / lg 24), radii (sm 6 / md 10 / lg 14) e fontes (system/Inter; mono JetBrains) configurados",
+            "TanStack Query, react-hook-form + zod e @supabase/ssr instalados e disponiveis"
+          ]
+        },
+        {
+          "id": "feat-021",
+          "name": "Middleware de protecao e sessao",
+          "description": "Protecao das rotas do cockpit com redirect para login.",
+          "acceptance_criteria": [
+            "Middleware Next.js protege /dashboard, /execucoes, /erros, /edital, /fontes, /ingestao e /api validando sessao via @supabase/ssr (inclusive refresh e deep-link)",
+            "Sessao ausente/expirada redireciona para /login; 401 mid-session redireciona para /login",
+            "Usuario com sessao valida acessando /login e redirecionado direto para /dashboard; rota / redireciona para /dashboard",
+            "Cookie de sessao httpOnly do Supabase (nao exposto a scripts)"
+          ]
+        },
+        {
+          "id": "feat-022",
+          "name": "Shell do cockpit e sidebar",
+          "description": "Route group (cockpit) com layout e navegacao persistente travada.",
+          "acceptance_criteria": [
+            "Route group (cockpit) com layout.tsx em grid 236px 1fr (sidebar persistente + conteudo); /login fica fora do grupo",
+            "components/cockpit/sidebar.tsx (cmp-sidebar) com 6 itens primarios agrupados: Monitoramento (Dashboard, Execucoes, Erros) e Administracao (Fontes e credenciais, Configuracao da ingestao, API LLM-ready)",
+            "Item ativo destacado (estado active); Detalhe do edital NAO aparece como item de menu",
+            "Acao de logout no shell limpa cookies e revoga a sessao local"
+          ]
+        },
+        {
+          "id": "feat-023",
+          "name": "Tela de login com Google",
+          "description": "Tela /login com botao Entrar com Google e estados travados.",
+          "acceptance_criteria": [
+            "Tela /login (fora do shell) com components/auth/google-button.tsx (cmp-gbtn) nos estados idle, loading e error, consumindo action-login-google -> POST /auth/google via hook useAuth/useSession",
+            "error distingue falha tecnica do OAuth ('nao foi possivel concluir o login, tente novamente') de nao autorizado ('acesso negado' com acao de sair); ativo=false tratado como acesso negado",
+            "Popup/redirect OAuth cancelado retorna a idle (botao reabilitado, sem erro travado)",
+            "success redireciona para /dashboard"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "C:\\Users\\Dell\\dlh-core\\docs\\Docs20260605_192252\\design\\artifact.html (prototipo travado)",
+          "C:\\Users\\Dell\\dlh-core\\docs\\Docs20260605_192252\\design\\design-contract.json",
+          "C:\\Users\\Dell\\dlh-core\\.env.example",
+          "Endpoint auth-google da sprint-002"
+        ],
+        "key_interfaces": [
+          "Componentes: components/auth/google-button.tsx (cmp-gbtn), components/cockpit/sidebar.tsx (cmp-sidebar)",
+          "Hooks: useAuth / useSession",
+          "Rotas: /login, route group (cockpit) com /dashboard, /execucoes, /erros, /edital/[avisoId], /fontes, /ingestao, /api"
+        ],
+        "architecture_notes": "Identidade do LionClaw replicada (tokens copiados), nunca importada em runtime (RNF-17). Hash routing do artifact (#dashboard...) vira rota App Router real, preservando direcao visual, estados e navegacao travados. Nenhuma tela/menu/componente/estado fora do Design Lock. Consulte o artifact.html para fidelidade visual antes de implementar."
+      },
+      "dependencies": [
+        "sprint-001",
+        "sprint-002"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": true,
+        "affectedScreenIds": [
+          "login",
+          "dashboard",
+          "execucoes",
+          "erros",
+          "fontes",
+          "ingestao",
+          "api",
+          "edital"
+        ],
+        "affectedComponentIds": [
+          "cmp-gbtn",
+          "cmp-sidebar"
+        ],
+        "designArtifactPath": "C:\\Users\\Dell\\dlh-core\\docs\\Docs20260605_192252\\design\\artifact.html"
+      }
+    },
+    {
+      "id": "sprint-007",
+      "index": 6,
+      "name": "Frontend: Dashboard e Execucoes (monitoramento + Realtime)",
+      "description": "Implementa o Dashboard (KPIs, tabelas de execucoes e erros, healthcheck, coleta sob demanda) e a tela de Execucoes, ambos com progresso ao vivo via Supabase Realtime, onboarding nos estados empty e anti-duplo-disparo refletido na UI.",
+      "coder_agent_id": "nextjs-developer",
+      "stack": [
+        "nextjs",
+        "typescript",
+        "tailwind",
+        "tanstack-query",
+        "supabase-realtime"
+      ],
+      "features": [
+        {
+          "id": "feat-024",
+          "name": "Componentes de monitoramento reutilizaveis",
+          "description": "stat-card, runs-table, erros-table e status-pill conforme estados travados.",
+          "acceptance_criteria": [
+            "components/cockpit/stat-card.tsx (cmp-stat-card), runs-table.tsx (cmp-runs-table com estados processing/empty), erros-table.tsx (cmp-erros-table com estado empty) e status-pill.tsx (cmp-status-pill com ok/run/warn/err/idle)",
+            "cmp-status-pill centraliza o mapeamento de cor por estado para os tokens travados",
+            "cmp-runs-table mostra colunas de execucao (inicio, gatilho, novos, alterados, duracao, status) com pill de status",
+            "Componentes renderizam skeletons no estado loading"
+          ]
+        },
+        {
+          "id": "feat-025",
+          "name": "Tela Dashboard",
+          "description": "Home do cockpit com KPIs, healthcheck, tabelas e coleta sob demanda.",
+          "acceptance_criteria": [
+            "/dashboard carrega KPIs e healthcheck via useHealthcheck (GET /ingestao/healthcheck), execucoes via useExecucoes e erros via useErros, com cards usando cmp-stat-card e tabelas cmp-runs-table/cmp-erros-table",
+            "Card de healthcheck distingue warn (Atencao/degradado) de err (Falha/parado) via cmp-status-pill",
+            "action-coleta-demanda (useColetaDemanda -> POST /ingestao/coletar) desabilitada com motivo visivel quando ha execucao em_andamento; reabilita ao concluir/erro",
+            "estado empty global orquestra onboarding (1o acesso); cada bloco (KPIs, runs, erros) resolve seu proprio error/empty isoladamente (degradacao por widget)",
+            "action-ver-execucoes navega para /execucoes e action-investigar-erro navega para /edital/[avisoId] (navegacao pura)"
+          ]
+        },
+        {
+          "id": "feat-026",
+          "name": "Tela Execucoes e Realtime",
+          "description": "Lista de execucoes com progresso ao vivo e fallback de refetch.",
+          "acceptance_criteria": [
+            "/execucoes lista execucoes com cmp-runs-table, skeleton no loading e estado empty 'nenhuma execucao'",
+            "Linhas em_andamento refletem progresso ao vivo via Supabase Realtime (useExecucoesRealtime); execucao status=erro destacada com pill err e caminho de navegacao para /erros",
+            "Realtime indisponivel faz fallback para refetch (TanStack Query) com indicador 'reconectando', preservando o estado processing a partir do banco sem recarregar a pagina",
+            "action-coleta-demanda-exec bloqueada com feedback quando outra execucao esta em andamento; paginacao/limite com 'carregar mais' sem quebrar linhas processing"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "C:\\Users\\Dell\\dlh-core\\docs\\Docs20260605_192252\\design\\artifact.html",
+          "components/cockpit/sidebar.tsx (sprint-006)",
+          "Endpoints da sprint-002 (healthcheck, execucoes, erros) e sprint-004 (coletar)"
+        ],
+        "key_interfaces": [
+          "Componentes: cmp-stat-card, cmp-runs-table, cmp-erros-table, cmp-status-pill",
+          "Hooks: useHealthcheck, useExecucoes, useExecucoesRealtime, useErros, useColetaDemanda",
+          "Rotas: /dashboard, /execucoes"
+        ],
+        "architecture_notes": "Realtime de execucoes respeita RLS do usuario autorizado. Convencao de status travada: ok=sucesso/Saudavel, run=em andamento/processing, warn=atencao/erros parciais, err=falha, idle=nao configurado. Anti-duplo-disparo (execucao em_andamento bloqueia novo disparo) deve refletir no front. Mantenha fidelidade ao artifact.html. Nao crie estados/telas fora do Design Lock."
+      },
+      "dependencies": [
+        "sprint-001",
+        "sprint-002",
+        "sprint-004",
+        "sprint-006"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": true,
+        "affectedScreenIds": [
+          "dashboard",
+          "execucoes"
+        ],
+        "affectedComponentIds": [
+          "cmp-stat-card",
+          "cmp-runs-table",
+          "cmp-erros-table",
+          "cmp-status-pill",
+          "cmp-sidebar"
+        ],
+        "designArtifactPath": "C:\\Users\\Dell\\dlh-core\\docs\\Docs20260605_192252\\design\\artifact.html"
+      }
+    },
+    {
+      "id": "sprint-008",
+      "index": 7,
+      "name": "Frontend: Erros de ingestao e Detalhe do edital",
+      "description": "Implementa a tela de Erros (filtro por etapa, navegacao para investigacao) e a tela de Detalhe do edital (pipeline do item, verbatim/payload bruto colapsavel, reprocessar), unica superficie humana de acesso a um edital.",
+      "coder_agent_id": "nextjs-developer",
+      "stack": [
+        "nextjs",
+        "typescript",
+        "tailwind",
+        "tanstack-query"
+      ],
+      "features": [
+        {
+          "id": "feat-027",
+          "name": "Tela Erros de ingestao",
+          "description": "Lista filtravel de erros com navegacao para o edital.",
+          "acceptance_criteria": [
+            "/erros lista erros com cmp-erros-table e cmp-status-pill, filtro por etapa via action-filtrar-erro (useErros(etapa?) -> GET /ingestao/erros)",
+            "estado empty global 'sem ocorrencias' distinto do empty filtrado 'nenhum erro nesta etapa'",
+            "Erro sem avisoId tem action-abrir-edital oculta/desabilitada (sem destino de investigacao)",
+            "action-abrir-edital navega para /edital/[avisoId]; linha com reprocesso em andamento (status_reprocesso) reflete o estado evitando disparo duplicado"
+          ]
+        },
+        {
+          "id": "feat-028",
+          "name": "Tela Detalhe do edital",
+          "description": "Inspecao do aviso com pipeline, verbatim/payload e reprocesso.",
+          "acceptance_criteria": [
+            "/edital/[avisoId] carrega o detalhe via useEdital(avisoId) (GET /substrato/avisos/:id) com estados loading/success/error; avisoId inexistente exibe error 'edital nao encontrado/indisponivel' com action-voltar-erros",
+            "components/cockpit/pipeline-indicator.tsx (cmp-pipeline) exibe Coleta -> Tratamento -> Indexacao -> Persistencia nos estados done/error/skip; enriquecimento cognitivo aparece como etapa 'nao executada na Fase 1' sem acao executavel",
+            "conteudoVerbatim e payloadBruto muito grandes sao colapsaveis/expansiveis com renderizacao incremental sem travar a tela",
+            "action-reprocessar (useReprocessar -> POST /substrato/avisos/:id/reindexar) com estados loading/sucesso/falha e bloqueio durante o reprocesso para evitar duplo disparo; deep-link direto funciona se autorizado, sem item de menu/listagem"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "C:\\Users\\Dell\\dlh-core\\docs\\Docs20260605_192252\\design\\artifact.html",
+          "components/cockpit/erros-table.tsx e status-pill.tsx (sprint-007)",
+          "components/cockpit/sidebar.tsx (sprint-006)",
+          "Endpoints da sprint-002 (detalhe-edital, erros) e sprint-004 (reindexar)"
+        ],
+        "key_interfaces": [
+          "Componentes: cmp-erros-table, cmp-pipeline (pipeline-indicator.tsx), cmp-status-pill",
+          "Hooks: useErros(etapa?), useEdital(avisoId), useReprocessar(avisoId)",
+          "Rotas: /erros, /edital/[avisoId]"
+        ],
+        "architecture_notes": "/edital/[avisoId] NAO e superficie navegavel: sem item de menu e sem listagem; acesso humano somente a partir de um erro do Monitoramento (US-14/RF-24). Reutilize cmp-erros-table e cmp-status-pill criados na sprint-007. Etapa de enriquecimento cognitivo (US-06/US-09) e fronteira 'nao executada na Fase 1' (delta-004). Fidelidade ao artifact.html."
+      },
+      "dependencies": [
+        "sprint-001",
+        "sprint-002",
+        "sprint-004",
+        "sprint-006",
+        "sprint-007"
+      ],
+      "complexity": "medium",
+      "estimated_rounds": 2,
+      "metadata": {
+        "touchesUI": true,
+        "affectedScreenIds": [
+          "erros",
+          "edital"
+        ],
+        "affectedComponentIds": [
+          "cmp-erros-table",
+          "cmp-pipeline",
+          "cmp-status-pill",
+          "cmp-sidebar"
+        ],
+        "designArtifactPath": "C:\\Users\\Dell\\dlh-core\\docs\\Docs20260605_192252\\design\\artifact.html"
+      }
+    },
+    {
+      "id": "sprint-009",
+      "index": 8,
+      "name": "Frontend: Administracao (Fontes, Ingestao) e API LLM-ready",
+      "description": "Implementa a area de Administracao: Fontes e credenciais (form de credencial mascarada + teste de conexao), Configuracao da ingestao (frequencia/janela/modalidades/portais com validacao) e o console de validacao da API LLM-ready (playground de busca semantica).",
+      "coder_agent_id": "nextjs-developer",
+      "stack": [
+        "nextjs",
+        "typescript",
+        "tailwind",
+        "react-hook-form",
+        "zod"
+      ],
+      "features": [
+        {
+          "id": "feat-029",
+          "name": "Tela Fontes e credenciais",
+          "description": "Form de credencial Effecti mascarada e teste de conexao.",
+          "acceptance_criteria": [
+            "/fontes com components/cockpit/cred-form.tsx (cmp-cred-form) nos estados idle/loading/success/error: action-salvar-cred (useSalvarCredencial -> PUT /fontes/effecti/credencial) e action-testar-conexao (useTestarConexao -> POST /fontes/effecti/testar) independentes (success do form coexiste com falha no teste)",
+            "Token ja configurado exibido mascarado com indicador 'configurado' + acao 'substituir'; cancelar a substituicao mantem o valor salvo; submit com token vazio bloqueado por zod cliente e servidor",
+            "action-testar-conexao trata timeout, 401 e 429 com mensagem especifica e reflete estado_conexao (conectada/erro/nao_configurada) via cmp-status-pill",
+            "Estado nao_configurada (seed inicial) liga-se ao idle e ao onboarding"
+          ]
+        },
+        {
+          "id": "feat-030",
+          "name": "Tela Configuracao da ingestao",
+          "description": "Form de frequencia, janela, modalidades e portais com validacao.",
+          "acceptance_criteria": [
+            "/ingestao com components/cockpit/cfg-form.tsx (cmp-cfg-form) nos estados idle/success/error: action-salvar-cfg (useSalvarConfig -> PUT /ingestao/config)",
+            "Validacao zod (cliente e servidor) rejeita janelaDias 0/negativa/acima do maximo e modalidades/portais vazios antes do submit",
+            "Salvar config com coleta em andamento e permitido com feedback 'vale na proxima execucao' (sem redeploy, nao afeta a execucao atual)",
+            "action-coleta-demanda-cfg (useColetaDemanda) com formulario sujo avisa o usuario antes de disparar e reflete estado processing"
+          ]
+        },
+        {
+          "id": "feat-031",
+          "name": "Console API LLM-ready (playground)",
+          "description": "Playground de busca semantica para validacao humana.",
+          "acceptance_criteria": [
+            "/api com components/cockpit/semantic-search.tsx (cmp-search) nos estados idle/loading/success/empty: action-busca-semantica (useBuscaSemantica -> POST /v1/substrato/busca-semantica)",
+            "Query vazia validada no cmp-search nao dispara a busca; topK normalizado no payload",
+            "empty distingue 'sem embeddings indexados' (orientacao 'indexe avisos para buscar') de 'query valida sem resultados'",
+            "Tela usa a sessao do cockpit (nunca expoe a API key da Lia); falha de busca tratada como mensagem inline/toast nao-bloqueante dentro de idle (sem criar estado error novo)"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "C:\\Users\\Dell\\dlh-core\\docs\\Docs20260605_192252\\design\\artifact.html",
+          "components/cockpit/status-pill.tsx (sprint-007)",
+          "components/cockpit/sidebar.tsx (sprint-006)",
+          "Endpoints da sprint-003 (credencial, testar, config), sprint-004 (coletar) e sprint-005 (busca-semantica)"
+        ],
+        "key_interfaces": [
+          "Componentes: cmp-cred-form (cred-form.tsx), cmp-cfg-form (cfg-form.tsx), cmp-search (semantic-search.tsx), cmp-status-pill",
+          "Hooks: useSalvarCredencial, useTestarConexao, useSalvarConfig, useColetaDemanda, useBuscaSemantica",
+          "Rotas: /fontes, /ingestao, /api"
+        ],
+        "architecture_notes": "Seguranca visual: campo token (secret) nunca exibido em texto pleno apos salvo (RNF-02); a credencial real nao trafega de volta ao cliente. Gestao de contas/dominios autorizados (RF-39) e acomodada dentro da Administracao existente, SEM novo item de navegacao. A tela 'api' nao possui estado error travado (Sugestoes Futuras 5.4): use mensagem inline/toast em idle. Reutilize cmp-status-pill da sprint-007. Fidelidade ao artifact.html."
+      },
+      "dependencies": [
+        "sprint-001",
+        "sprint-003",
+        "sprint-004",
+        "sprint-005",
+        "sprint-006",
+        "sprint-007"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": true,
+        "affectedScreenIds": [
+          "fontes",
+          "ingestao",
+          "api"
+        ],
+        "affectedComponentIds": [
+          "cmp-cred-form",
+          "cmp-cfg-form",
+          "cmp-search",
+          "cmp-status-pill",
+          "cmp-sidebar"
+        ],
+        "designArtifactPath": "C:\\Users\\Dell\\dlh-core\\docs\\Docs20260605_192252\\design\\artifact.html"
+      }
+    }
+  ],
+  "metadata": {
+    "version": 1,
+    "created_at": "2026-06-06T03:59:39.141Z",
+    "total_sprints": 9,
+    "total_features": 31
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "imports": {
+    "@supabase/supabase-js": "jsr:@supabase/supabase-js@2",
+    "zod": "npm:zod@3.23.8"
+  },
+  "tasks": {
+    "check": "deno check **/*.ts",
+    "lint": "deno lint",
+    "fmt:check": "deno fmt --check"
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  },
+  "fmt": {
+    "lineWidth": 100,
+    "semiColons": true,
+    "singleQuote": false
+  }
+}
