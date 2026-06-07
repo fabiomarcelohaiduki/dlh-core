@@ -448,7 +448,7 @@ function extractNome(value: unknown): string | null {
  * robustez, mas resolvem null na pratica (empresa e derivada do tipo). Descarta
  * itens sem `id` (sem chave de dedup). `payload_bruto` preserva o bruto integral.
  */
-function mapRawProcesso(raw: unknown): CollectedRecord | null {
+export function mapRawProcesso(raw: unknown): CollectedRecord | null {
   if (typeof raw !== "object" || raw === null) return null;
   const obj = raw as Record<string, unknown>;
 

@@ -1,0 +1,268 @@
+// Coletor Nomus de NUVEM (GitHub Actions runner, Node/OpenSSL).
+//
+// MOTIVO: o Supabase Edge (Deno/rustls) nao conecta no Nomus por
+// incompatibilidade TLS (Nomus so oferece cifra CBC legada). Este runner roda
+// em Node (OpenSSL), que conecta normalmente. Ele:
+//   1) pagina GET /rest/processos?pagina=N (1-indexed) ate vir pagina vazia;
+//   2) respeita o throttling do Nomus (429 Retry-After e corpo
+//      {tempoAteLiberar}, que pode vir ate com status 200);
+//   3) faz UM push dos processos BRUTOS para a Edge Function nomus-ingerir,
+//      que reaproveita o pipeline de persistencia/indexacao do cockpit.
+//
+// Nao grava nada localmente. Toda a logica de dedup/reindex/execucao vive no
+// Edge (nomus-ingerir), preservando o cockpit integrado.
+//
+// Env obrigatorias:
+//   NOMUS_API_KEY          chave Basic do Nomus
+//   SUPABASE_URL           ex.: https://<ref>.supabase.co
+//   CRON_DISPATCH_SECRET   segredo de sistema (X-Cron-Secret) do nomus-ingerir
+// Env opcionais:
+//   NOMUS_BASE_URL         default https://famaha.nomus.com.br/famaha
+//   SUPABASE_ANON_KEY      apikey do gateway (incluida quando presente)
+//   NOMUS_RECURSO          default "processos"
+//   NOMUS_TAMANHO_LOTE     paginas por lote antes da pausa (default 14)
+//   NOMUS_PAUSA_LOTE_MS    pausa entre lotes em ms (default 5000)
+//   NOMUS_MAX_RETRIES      tentativas por pagina (default 5)
+//   NOMUS_MAX_PAGINAS      teto de seguranca de paginas (default 1000)
+
+const KEY = process.env.NOMUS_API_KEY;
+const BASE = (process.env.NOMUS_BASE_URL ?? "https://famaha.nomus.com.br/famaha").replace(
+  /\/+$/,
+  "",
+);
+const SUPABASE_URL = (process.env.SUPABASE_URL ?? "").replace(/\/+$/, "");
+const CRON_SECRET = process.env.CRON_DISPATCH_SECRET;
+const ANON = process.env.SUPABASE_ANON_KEY;
+const RECURSO = process.env.NOMUS_RECURSO ?? "processos";
+
+const TAMANHO_LOTE = posInt(process.env.NOMUS_TAMANHO_LOTE, 14);
+const PAUSA_LOTE_MS = posInt(process.env.NOMUS_PAUSA_LOTE_MS, 5_000);
+const MAX_RETRIES = posInt(process.env.NOMUS_MAX_RETRIES, 5);
+const MAX_PAGINAS = posInt(process.env.NOMUS_MAX_PAGINAS, 1_000);
+// Tamanho do lote de PUSH ao Edge. O Edge tem orcamento de CPU/memoria por
+// invocacao, entao enviamos poucos registros por vez (default 25).
+const PUSH_CHUNK = posInt(process.env.NOMUS_PUSH_CHUNK, 25);
+const BASE_DELAY_MS = 500;
+const BACKOFF_TETO_MS = 60_000;
+
+function posInt(raw, fallback) {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+function fail(msg, code = 2) {
+  console.error(`ERRO: ${msg}`);
+  process.exit(code);
+}
+
+if (!KEY) fail("env NOMUS_API_KEY ausente.");
+if (!SUPABASE_URL) fail("env SUPABASE_URL ausente.");
+if (!CRON_SECRET) fail("env CRON_DISPATCH_SECRET ausente.");
+
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function backoff(attempt) {
+  const exp = BASE_DELAY_MS * 2 ** attempt;
+  const capped = Math.min(exp, BACKOFF_TETO_MS);
+  return Math.floor(capped + Math.random() * (capped * 0.2));
+}
+
+/** Le {tempoAteLiberar:<seg>} do corpo (rate limit do Nomus). null se ausente. */
+function peekTempoAteLiberar(text) {
+  try {
+    const j = JSON.parse(text);
+    if (j && typeof j === "object" && !Array.isArray(j)) {
+      const t = j.tempoAteLiberar;
+      if (typeof t === "number" && Number.isFinite(t) && t > 0) return t * 1000;
+    }
+  } catch (_) {
+    // corpo nao-JSON: ignora.
+  }
+  return null;
+}
+
+/** Busca UMA pagina com retry/backoff. Retorna o array de processos da pagina. */
+async function fetchPagina(pagina) {
+  const url = `${BASE}/rest/processos?pagina=${pagina}`;
+  let attempt = 0;
+
+  while (true) {
+    let res;
+    try {
+      res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Basic ${KEY}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+      });
+    } catch (err) {
+      if (attempt >= MAX_RETRIES) {
+        fail(`falha de rede ao contatar o Nomus (pagina ${pagina}): ${err?.message ?? err}`, 1);
+      }
+      await delay(backoff(attempt));
+      attempt += 1;
+      continue;
+    }
+
+    if (res.status === 401) fail("credencial Nomus invalida (401).", 1);
+
+    if (res.status === 429) {
+      if (attempt >= MAX_RETRIES) fail("limite de requisicoes atingido (429).", 1);
+      const retryAfter = Number(res.headers.get("Retry-After"));
+      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : backoff(attempt);
+      await delay(waitMs);
+      attempt += 1;
+      continue;
+    }
+
+    if (res.status >= 500) {
+      if (attempt >= MAX_RETRIES) fail(`erro do servico Nomus (${res.status}).`, 1);
+      await delay(backoff(attempt));
+      attempt += 1;
+      continue;
+    }
+
+    if (!res.ok) fail(`requisicao Nomus rejeitada (${res.status}).`, 1);
+
+    const text = await res.text();
+
+    // Rate limit pode vir no CORPO ({tempoAteLiberar}), por vezes com 200.
+    const tempoMs = peekTempoAteLiberar(text);
+    if (tempoMs !== null) {
+      if (attempt >= MAX_RETRIES) fail("limite de requisicoes atingido (tempoAteLiberar).", 1);
+      await delay(tempoMs + 1_000);
+      attempt += 1;
+      continue;
+    }
+
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch (_) {
+      fail(`resposta nao-JSON na pagina ${pagina}.`, 1);
+    }
+    return Array.isArray(json) ? json : [];
+  }
+}
+
+async function coletarTudo() {
+  const processos = [];
+  let chamadasNoLote = 0;
+
+  for (let pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
+    const lista = await fetchPagina(pagina);
+    if (lista.length === 0) break; // pagina vazia encerra a varredura.
+    processos.push(...lista);
+    console.error(`[pagina ${pagina}] +${lista.length} (acumulado ${processos.length})`);
+
+    chamadasNoLote += 1;
+    if (chamadasNoLote >= TAMANHO_LOTE) {
+      chamadasNoLote = 0;
+      await delay(PAUSA_LOTE_MS);
+    }
+  }
+  return processos;
+}
+
+const INGERIR_URL = `${SUPABASE_URL}/functions/v1/nomus-ingerir`;
+
+function ingerirHeaders() {
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Cron-Secret": CRON_SECRET,
+  };
+  if (ANON) {
+    headers["apikey"] = ANON;
+    headers["Authorization"] = `Bearer ${ANON}`;
+  }
+  return headers;
+}
+
+/** POST de um lote para o nomus-ingerir. Retorna { status, json|text }. */
+async function postLote(body) {
+  const res = await fetch(INGERIR_URL, {
+    method: "POST",
+    headers: ingerirHeaders(),
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch (_) {
+    // mantem text cru.
+  }
+  return { status: res.status, ok: res.ok, json, text };
+}
+
+/** Pede ao Edge para marcar a execucao em 'erro' (libera o single-flight). */
+async function abortarExecucao(execucaoId) {
+  try {
+    await postLote({ recurso: RECURSO, execucao_id: execucaoId, abort: true });
+    console.error(`Execucao ${execucaoId} marcada como erro (abort).`);
+  } catch (e) {
+    console.error(`Falha ao abortar execucao ${execucaoId}: ${e?.message ?? e}`);
+  }
+}
+
+/** Envia todos os processos em lotes de PUSH_CHUNK, sob 1 unica execucao. */
+async function pushEmLotes(processos) {
+  if (processos.length === 0) {
+    // Sem registros: ainda cria+finaliza uma execucao 'concluida' (recebidos 0).
+    const r = await postLote({ gatilho: "agendada", recurso: RECURSO, processos: [], final: true });
+    if (!r.ok) fail(`push (vazio) falhou (${r.status}): ${r.text.slice(0, 500)}`, 1);
+    return r;
+  }
+
+  let execucaoId = null;
+  let acc = { novos: 0, alterados: 0, ignorados: 0, erros: 0, recebidos: 0 };
+
+  for (let i = 0; i < processos.length; i += PUSH_CHUNK) {
+    const lote = processos.slice(i, i + PUSH_CHUNK);
+    const isFinal = i + PUSH_CHUNK >= processos.length;
+    const body = {
+      gatilho: "agendada",
+      recurso: RECURSO,
+      processos: lote,
+      ...(execucaoId ? { execucao_id: execucaoId } : {}),
+      ...(isFinal ? { final: true } : {}),
+    };
+
+    const r = await postLote(body);
+
+    if (r.status === 409 && !execucaoId) {
+      // Ja ha execucao em andamento no sistema: aborta este ciclo (sem criar).
+      fail(`coleta recusada: ja ha execucao em andamento (${r.text.slice(0, 200)})`, 1);
+    }
+    if (!r.ok) {
+      if (execucaoId) await abortarExecucao(execucaoId);
+      fail(`push do lote ${i / PUSH_CHUNK + 1} falhou (${r.status}): ${r.text.slice(0, 300)}`, 1);
+    }
+
+    if (!execucaoId) execucaoId = r.json?.execucao_id ?? null;
+    acc.novos += r.json?.novos ?? 0;
+    acc.alterados += r.json?.alterados ?? 0;
+    acc.ignorados += r.json?.ignorados ?? 0;
+    acc.erros += r.json?.erros ?? 0;
+    acc.recebidos += r.json?.recebidos ?? lote.length;
+    console.error(
+      `[lote ${i / PUSH_CHUNK + 1}] enviados ${lote.length} | acumulado novos=${acc.novos} ` +
+        `alterados=${acc.alterados} ignorados=${acc.ignorados} erros=${acc.erros}`,
+    );
+  }
+
+  return { execucaoId, ...acc };
+}
+
+const startedAt = Date.now();
+const processos = await coletarTudo();
+console.log(`Coletados ${processos.length} processos do Nomus em ${Date.now() - startedAt}ms.`);
+
+const resumo = await pushEmLotes(processos);
+console.log("Resumo da ingestao:");
+console.log(JSON.stringify(resumo, null, 2));
+process.exit(0);

@@ -1,0 +1,40 @@
+name: Coletor Nomus (nuvem)
+
+# Coleta os processos do Nomus a partir da NUVEM (runner Node/OpenSSL) e faz
+# push para a Edge Function nomus-ingerir, que persiste no Supabase reusando o
+# pipeline do cockpit. Roda na nuvem porque o Supabase Edge (Deno) nao conecta
+# no Nomus por incompatibilidade TLS (cifra CBC legada).
+#
+# Agendado de hora em hora (UTC) + disparo manual. Ajuste o cron conforme a
+# necessidade; o GitHub pode atrasar execucoes agendadas em horarios de pico.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "15 * * * *"
+
+# Garante que duas execucoes nao rodem em paralelo (alinhado ao single-flight
+# global do cockpit, que recusaria a 2a com 409).
+concurrency:
+  group: coletar-nomus
+  cancel-in-progress: false
+
+jobs:
+  coletar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Coletar Nomus e enviar ao Supabase
+        env:
+          NOMUS_API_KEY: ${{ secrets.NOMUS_API_KEY }}
+          NOMUS_BASE_URL: ${{ secrets.NOMUS_BASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
+        run: node .github/scripts/coletar-nomus.mjs
