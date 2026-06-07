@@ -490,7 +490,30 @@ export function mapRawProcesso(raw: unknown): CollectedRecord | null {
         "atualizadoEm",
       ]),
     ),
-    payload_bruto: raw,
+    payload_bruto: stripAnexosBase64(obj),
+  };
+}
+
+/**
+ * Remove o conteudo `anexoBase64` de cada item de `arquivosAnexos` antes de
+ * persistir o `payload_bruto`. A API do Nomus inlina o PDF inteiro em base64
+ * dentro do JSON do processo (117k-521k chars por anexo), o que inflaria a
+ * tabela em varios GB no backfill. Mantemos apenas a METADATA do anexo (`nome`,
+ * `extensao`) — suficiente para listar/baixar na fase de Analise. Demais campos
+ * do payload permanecem verbatim. Carve-out explicito ao SEC-08: o `payload_bruto`
+ * e fiel ao bruto EXCETO pelo blob de anexo, removido por peso. Espelha o Effecti,
+ * cuja API ja entrega anexos como metadata (nunca recebeu base64).
+ */
+function stripAnexosBase64(obj: Record<string, unknown>): Record<string, unknown> {
+  const anexos = obj["arquivosAnexos"];
+  if (!Array.isArray(anexos)) return obj;
+  return {
+    ...obj,
+    arquivosAnexos: anexos.map((anexo) => {
+      if (typeof anexo !== "object" || anexo === null) return anexo;
+      const { anexoBase64: _omit, ...metadata } = anexo as Record<string, unknown>;
+      return metadata;
+    }),
   };
 }
 
