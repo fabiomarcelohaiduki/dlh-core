@@ -48,6 +48,7 @@ const DEFAULT_RECURSO = "processos" as const;
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
 interface IngerirInput {
+  action?: string;
   gatilho?: string;
   recurso?: string;
   processos: unknown[];
@@ -106,14 +107,16 @@ async function parseInput(req: Request): Promise<IngerirInput> {
     throw new HttpError(400, "corpo_invalido", "corpo da requisicao ausente");
   }
   const o = body as Record<string, unknown>;
+  const action = typeof o.action === "string" ? o.action : undefined;
   const abort = o.abort === true;
   const execucaoId = typeof o.execucao_id === "string" ? o.execucao_id : undefined;
 
-  // No abort, 'processos' nao e exigido (so finaliza a execucao em erro).
-  if (!abort && !Array.isArray(o.processos)) {
+  // No abort/action, 'processos' nao e exigido (acoes read-only ou de controle).
+  if (!abort && !action && !Array.isArray(o.processos)) {
     throw new HttpError(422, "processos_ausentes", "campo 'processos' (array) e obrigatorio");
   }
   return {
+    action,
     gatilho: typeof o.gatilho === "string" ? o.gatilho : undefined,
     recurso: typeof o.recurso === "string" ? o.recurso : undefined,
     processos: Array.isArray(o.processos) ? o.processos : [],
@@ -147,6 +150,22 @@ async function loadTiposAtivos(
   return Array.isArray(cfg.tipos_ativos)
     ? cfg.tipos_ativos.filter((v): v is string => typeof v === "string")
     : [];
+}
+
+/**
+ * Marca d'agua (high-water mark) da coleta: maior nomus_id ja persistido,
+ * comparado NUMERICAMENTE (a coluna e TEXT, entao MAX lexicografico erraria).
+ * Delega para a funcao SQL public.nomus_max_nomus_id(). Retorna null quando o
+ * banco ainda nao tem nenhum processo (coletor cai em varredura completa).
+ */
+async function loadWatermark(service: ServiceClient): Promise<number | null> {
+  const { data, error } = await service.rpc("nomus_max_nomus_id");
+  if (error) {
+    throw new HttpError(500, "watermark_query_failed", "falha ao consultar a marca d'agua");
+  }
+  if (data === null || data === undefined) return null;
+  const n = Number(data);
+  return Number.isFinite(n) ? n : null;
 }
 
 /**
@@ -232,6 +251,17 @@ async function handler(req: Request): Promise<Response> {
     const input = await parseInput(req);
     const recurso = input.recurso ?? DEFAULT_RECURSO;
     const service = createServiceClient();
+
+    // -----------------------------------------------------------------
+    // WATERMARK (read-only): devolve o maior nomus_id ja persistido para o
+    // coletor de nuvem cortar a coleta em processos NOVOS (id > marca), sem
+    // varrer todas as paginas. Nao toca execucoes nem fonte.
+    // -----------------------------------------------------------------
+    if (input.action === "watermark") {
+      const max = await loadWatermark(service);
+      return jsonResponse({ max_nomus_id: max }, 200);
+    }
+
     const fonte = await getFonteByTipo("nomus");
 
     // -----------------------------------------------------------------

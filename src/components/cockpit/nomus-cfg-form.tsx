@@ -26,9 +26,13 @@ const RECURSOS = [
   },
 ] as const;
 
-/** Tipos disponiveis por recurso. Nesta entrega so Processos expoe tipos. */
+/**
+ * Tipos disponiveis por recurso. Nesta entrega so Processos expoe tipos. Os
+ * rotulos sao os LITERAIS exatos do campo `tipo` do Nomus — o allowlist
+ * (tipos_ativos) compara string exata, entao "Cobrança DARLU" leva a cedilha.
+ */
 const TIPOS_POR_RECURSO: Record<string, string[]> = {
-  processos: ["Venda Governamental"],
+  processos: ["Venda Governamental", "Cobrança DARLU"],
 };
 
 interface RecursoFormState {
@@ -42,7 +46,7 @@ type Feedback = { kind: "ok" | "err"; message: string };
 /** Estado default de um recurso quando o backend ainda nao tem config. */
 function defaultRecurso(key: string, futuro: boolean): RecursoFormState {
   if (key === "processos") {
-    return { ativo: true, tiposAtivos: ["Venda Governamental"] };
+    return { ativo: true, tiposAtivos: ["Venda Governamental", "Cobrança DARLU"] };
   }
   return { ativo: !futuro, tiposAtivos: [] };
 }

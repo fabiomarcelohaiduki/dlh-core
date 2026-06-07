@@ -9,6 +9,14 @@ name: Coletor Nomus (nuvem)
 # necessidade; o GitHub pode atrasar execucoes agendadas em horarios de pico.
 on:
   workflow_dispatch:
+    inputs:
+      modo:
+        description: "Modo de coleta"
+        type: choice
+        default: incremental
+        options:
+          - incremental
+          - full
   schedule:
     - cron: "15 * * * *"
 
@@ -32,6 +40,8 @@ jobs:
 
       - name: Coletar Nomus e enviar ao Supabase
         env:
+          # Disparo manual escolhe o modo; o agendado roda sempre incremental.
+          NOMUS_MODO: ${{ github.event.inputs.modo || 'incremental' }}
           NOMUS_API_KEY: ${{ secrets.NOMUS_API_KEY }}
           NOMUS_BASE_URL: ${{ secrets.NOMUS_BASE_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

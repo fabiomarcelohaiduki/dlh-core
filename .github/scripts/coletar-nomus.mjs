@@ -20,10 +20,19 @@
 //   NOMUS_BASE_URL         default https://famaha.nomus.com.br/famaha
 //   SUPABASE_ANON_KEY      apikey do gateway (incluida quando presente)
 //   NOMUS_RECURSO          default "processos"
+//   NOMUS_MODO             "incremental" (default) | "full"
 //   NOMUS_TAMANHO_LOTE     paginas por lote antes da pausa (default 14)
 //   NOMUS_PAUSA_LOTE_MS    pausa entre lotes em ms (default 5000)
 //   NOMUS_MAX_RETRIES      tentativas por pagina (default 5)
 //   NOMUS_MAX_PAGINAS      teto de seguranca de paginas (default 1000)
+//
+// MODO de coleta:
+//   incremental (default) — pede ao Edge a MARCA D'AGUA (maior nomus_id ja
+//     persistido) e so puxa processos NOVOS (id > marca). A listagem do Nomus
+//     vem por id DESC, entao o runner para assim que alcanca a marca, sem
+//     varrer todas as paginas. E o regime permanente (cron horario).
+//   full — backfill: ignora a marca e varre TODAS as paginas (1x, p/ trazer o
+//     historico antigo abaixo do max). Acionado manualmente (workflow_dispatch).
 
 const KEY = process.env.NOMUS_API_KEY;
 const BASE = (process.env.NOMUS_BASE_URL?.trim() || "https://famaha.nomus.com.br/famaha").replace(
@@ -34,6 +43,7 @@ const SUPABASE_URL = (process.env.SUPABASE_URL ?? "").replace(/\/+$/, "");
 const CRON_SECRET = process.env.CRON_DISPATCH_SECRET;
 const ANON = process.env.SUPABASE_ANON_KEY;
 const RECURSO = process.env.NOMUS_RECURSO ?? "processos";
+const MODO = (process.env.NOMUS_MODO?.trim().toLowerCase() === "full") ? "full" : "incremental";
 // A JANELA de coleta (data de corte) vive no cockpit (config_ingestao.
 // data_inicial) e e aplicada pela Edge Function nomus-ingerir. Este runner so
 // puxa e empurra; nao filtra por data.
@@ -171,6 +181,50 @@ async function coletarTudo() {
   return processos;
 }
 
+/** id numerico do processo (p.id). NaN quando ausente/nao-numerico. */
+function idNum(p) {
+  const n = Number(p?.id);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+/**
+ * Coleta INCREMENTAL: a listagem vem por id DESC (novos primeiro). Puxa apenas
+ * processos com id > marca d'agua e PARA assim que a pagina alcanca um id ja
+ * conhecido (<= marca) — evita varrer todas as paginas. Ids nao-numericos sao
+ * mantidos por seguranca (nunca descartados; dedup no Edge resolve).
+ */
+async function coletarIncremental(watermark) {
+  const processos = [];
+  let chamadasNoLote = 0;
+
+  for (let pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
+    const lista = await fetchPagina(pagina);
+    if (lista.length === 0) break; // pagina vazia encerra a varredura.
+
+    let alcancouConhecido = false;
+    for (const p of lista) {
+      const n = idNum(p);
+      if (Number.isNaN(n) || n > watermark) {
+        processos.push(p);
+      } else {
+        alcancouConhecido = true; // id <= marca: dali p/ baixo ja esta no banco.
+      }
+    }
+    console.error(
+      `[pagina ${pagina}] novos+${processos.length} (lote ${lista.length})` +
+        (alcancouConhecido ? " | alcancou a marca, encerrando" : ""),
+    );
+    if (alcancouConhecido) break;
+
+    chamadasNoLote += 1;
+    if (chamadasNoLote >= TAMANHO_LOTE) {
+      chamadasNoLote = 0;
+      await delay(PAUSA_LOTE_MS);
+    }
+  }
+  return processos;
+}
+
 const INGERIR_URL = `${SUPABASE_URL}/functions/v1/nomus-ingerir`;
 
 function ingerirHeaders() {
@@ -200,6 +254,19 @@ async function postLote(body) {
     // mantem text cru.
   }
   return { status: res.status, ok: res.ok, json, text };
+}
+
+/**
+ * Le a MARCA D'AGUA no Edge (action: "watermark"): maior nomus_id ja
+ * persistido. Retorna number ou null (banco vazio => coleta full).
+ */
+async function fetchWatermark() {
+  const r = await postLote({ action: "watermark", recurso: RECURSO });
+  if (!r.ok) fail(`falha ao obter a marca d'agua (${r.status}): ${r.text.slice(0, 300)}`, 1);
+  const raw = r.json?.max_nomus_id;
+  if (raw === null || raw === undefined) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
 }
 
 /** Pede ao Edge para marcar a execucao em 'erro' (libera o single-flight). */
@@ -262,7 +329,21 @@ async function pushEmLotes(processos) {
 }
 
 const startedAt = Date.now();
-const processos = await coletarTudo();
+
+let processos;
+if (MODO === "full") {
+  console.log("Modo FULL (backfill): varrendo todas as paginas, ignorando a marca d'agua.");
+  processos = await coletarTudo();
+} else {
+  const watermark = await fetchWatermark();
+  if (watermark === null) {
+    console.log("Modo incremental, mas o banco esta vazio: varredura completa (1a coleta).");
+    processos = await coletarTudo();
+  } else {
+    console.log(`Modo incremental: coletando processos com id > ${watermark}.`);
+    processos = await coletarIncremental(watermark);
+  }
+}
 console.log(`Coletados ${processos.length} processos do Nomus em ${Date.now() - startedAt}ms.`);
 
 const resumo = await pushEmLotes(processos);
