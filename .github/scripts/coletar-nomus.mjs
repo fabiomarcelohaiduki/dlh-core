@@ -6,7 +6,9 @@
 //   1) pagina GET /rest/processos?pagina=N (1-indexed) ate vir pagina vazia;
 //   2) respeita o throttling do Nomus (429 Retry-After e corpo
 //      {tempoAteLiberar}, que pode vir ate com status 200);
-//   3) faz UM push dos processos BRUTOS para a Edge Function nomus-ingerir,
+//   3) estripa o anexoBase64 de cada processo (mantem metadata do anexo) logo
+//      apos o fetch — evita OOM de heap no backfill e payloads gigantes;
+//   4) faz push dos processos (em lotes) para a Edge Function nomus-ingerir,
 //      que reaproveita o pipeline de persistencia/indexacao do cockpit.
 //
 // Nao grava nada localmente. Toda a logica de dedup/reindex/execucao vive no
@@ -78,6 +80,30 @@ function backoff(attempt) {
   const exp = BASE_DELAY_MS * 2 ** attempt;
   const capped = Math.min(exp, BACKOFF_TETO_MS);
   return Math.floor(capped + Math.random() * (capped * 0.2));
+}
+
+/**
+ * Remove o `anexoBase64` de cada item de `arquivosAnexos`, preservando a
+ * metadata (`nome`, `extensao`). A API do Nomus inlina o PDF inteiro em base64
+ * (117k-521k chars/anexo, ~2,6 MB por processo de Venda Governamental). Sem
+ * este strip, o backfill acumularia GBs no heap do runner (OOM aos ~56 min) e
+ * mandaria payloads gigantes ao Edge. Aplicado AQUI (logo apos o fetch), antes
+ * de acumular/enviar. O Edge faz o mesmo strip de forma idempotente (espelha o
+ * Effecti, cuja API ja entrega anexos como metadata). Carve-out ao SEC-08:
+ * payload fiel EXCETO pelo blob de anexo, removido por peso.
+ */
+function stripAnexosBase64(proc) {
+  if (!proc || typeof proc !== "object") return proc;
+  const anexos = proc.arquivosAnexos;
+  if (!Array.isArray(anexos)) return proc;
+  return {
+    ...proc,
+    arquivosAnexos: anexos.map((a) => {
+      if (!a || typeof a !== "object") return a;
+      const { anexoBase64: _omit, ...meta } = a;
+      return meta;
+    }),
+  };
 }
 
 /** Le {tempoAteLiberar:<seg>} do corpo (rate limit do Nomus). null se ausente. */
@@ -158,7 +184,9 @@ async function fetchPagina(pagina) {
     } catch (_) {
       fail(`resposta nao-JSON na pagina ${pagina}.`, 1);
     }
-    return Array.isArray(json) ? json : [];
+    // Estripa o anexoBase64 JA NA SAIDA do fetch: tudo que e acumulado/enviado
+    // adiante carrega apenas a metadata do anexo (evita OOM no backfill).
+    return Array.isArray(json) ? json.map(stripAnexosBase64) : [];
   }
 }
 
