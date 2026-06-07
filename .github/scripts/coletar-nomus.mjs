@@ -26,7 +26,7 @@
 //   NOMUS_MAX_PAGINAS      teto de seguranca de paginas (default 1000)
 
 const KEY = process.env.NOMUS_API_KEY;
-const BASE = (process.env.NOMUS_BASE_URL ?? "https://famaha.nomus.com.br/famaha").replace(
+const BASE = (process.env.NOMUS_BASE_URL?.trim() || "https://famaha.nomus.com.br/famaha").replace(
   /\/+$/,
   "",
 );
