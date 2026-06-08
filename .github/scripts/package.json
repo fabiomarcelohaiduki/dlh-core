@@ -1,0 +1,9 @@
+{
+  "name": "dlh-runner-scripts",
+  "private": true,
+  "description": "Dependencias dos runners de NUVEM (GitHub Actions): coletar-nomus, extrair-anexos. Isolado do app Next.js do repo raiz para o job instalar so o necessario (ex: adm-zip para descompactar ZIP na camada 1).",
+  "type": "module",
+  "dependencies": {
+    "adm-zip": "^0.5.16"
+  }
+}

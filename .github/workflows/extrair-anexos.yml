@@ -17,10 +17,16 @@ name: Extrator de anexos (camada 1)
 # ADAPTADOR da fonte (nomus/effecti), extrai o texto via Tika e empurra de
 # volta ao Edge, que faz dedup global + grava texto + indexa.
 on:
+  # Schedule TEMPORARIO para drenar o backfill da fila (~11k anexos) sem disparo
+  # manual: cada run consome lotes de 500 em loop ate ~5h (budget do orquestrador),
+  # o restante fica para o proximo run. Quando a fila zerar, REMOVER este bloco
+  # (os runs agendados passam a sair em segundos com "Nenhum vinculo pendente").
+  schedule:
+    - cron: "0 */6 * * *"
   workflow_dispatch:
     inputs:
       limite:
-        description: "Teto de vinculos pendentes a processar neste run (vazio = config_extracao)"
+        description: "Tamanho do fetch por iteracao (vazio = 500, teto do Edge). O run re-busca em loop ate a fila esgotar ou o budget de tempo acabar."
         type: string
         required: false
 
@@ -48,6 +54,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+
+      # Dependencias dos runners (ex: adm-zip para descompactar ZIP na camada 1).
+      # Isolado em .github/scripts/package.json para nao instalar o app Next.js.
+      - name: Instalar deps do runner
+        working-directory: .github/scripts
+        run: npm install --no-audit --no-fund
 
       - name: Aguardar Tika ficar pronto
         run: |

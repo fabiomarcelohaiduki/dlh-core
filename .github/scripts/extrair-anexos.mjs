@@ -25,7 +25,9 @@
 // Env opcionais:
 //   SUPABASE_ANON_KEY      apikey do gateway (incluida quando presente)
 //   TIKA_ENDPOINT          endpoint do Tika (default localhost:9998; lido pelo extrator)
-//   EXTRACAO_LIMITE        teto de vinculos por run (default = config.loteTamanho ou 50)
+//   EXTRACAO_LIMITE        tamanho do fetch por iteracao (default 500 = teto do Edge);
+//                          o run RE-BUSCA em loop ate a fila esgotar ou o budget acabar
+//   EXTRACAO_BUDGET_MS     teto de tempo do run em ms (default 5h; margem antes do corte de 6h)
 //   EXTRACAO_PUSH_CHUNK    resultados por push ao Edge (default 3; texto e pesado)
 
 import { extrairTexto, ExtracaoError } from "./extrator.mjs";
@@ -294,39 +296,62 @@ async function drenarBuffer(buffer, minimo) {
 
 const startedAt = Date.now();
 
-const limiteEnv = posInt(process.env.EXTRACAO_LIMITE, 0) || undefined;
-const { pendentes, config } = await fetchPendentes(limiteEnv);
+// EXTRACAO_LIMITE = tamanho do fetch por iteracao (teto do Edge = 500). Cada
+// chamada 'pendentes' devolve no maximo este tanto; o loop abaixo RE-BUSCA ate
+// a fila esgotar ou o budget de tempo acabar.
+const fetchSize = posInt(process.env.EXTRACAO_LIMITE, 500);
+// Budget de tempo do run: drena lotes em sequencia ate ~5h, deixando margem
+// antes do corte de 6h do Actions. O que sobrar fica na fila para o proximo
+// run (agendado) continuar. Os ja extraidos sairam de 'pendente' (push
+// incremental), entao nunca reprocessam -> a fila so encolhe, sem loop infinito.
+const budgetMs = posInt(process.env.EXTRACAO_BUDGET_MS, 5 * 60 * 60 * 1000);
 
-if (pendentes.length === 0) {
-  console.log("Nenhum vinculo pendente de extracao.");
-  process.exit(0);
+let iter = 0;
+let totalProcessados = 0;
+
+while (true) {
+  if (Date.now() - startedAt >= budgetMs) {
+    console.log(
+      `Budget de tempo atingido (${budgetMs}ms); encerrando para o proximo run continuar a fila.`,
+    );
+    break;
+  }
+
+  const { pendentes, config } = await fetchPendentes(fetchSize);
+  if (pendentes.length === 0) {
+    console.log(iter === 0 ? "Nenhum vinculo pendente de extracao." : "Fila de pendentes esvaziada.");
+    break;
+  }
+
+  iter += 1;
+  // Releitura da config a cada lote e barata e pega mudancas do cockpit em runs longos.
+  const configExtrator = montarConfigExtrator(config);
+  const loteTamanho = posInt(config?.loteTamanho, pendentes.length);
+  const pausaLoteMs = posInt(config?.pausaLoteMs, 0);
+
+  console.log(
+    `[lote ${iter}] extraindo ${pendentes.length} anexo(s) pendentes ` +
+      `(OCR=${configExtrator.ocrEstrategia ?? "padrao"}, lote=${loteTamanho}).`,
+  );
+
+  const buffer = [];
+  let processados = 0;
+  for (const vinculo of pendentes) {
+    const out = await processarVinculo(vinculo, configExtrator);
+    buffer.push(out);
+    processados += 1;
+    const tag = out.ok ? `ok (${out.texto?.length ?? 0} chars, via=${out.via})` : `ERRO ${out.erro}`;
+    console.error(`[extrair ${processados}/${pendentes.length}] vinculo ${vinculo.id}: ${tag}`);
+    // Persiste e libera memoria assim que junta um chunk cheio.
+    await drenarBuffer(buffer, PUSH_CHUNK);
+    if (pausaLoteMs > 0 && processados % loteTamanho === 0) await delay(pausaLoteMs);
+  }
+  // Empurra o resto que nao completou um chunk.
+  await drenarBuffer(buffer, 1);
+  totalProcessados += processados;
 }
 
-const configExtrator = montarConfigExtrator(config);
-const loteTamanho = posInt(config?.loteTamanho, pendentes.length);
-const pausaLoteMs = posInt(config?.pausaLoteMs, 0);
-
-console.log(
-  `Extraindo ${pendentes.length} anexo(s) pendentes ` +
-    `(OCR=${configExtrator.ocrEstrategia ?? "padrao"}, lote=${loteTamanho}).`,
-);
-
-const buffer = [];
-let processados = 0;
-for (const vinculo of pendentes) {
-  const out = await processarVinculo(vinculo, configExtrator);
-  buffer.push(out);
-  processados += 1;
-  const tag = out.ok ? `ok (${out.texto?.length ?? 0} chars, via=${out.via})` : `ERRO ${out.erro}`;
-  console.error(`[extrair ${processados}/${pendentes.length}] vinculo ${vinculo.id}: ${tag}`);
-  // Persiste e libera memoria assim que junta um chunk cheio.
-  await drenarBuffer(buffer, PUSH_CHUNK);
-  if (pausaLoteMs > 0 && processados % loteTamanho === 0) await delay(pausaLoteMs);
-}
-// Empurra o resto que nao completou um chunk.
-await drenarBuffer(buffer, 1);
-
-console.log(`Concluido em ${Date.now() - startedAt}ms.`);
+console.log(`Concluido em ${Date.now() - startedAt}ms. Lotes=${iter}, processados=${totalProcessados}.`);
 console.log("Resumo da extracao:");
 console.log(JSON.stringify(resumo, null, 2));
 process.exit(0);
