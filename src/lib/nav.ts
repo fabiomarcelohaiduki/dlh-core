@@ -2,6 +2,7 @@ import type { ComponentType, SVGProps } from "react";
 import {
   LayoutDashboard,
   Activity,
+  FileText,
   TriangleAlert,
   KeyRound,
   Braces,
@@ -33,6 +34,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "nav-dashboard", label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
       { id: "nav-execucoes", label: "Execuções", href: "/execucoes", icon: Activity },
+      { id: "nav-extracao", label: "Extração", href: "/extracao", icon: FileText },
       { id: "nav-erros", label: "Erros", href: "/erros", icon: TriangleAlert, badgeKey: "erros" },
     ],
   },
@@ -50,6 +52,7 @@ export const NAV_GROUPS: NavGroup[] = [
 export const SCREEN_TITLES: Record<string, string> = {
   "/dashboard": "Dashboard",
   "/execucoes": "Execuções",
+  "/extracao": "Extração",
   "/erros": "Erros",
   "/fontes": "Fontes e credenciais",
   "/api": "API LLM-ready",

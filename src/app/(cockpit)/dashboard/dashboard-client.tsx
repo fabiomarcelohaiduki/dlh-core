@@ -3,16 +3,16 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  Activity,
   Clock,
   Database,
+  Server,
   TriangleAlert,
   ChevronRight,
-  TrendingUp,
   Rocket,
 } from "lucide-react";
 import { useExecucoes, useErros, useHealthcheck } from "@/hooks/use-monitoring";
-import { healthDescriptor, healthMeta } from "@/lib/status";
+import { useFontes } from "@/hooks/use-fontes";
+import { conexaoDescriptor } from "@/lib/status";
 import { formatNumber, formatRelative, formatDateTime, formatGatilho } from "@/lib/format";
 import { StatCard } from "@/components/cockpit/stat-card";
 import { StatusPill } from "@/components/cockpit/status-pill";
@@ -23,12 +23,54 @@ import { WidgetError } from "@/components/cockpit/widget-error";
 
 const DASH_RUNS_LIMIT = 6;
 
+type Origem = "effecti" | "nomus";
+type EstadoConexaoLike = Parameters<typeof conexaoDescriptor>[0];
+
+/**
+ * matchesOrigem — casa uma execucao com a fonte. Execucoes legadas (anteriores
+ * ao schema multi-fonte) tem fonte_id null e, portanto, origem null; todas eram
+ * do Effecti (1a fonte). O Nomus sempre grava fonte_id, entao origem null conta
+ * como Effecti.
+ */
+function matchesOrigem(runOrigem: string | null, origem: Origem): boolean {
+  return runOrigem === origem || (origem === "effecti" && runOrigem === null);
+}
+
+/**
+ * derivarSaude — saude de conexao por fonte para o card do Dashboard. Prioriza
+ * a evidencia de coleta real: estado 'erro' explicito vence; senao, fonte com
+ * dado no substrato ou com execucao concluida conta como "conectada"; por fim,
+ * cai no estado_conexao bruto (ex.: "nao_configurada").
+ */
+function derivarSaude(
+  estado: EstadoConexaoLike | undefined,
+  runs: { origem: string | null; status: string }[],
+  origem: Origem,
+  temDado: boolean,
+): EstadoConexaoLike {
+  if (estado === "erro") return "erro";
+  const concluida = runs.some((r) => matchesOrigem(r.origem, origem) && r.status === "concluida");
+  if (estado === "conectada" || temDado || concluida) return "conectada";
+  return estado ?? "nao_configurada";
+}
+
+/** ultimaColeta — fim da ultima execucao concluida da fonte; fallback p/ fontes. */
+function ultimaColeta(
+  runs: { origem: string | null; fim: string | null }[],
+  origem: Origem,
+  fallback: string | null,
+): string | null {
+  const finalizada = runs.find((r) => matchesOrigem(r.origem, origem) && r.fim);
+  return finalizada?.fim ?? fallback;
+}
+
 export function DashboardClient() {
   const router = useRouter();
 
   const health = useHealthcheck();
   const execucoes = useExecucoes({ limit: 50 });
   const erros = useErros();
+  const fontes = useFontes();
 
   const healthData = health.data;
   const runs = execucoes.data?.items ?? [];
@@ -36,25 +78,44 @@ export function DashboardClient() {
 
   const running = runs.some((r) => r.status === "em_andamento");
 
-  // Estado empty global -> onboarding (1o acesso): nenhum dado em lugar nenhum.
+  const totalAvisos = healthData?.totalAvisos ?? 0;
+  const totalProcessos = healthData?.totalProcessos ?? 0;
+  const itensComErro = healthData?.itensComErro ?? 0;
+
+  // Saude por fonte. O pill de conexao (public.fontes.estado_conexao) so e
+  // carimbado pelo teste manual / coleta do Nomus, entao o pipeline do Effecti
+  // o deixa em "nao_configurada" mesmo coletando. Para refletir a coleta real,
+  // derivamos a saude e a "ultima coleta" da ultima execucao da fonte (origem +
+  // fim), com fallback para o estado/timestamp de public.fontes.
+  const effecti = fontes.data?.find((f) => f.tipo === "effecti");
+  const nomus = fontes.data?.find((f) => f.tipo === "nomus");
+
+  const effectiSaude = derivarSaude(effecti?.estadoConexao, runs, "effecti", totalAvisos > 0);
+  const nomusSaude = derivarSaude(nomus?.estadoConexao, runs, "nomus", totalProcessos > 0);
+  const effectiPill = conexaoDescriptor(effectiSaude);
+  const nomusPill = conexaoDescriptor(nomusSaude);
+  const effectiColeta = ultimaColeta(runs, "effecti", effecti?.ultimaColetaEm ?? null);
+  const nomusColeta = ultimaColeta(runs, "nomus", nomus?.ultimaColetaEm ?? null);
+
+  // Estado empty global -> onboarding (1o acesso): nenhum dado em fonte alguma.
   const allLoaded =
-    health.isSuccess && execucoes.isSuccess && erros.isSuccess;
+    health.isSuccess &&
+    execucoes.isSuccess &&
+    erros.isSuccess &&
+    fontes.isSuccess;
   const isOnboarding =
     allLoaded &&
-    (healthData?.totalAvisos ?? 0) === 0 &&
+    totalAvisos === 0 &&
+    totalProcessos === 0 &&
     runs.length === 0 &&
     errosItems.length === 0;
-
-  const healthState = healthData ? healthDescriptor(healthData.statusIngestao) : null;
-  const healthMetaInfo = healthData ? healthMeta(healthData.statusIngestao) : null;
-  const itensComErro = healthData?.itensComErro ?? 0;
 
   return (
     <section className="screen">
       <div className="page-head">
         <div className="titles">
           <h2>Dashboard</h2>
-          <p>Saúde da ingestão e status das execuções de sincronização da fonte Effecti.</p>
+          <p>Saúde da ingestão e status das execuções de sincronização das fontes conectadas.</p>
         </div>
         <div className="actions">
           <ColetaButton variant="primary" blocked={running} />
@@ -67,7 +128,7 @@ export function DashboardClient() {
           <div>
             <b>Bem-vindo ao cockpit de ingestão</b>
             <p>
-              Ainda não há dados no substrato. Configure a credencial e a frequência da fonte em{" "}
+              Ainda não há dados no substrato. Configure a credencial e a frequência das fontes em{" "}
               <Link href="/fontes" className="link">
                 Fontes e credenciais
               </Link>
@@ -77,27 +138,33 @@ export function DashboardClient() {
         </div>
       )}
 
-      {/* ---- KPIs (widget com error/empty proprios) ---- */}
-      {health.isError ? (
+      {/* ---- KPIs: saude por fonte + erros (widget com error/empty proprios) ---- */}
+      {health.isError || fontes.isError ? (
         <WidgetError
-          title="Healthcheck indisponível"
-          message="Não foi possível ler a saúde da ingestão."
-          onRetry={() => health.refetch()}
+          title="Indicadores indisponíveis"
+          message="Não foi possível ler a saúde das fontes."
+          onRetry={() => {
+            health.refetch();
+            fontes.refetch();
+          }}
         />
       ) : (
         <div className="grid-dlh g4">
           <StatCard
-            icon={<Activity aria-hidden="true" />}
-            label="Status da ingestão"
+            icon={<Database aria-hidden="true" />}
+            label="Effecti · avisos"
             pill
-            loading={health.isLoading}
-            value={
-              healthState ? (
-                <StatusPill state={healthState.state} label={healthState.label} />
-              ) : null
-            }
-            meta={healthMetaInfo?.text}
-            metaTone={healthMetaInfo?.tone}
+            loading={fontes.isLoading || health.isLoading}
+            value={<StatusPill state={effectiPill.state} label={effectiPill.label} />}
+            meta={`${formatNumber(totalAvisos)} avisos · coleta ${formatRelative(effectiColeta)}`}
+          />
+          <StatCard
+            icon={<Server aria-hidden="true" />}
+            label="Nomus · processos"
+            pill
+            loading={fontes.isLoading || health.isLoading}
+            value={<StatusPill state={nomusPill.state} label={nomusPill.label} />}
+            meta={`${formatNumber(totalProcessos)} processos · coleta ${formatRelative(nomusColeta)}`}
           />
           <StatCard
             icon={<Clock aria-hidden="true" />}
@@ -109,28 +176,6 @@ export function DashboardClient() {
                 ? `${formatGatilho(runs[0].gatilho)} · ${formatDateTime(runs[0].inicio)}`
                 : "Sem coletas registradas"
             }
-          />
-          <StatCard
-            icon={<Database aria-hidden="true" />}
-            label="Avisos no substrato"
-            loading={health.isLoading}
-            value={
-              <span className="tnum">
-                {formatNumber(healthData?.totalAvisos)}
-                <small>registros</small>
-              </span>
-            }
-            meta={
-              runs[0] && runs[0].novos > 0 ? (
-                <>
-                  <TrendingUp aria-hidden="true" />
-                  {`+${runs[0].novos} na última coleta`}
-                </>
-              ) : (
-                "Sem novos na última coleta"
-              )
-            }
-            metaTone={runs[0] && runs[0].novos > 0 ? "up" : "default"}
           />
           <StatCard
             icon={<TriangleAlert aria-hidden="true" />}

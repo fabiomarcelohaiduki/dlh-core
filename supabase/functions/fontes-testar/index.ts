@@ -30,6 +30,17 @@ import {
 import { parseJsonBody, testarConexaoSchema } from "../_shared/validation.ts";
 import type { TestarConexaoResult } from "../_shared/types.ts";
 
+/** Formata um ISO em data/hora curta BR (America/Sao_Paulo) para a copy. */
+function formatBrDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+}
+
 /** Mensagem por causa de falha, espelhando a copy do bloco Effecti (4.5.1). */
 function messageForCause(cause: TestFailureCause, fonteNome: string): string {
   switch (cause) {
@@ -82,6 +93,53 @@ async function handler(req: Request): Promise<Response> {
           `credencial ${fonteRecord.nome} nao configurada: salve a chave de integracao antes de testar`,
         latencia_ms: 0,
       };
+      return jsonResponse(body, 200);
+    }
+
+    // -----------------------------------------------------------------
+    // NOMUS: o teste NAO roda via Edge. O Nomus (famaha.nomus.com.br) so
+    // aceita TLS 1.2 com cifra CBC legada (ECDHE-RSA-AES256-SHA384), que o
+    // Deno (rustls) do Edge rejeita -> handshake failure. Um handshake direto
+    // daria SEMPRE falso-negativo "Erro de conexao". A coleta real roda num
+    // runner Node (OpenSSL, GitHub Actions) e faz PUSH via nomus-ingerir; logo
+    // a saude da conexao Nomus e derivada da ULTIMA COLETA na nuvem.
+    // -----------------------------------------------------------------
+    if (fonteRecord.tipo === "nomus") {
+      const ultima = fonteRecord.ultimaColetaEm;
+      const resultado = ultima ? "conectada" : "pendente_coleta";
+      if (ultima) {
+        await updateFonteEstado(fonteRecord.id, "conectada");
+      }
+      await logSensitiveAction({
+        tabela: "fontes",
+        acao: "testar_conexao",
+        registroId: fonteRecord.id,
+        usuario: email,
+        dadosNovos: { fonte: fonteRecord.tipo, resultado, via: "coleta_nuvem" },
+      });
+      const body: TestarConexaoResult = ultima
+        ? {
+          estadoConexao: "conectada",
+          latenciaMs: 0,
+          estado_conexao: "conectada",
+          causa: null,
+          mensagem:
+            `${fonteRecord.nome} validado pela ultima coleta na nuvem (runner) em ${
+              formatBrDateTime(ultima)
+            }. O teste direto nao roda no Edge por incompatibilidade de TLS do Nomus.`,
+          latencia_ms: 0,
+        }
+        : {
+          // Sem coleta concluida ainda: nao ha como provar a conexao pelo Edge.
+          // NAO marca 'erro' (evita o falso-negativo); mantem o estado corrente.
+          estadoConexao: fonteRecord.estadoConexao,
+          latenciaMs: 0,
+          estado_conexao: fonteRecord.estadoConexao,
+          causa: null,
+          mensagem:
+            `Credencial salva. A conexao do ${fonteRecord.nome} e validada pela coleta na nuvem (runner Node), nao por teste direto no Edge (TLS legado). Aguardando a primeira coleta concluir.`,
+          latencia_ms: 0,
+        };
       return jsonResponse(body, 200);
     }
 

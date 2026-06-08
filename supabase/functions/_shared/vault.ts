@@ -34,6 +34,8 @@ export interface FonteRecord {
   estadoConexao: "conectada" | "erro" | "nao_configurada";
   /** true quando ha referencia de credencial gravada (token_cifrado != null). */
   temCredencial: boolean;
+  /** Timestamp ISO da ultima coleta concluida (fontes.ultima_coleta_em); null se nunca coletou. */
+  ultimaColetaEm: string | null;
 }
 
 interface FonteRow {
@@ -43,6 +45,7 @@ interface FonteRow {
   endpoint_base: string;
   estado_conexao: string;
   token_cifrado: string | null;
+  ultima_coleta_em: string | null;
 }
 
 /**
@@ -53,7 +56,7 @@ export async function getFonteByTipo(tipo: string = EFFECTI_TIPO): Promise<Fonte
   const service = createServiceClient();
   const { data, error } = await service
     .from("fontes")
-    .select("id, nome, tipo, endpoint_base, estado_conexao, token_cifrado")
+    .select("id, nome, tipo, endpoint_base, estado_conexao, token_cifrado, ultima_coleta_em")
     .eq("tipo", tipo)
     .maybeSingle();
 
@@ -72,6 +75,7 @@ export async function getFonteByTipo(tipo: string = EFFECTI_TIPO): Promise<Fonte
     endpointBase: row.endpoint_base,
     estadoConexao: normalizeEstado(row.estado_conexao),
     temCredencial: row.token_cifrado != null && row.token_cifrado.trim() !== "",
+    ultimaColetaEm: row.ultima_coleta_em ?? null,
   };
 }
 

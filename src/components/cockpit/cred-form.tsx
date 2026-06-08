@@ -148,7 +148,12 @@ export function CredForm({
       if (res.estadoConexao === "conectada") {
         setTestFeedback({
           kind: "ok",
-          message: `Conexão OK · latência ${res.latenciaMs} ms`,
+          // Nomus nao testa via Edge (TLS legado): a saude vem da coleta na
+          // nuvem, entao mostramos a mensagem do backend em vez de latencia.
+          message:
+            source.fonteTipo === "nomus"
+              ? res.mensagem ?? "Conexão validada pela última coleta na nuvem."
+              : `Conexão OK · latência ${res.latenciaMs} ms`,
         });
       } else {
         setTestFeedback({
@@ -270,7 +275,7 @@ export function CredForm({
           </div>
         )}
 
-        <div className="form-foot">
+        <div className="form-foot cred-actions">
           {editing ? (
             <>
               <button className="btn btn-primary" type="submit" disabled={saving}>
@@ -312,7 +317,7 @@ export function CredForm({
               aria-controls={configPanelId}
             >
               <SlidersHorizontal aria-hidden="true" />
-              <span>{configAberto ? "Fechar configuração" : "Configurar"}</span>
+              <span>Configurar</span>
             </button>
           )}
         </div>

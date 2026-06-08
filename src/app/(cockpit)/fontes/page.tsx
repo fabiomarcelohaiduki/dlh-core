@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
-import { FonteEffectiBlock } from "@/components/cockpit/fonte-effecti-block";
-import { FonteNomusBlock } from "@/components/cockpit/fonte-nomus-block";
+import { FontesCredenciais } from "@/components/cockpit/fontes-credenciais";
 import { AgendamentoForm } from "@/components/cockpit/agendamento-form";
+import { ExtracaoConfigForm } from "@/components/cockpit/extracao-config-form";
 import type {
   AgendamentoState,
+  ConfigExtracaoState,
   ConfigIngestaoState,
   EstadoConexao,
   FonteCredState,
@@ -162,12 +163,54 @@ async function loadAgendamento(): Promise<AgendamentoState> {
   };
 }
 
+/** Linha lida de public.config_extracao (singleton de parametros da camada 1). */
+interface ConfigExtracaoRow {
+  ocr_estrategia: string | null;
+  ocr_idioma: string | null;
+  tamanho_max_bytes: number | null;
+  timeout_ms: number | null;
+  extensoes_habilitadas: string[] | null;
+  lote_tamanho: number | null;
+  pausa_lote_ms: number | null;
+}
+
+/**
+ * Hidratacao server-side (RLS) dos parametros da camada 1 do extrator
+ * (singleton config_extracao) para o cmp-extracao-config-form. Sem linha
+ * (estado inicial improvavel — ha seed) cai nos defaults do produto.
+ */
+async function loadConfigExtracao(): Promise<ConfigExtracaoState> {
+  const supabase = await createClient();
+  const { data: raw } = await supabase
+    .from("config_extracao")
+    .select(
+      "ocr_estrategia, ocr_idioma, tamanho_max_bytes, timeout_ms, extensoes_habilitadas, lote_tamanho, pausa_lote_ms",
+    )
+    .limit(1)
+    .maybeSingle();
+
+  const data = (raw ?? null) as ConfigExtracaoRow | null;
+  const estrategia = data?.ocr_estrategia;
+
+  return {
+    ocrEstrategia:
+      estrategia === "nunca" || estrategia === "sempre" ? estrategia : "auto",
+    ocrIdioma: data?.ocr_idioma ?? "por+eng",
+    tamanhoMaxBytes: data?.tamanho_max_bytes ?? 104857600,
+    timeoutMs: data?.timeout_ms ?? 120000,
+    extensoesHabilitadas: data?.extensoes_habilitadas ?? null,
+    loteTamanho: data?.lote_tamanho ?? 10,
+    pausaLoteMs: data?.pausa_lote_ms ?? 0,
+  };
+}
+
 export default async function FontesPage() {
-  const [fonte, config, agendamento, fonteNomus] = await Promise.all([
+  const [fonte, config, agendamento, fonteNomus, configExtracao] = await Promise.all([
     loadFonte(),
     loadConfig(),
     loadAgendamento(),
     loadFonteNomus(),
+    loadConfigExtracao(),
   ]);
 
   return (
@@ -184,9 +227,9 @@ export default async function FontesPage() {
 
       <AgendamentoForm initial={agendamento} />
 
-      <FonteEffectiBlock fonte={fonte} config={config} />
+      <FontesCredenciais effecti={fonte} effectiConfig={config} nomus={fonteNomus} />
 
-      <FonteNomusBlock fonte={fonteNomus} />
+      <ExtracaoConfigForm initial={configExtracao} />
     </section>
   );
 }

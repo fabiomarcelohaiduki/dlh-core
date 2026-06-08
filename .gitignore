@@ -35,3 +35,6 @@ docs/pasta sera excluida/
 
 # vercel
 .vercel
+
+# supabase (estado local do CLI)
+supabase/.temp/

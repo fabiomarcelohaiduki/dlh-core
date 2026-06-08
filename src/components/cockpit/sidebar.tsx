@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTransition } from "react";
-import { LogOut } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, LogOut } from "lucide-react";
 import { NAV_GROUPS } from "@/lib/nav";
 import { logout } from "@/app/actions/auth";
 import { cn } from "@/lib/utils";
@@ -13,6 +13,10 @@ type SidebarProps = {
   open: boolean;
   onNavigate: () => void;
   badges?: Partial<Record<"erros", number>>;
+  /** Modo recolhido (somente icones) no desktop. */
+  collapsed?: boolean;
+  /** Alterna o modo recolhido. */
+  onToggleCollapse?: () => void;
 };
 
 function initialsFromEmail(email: string): string {
@@ -23,7 +27,7 @@ function initialsFromEmail(email: string): string {
 }
 
 /** cmp-sidebar — Navegação persistente travada (Design Lock). */
-export function Sidebar({ user, open, onNavigate, badges }: SidebarProps) {
+export function Sidebar({ user, open, onNavigate, badges, collapsed, onToggleCollapse }: SidebarProps) {
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
 
@@ -34,7 +38,7 @@ export function Sidebar({ user, open, onNavigate, badges }: SidebarProps) {
   }
 
   return (
-    <aside className={cn("side", open && "open")} id="side">
+    <aside className={cn("side", open && "open", collapsed && "is-collapsed")} id="side">
       <div className="side-head">
         <span className="glyph">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
@@ -47,6 +51,22 @@ export function Sidebar({ user, open, onNavigate, badges }: SidebarProps) {
           DLH Core
           <small>Cockpit de ingestão</small>
         </span>
+        {onToggleCollapse && (
+          <button
+            type="button"
+            className="side-collapse"
+            onClick={onToggleCollapse}
+            title={collapsed ? "Expandir menu" : "Recolher menu"}
+            aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
+            aria-expanded={!collapsed}
+          >
+            {collapsed ? (
+              <ChevronsRight aria-hidden="true" />
+            ) : (
+              <ChevronsLeft aria-hidden="true" />
+            )}
+          </button>
+        )}
       </div>
 
       <nav>
@@ -66,9 +86,10 @@ export function Sidebar({ user, open, onNavigate, badges }: SidebarProps) {
                   className={cn("nav-link", active && "active")}
                   aria-current={active ? "page" : undefined}
                   onClick={onNavigate}
+                  title={collapsed ? item.label : undefined}
                 >
                   <Icon aria-hidden="true" />
-                  {item.label}
+                  <span className="nav-text">{item.label}</span>
                   {badge ? <span className="nav-badge">{badge}</span> : null}
                 </Link>
               );

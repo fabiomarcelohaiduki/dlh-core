@@ -516,6 +516,84 @@ button {
   height: 16px;
 }
 
+/* Botao de recolher/expandir o menu lateral (somente desktop). */
+.side-collapse {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.side-collapse:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+.side-collapse svg {
+  width: 16px;
+  height: 16px;
+}
+
+/*
+ * Modo recolhido (somente icones). Aplicado apenas no desktop: no mobile a
+ * sidebar vira drawer e o recolhimento nao faz sentido.
+ */
+@media (min-width: 921px) {
+  .app-shell.collapsed {
+    grid-template-columns: 64px 1fr;
+  }
+  .side.is-collapsed .name,
+  .side.is-collapsed .nav-text,
+  .side.is-collapsed .nav-group .label,
+  .side.is-collapsed .user-row .who {
+    display: none;
+  }
+  .side.is-collapsed .side-head {
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px 8px 12px;
+  }
+  .side.is-collapsed .side-collapse {
+    margin-left: 0;
+  }
+  .side.is-collapsed .nav-group {
+    padding: 14px 8px 4px;
+  }
+  .side.is-collapsed .nav-link {
+    justify-content: center;
+    padding: 9px 0;
+    gap: 0;
+  }
+  /* Badge vira um ponto sobre o icone no modo recolhido. */
+  .side.is-collapsed .nav-badge {
+    position: absolute;
+    margin-left: 0;
+    top: 4px;
+    right: 10px;
+    min-width: 8px;
+    width: 8px;
+    height: 8px;
+    padding: 0;
+    font-size: 0;
+    border-radius: 50%;
+  }
+  .side.is-collapsed .nav-link {
+    position: relative;
+  }
+  .side.is-collapsed .user-row {
+    justify-content: center;
+    padding: 7px 0;
+  }
+  .side.is-collapsed .user-row button {
+    display: none;
+  }
+}
+
 .main {
   overflow-y: auto;
   min-width: 0;
@@ -1285,11 +1363,38 @@ select {
 .form-card {
   max-width: 640px;
 }
+/* Agendamento do ciclo: ocupa a largura cheia da tela (sem o vazio a direita). */
+.form-card--wide {
+  max-width: none;
+}
+/* Painel de configuracao aberto abaixo da grade 2-up: centralizado na tela
+   (margin auto), indiferente se foi aberto pelo card da esquerda ou da direita. */
+.cfg-panel {
+  margin-inline: auto;
+}
+/* Cabecalho de identidade do painel (avatar + nome da fonte + fechar) para
+   deixar claro a qual card ele pertence. */
+.cfg-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 24px 0 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
 .form-foot {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+/* Acoes do card de credencial: comprime gap/padding para caber os 3 botoes
+   (Substituir/Testar/Configurar) em uma unica linha na grade 2-up. */
+.cred-actions {
+  gap: 8px;
+}
+.cred-actions .btn {
+  padding: 0 12px;
 }
 .save-note {
   font-size: 12.5px;

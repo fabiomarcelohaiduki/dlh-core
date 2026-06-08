@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { CalendarClock, Check, Loader2, TriangleAlert } from "lucide-react";
+import { CalendarClock, Check, Info, Loader2, TriangleAlert } from "lucide-react";
 import { useSalvarAgendamento } from "@/hooks/use-admin";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
@@ -119,13 +119,25 @@ export function AgendamentoForm({ initial }: { initial: AgendamentoState }) {
   }
 
   return (
-    <form className="card form-card" onSubmit={handleSubmit(onSubmit)} noValidate>
+    <form className="card form-card form-card--wide" onSubmit={handleSubmit(onSubmit)} noValidate>
       <div className="section-title" style={{ margin: "0 0 6px" }}>
         <div className="titles">
           <h3>Agendamento do ciclo</h3>
           <p>
-            Um único relógio governa a coleta de todas as fontes, uma por vez (sem sobreposição).
-            Cada fonte mantém apenas a janela e os filtros.
+            Um único relógio governa a coleta das fontes da nuvem (Edge), uma por vez (sem
+            sobreposição). Cada fonte mantém apenas a janela e os filtros.
+          </p>
+        </div>
+      </div>
+
+      <div className="banner">
+        <Info aria-hidden="true" />
+        <div>
+          <b>Nomus coletado fora deste ciclo</b>
+          <p>
+            Por incompatibilidade de TLS com a coleta na nuvem, o Nomus roda em um coletor
+            externo (GitHub Actions), de hora em hora. Essa cadência não é controlada aqui;
+            acompanhe a última coleta no Dashboard.
           </p>
         </div>
       </div>

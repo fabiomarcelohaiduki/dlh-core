@@ -11,6 +11,7 @@ export interface HealthcheckResponse {
   statusIngestao: StatusIngestao;
   ultimaSync: string | null;
   totalAvisos: number;
+  totalProcessos: number;
   itensComErro: number;
 }
 
@@ -180,6 +181,25 @@ export interface AgendamentoState {
   diaSemana: number | null;
   diaMes: number | null;
   timezone: string;
+}
+
+/** Estrategia de OCR da camada 1 (mapeia no Tika): auto/nunca/sempre. */
+export type OcrEstrategia = "auto" | "nunca" | "sempre";
+
+/**
+ * Snapshot dos parametros da camada 1 do extrator (singleton config_extracao)
+ * lido server-side para hidratar o cmp-extracao-config-form. O runner Node le
+ * a mesma config no inicio do job; alterar aqui vale na PROXIMA execucao.
+ * `extensoesHabilitadas` null = todas as extensoes.
+ */
+export interface ConfigExtracaoState {
+  ocrEstrategia: OcrEstrategia;
+  ocrIdioma: string;
+  tamanhoMaxBytes: number;
+  timeoutMs: number;
+  extensoesHabilitadas: string[] | null;
+  loteTamanho: number;
+  pausaLoteMs: number;
 }
 
 /** PUT /fontes/effecti/credencial -> nunca retorna o segredo (RNF-02). */

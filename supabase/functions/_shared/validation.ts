@@ -436,3 +436,70 @@ export const liaTokenActionSchema = z
   .strict();
 
 export type LiaTokenActionInput = z.infer<typeof liaTokenActionSchema>;
+
+// ---------------------------------------------------------------------
+// Schema: parametros da camada 1 do extrator (PUT /extracao-config).
+// Singleton GLOBAL (config_extracao): o runner Node le no inicio do job.
+// Contrato camelCase (espelha config_extracao.* em snake). Limites altos o
+// suficiente para qualquer documento real, mas finitos para barrar abuso.
+//   ocrEstrategia        'auto' | 'nunca' | 'sempre' (mapeia no Tika)
+//   ocrIdioma            codigos Tesseract ('por+eng')
+//   tamanhoMaxBytes      teto por arquivo (acima => pula); 1 GiB hard-cap
+//   timeoutMs            timeout por arquivo no Tika; min 1s, max 30min
+//   extensoesHabilitadas null = todas; array = allowlist (sem ponto)
+//   loteTamanho          arquivos por lote antes da pausa
+//   pausaLoteMs          pausa entre lotes (alivia o Tika)
+// ---------------------------------------------------------------------
+export const OCR_ESTRATEGIAS = ["auto", "nunca", "sempre"] as const;
+export type OcrEstrategia = (typeof OCR_ESTRATEGIAS)[number];
+
+const MAX_TAMANHO_BYTES = 1_073_741_824; // 1 GiB
+const MAX_TIMEOUT_MS = 1_800_000; // 30 min
+const MAX_LOTE = 1_000;
+const MAX_PAUSA_MS = 600_000; // 10 min
+
+export const extracaoConfigSchema = z
+  .object({
+    ocrEstrategia: z.enum(OCR_ESTRATEGIAS, {
+      errorMap: () => ({
+        message: `ocrEstrategia invalida (use: ${OCR_ESTRATEGIAS.join(", ")})`,
+      }),
+    }),
+    ocrIdioma: z
+      .string({ invalid_type_error: "ocrIdioma deve ser string" })
+      .trim()
+      .min(1, "ocrIdioma nao pode ser vazio")
+      .max(120, "ocrIdioma muito longo")
+      .regex(/^[a-z+]+$/i, "ocrIdioma deve usar codigos Tesseract (ex.: por+eng)"),
+    tamanhoMaxBytes: z
+      .number({ invalid_type_error: "tamanhoMaxBytes deve ser numero" })
+      .int("tamanhoMaxBytes deve ser inteiro")
+      .positive("tamanhoMaxBytes deve ser positivo")
+      .max(MAX_TAMANHO_BYTES, "tamanhoMaxBytes excede o teto (1 GiB)"),
+    timeoutMs: z
+      .number({ invalid_type_error: "timeoutMs deve ser numero" })
+      .int("timeoutMs deve ser inteiro")
+      .min(1_000, "timeoutMs deve ser >= 1000")
+      .max(MAX_TIMEOUT_MS, "timeoutMs excede o teto (30 min)"),
+    extensoesHabilitadas: z
+      .array(
+        stringItems("extensoesHabilitadas").transform((e) =>
+          e.toLowerCase().replace(/^\./, ""),
+        ),
+      )
+      .transform((items) => Array.from(new Set(items.filter((e) => e.length > 0))))
+      .nullable(),
+    loteTamanho: z
+      .number({ invalid_type_error: "loteTamanho deve ser numero" })
+      .int("loteTamanho deve ser inteiro")
+      .min(1, "loteTamanho deve ser >= 1")
+      .max(MAX_LOTE, `loteTamanho deve ser <= ${MAX_LOTE}`),
+    pausaLoteMs: z
+      .number({ invalid_type_error: "pausaLoteMs deve ser numero" })
+      .int("pausaLoteMs deve ser inteiro")
+      .min(0, "pausaLoteMs deve ser >= 0")
+      .max(MAX_PAUSA_MS, "pausaLoteMs excede o teto (10 min)"),
+  })
+  .strict();
+
+export type ExtracaoConfigInput = z.infer<typeof extracaoConfigSchema>;

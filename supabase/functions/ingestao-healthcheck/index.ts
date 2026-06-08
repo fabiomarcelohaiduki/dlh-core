@@ -9,6 +9,7 @@ import { handleCorsPreflight } from "../_shared/cors.ts";
 import { assertMethod, errorResponse, HttpError, jsonResponse } from "../_shared/http.ts";
 import { getEnv } from "../_shared/env.ts";
 import { requireAuthorizedUser } from "../_shared/auth.ts";
+import { createServiceClient } from "../_shared/supabase.ts";
 import type { HealthcheckResponse, StatusIngestao } from "../_shared/types.ts";
 
 function mapStatus(raw: string | null): StatusIngestao {
@@ -42,10 +43,22 @@ async function handler(req: Request): Promise<Response> {
       throw new HttpError(500, "healthcheck_query_failed", "falha ao consultar healthcheck");
     }
 
+    // Total de processos Nomus: contado via service_role (server-side). A
+    // contagem direta de nomus_processos pelo browser e fragil (RLS/grant da
+    // role authenticated), entao centralizamos no healthcheck, ja autorizado.
+    const service = createServiceClient();
+    const { count: totalProcessos, error: procError } = await service
+      .from("nomus_processos")
+      .select("*", { count: "exact", head: true });
+    if (procError) {
+      throw new HttpError(500, "healthcheck_query_failed", "falha ao contar processos");
+    }
+
     const body: HealthcheckResponse = {
       statusIngestao: mapStatus((data?.status_ingestao as string | null) ?? null),
       ultimaSync: (data?.ultima_sync as string | null) ?? null,
       totalAvisos: Number(data?.total_avisos ?? 0),
+      totalProcessos: Number(totalProcessos ?? 0),
       itensComErro: Number(data?.itens_com_erro ?? 0),
     };
     return jsonResponse(body, 200);
