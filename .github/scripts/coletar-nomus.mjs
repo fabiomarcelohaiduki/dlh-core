@@ -214,7 +214,9 @@ async function coletarEEnviarFull() {
   let chamadasNoLote = 0;
 
   for (let pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
+    const tGet0 = Date.now();
     const lista = await fetchPagina(pagina);
+    const getMs = Date.now() - tGet0;
     const isFim = lista.length === 0; // pagina vazia encerra a varredura.
 
     const body = {
@@ -225,7 +227,9 @@ async function coletarEEnviarFull() {
       ...(isFim ? { final: true } : {}),
     };
 
+    const tPost0 = Date.now();
     const r = await postLote(body);
+    const postMs = Date.now() - tPost0;
 
     if (r.status === 409 && !execucaoId) {
       fail(`coleta recusada: ja ha execucao em andamento (${r.text.slice(0, 200)})`, 1);
@@ -251,7 +255,8 @@ async function coletarEEnviarFull() {
     console.error(
       `[pagina ${pagina}] +${lista.length} enviado | acum novos=${acc.novos} ` +
         `alterados=${acc.alterados} ignorados=${acc.ignorados} erros=${acc.erros} ` +
-        `(coletado ${totalColetado}) | t=${Math.round((Date.now() - t0) / 1000)}s`,
+        `(coletado ${totalColetado}) | get=${(getMs / 1000).toFixed(1)}s ` +
+        `post=${(postMs / 1000).toFixed(1)}s t=${Math.round((Date.now() - t0) / 1000)}s`,
     );
 
     chamadasNoLote += 1;
