@@ -153,6 +153,10 @@ async function fetchPagina(pagina) {
       const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
         ? retryAfter * 1000
         : backoff(attempt);
+      console.error(
+        `[rate-limit] pagina ${pagina}: HTTP 429 (tentativa ${attempt + 1}/${MAX_RETRIES}), ` +
+          `aguardando ${Math.round(waitMs / 1000)}s`,
+      );
       await delay(waitMs);
       attempt += 1;
       continue;
@@ -173,6 +177,10 @@ async function fetchPagina(pagina) {
     const tempoMs = peekTempoAteLiberar(text);
     if (tempoMs !== null) {
       if (attempt >= MAX_RETRIES) fail("limite de requisicoes atingido (tempoAteLiberar).", 1);
+      console.error(
+        `[rate-limit] pagina ${pagina}: Nomus pediu espera ` +
+          `(tempoAteLiberar=${Math.round(tempoMs / 1000)}s, tentativa ${attempt + 1}/${MAX_RETRIES})`,
+      );
       await delay(tempoMs + 1_000);
       attempt += 1;
       continue;
@@ -190,15 +198,61 @@ async function fetchPagina(pagina) {
   }
 }
 
-async function coletarTudo() {
-  const processos = [];
+/**
+ * Backfill FULL com PUSH POR PAGINA: cada pagina coletada e empurrada na hora
+ * ao Edge, sob UMA execucao compartilhada (criada no 1o push). Salva o progresso
+ * continuamente — se o run for morto (timeout 6h), o ja gravado permanece — e
+ * mantem a memoria minima. A pagina vazia encerra a varredura e finaliza a
+ * execucao com final:true. Sem cursor de retomada ainda: o log de rate limit
+ * deste run mede o throttle e decide se 1 run basta ou se sera preciso fatiar.
+ */
+async function coletarEEnviarFull() {
+  const t0 = Date.now();
+  let execucaoId = null;
+  const acc = { novos: 0, alterados: 0, ignorados: 0, erros: 0, recebidos: 0 };
+  let totalColetado = 0;
   let chamadasNoLote = 0;
 
   for (let pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
     const lista = await fetchPagina(pagina);
-    if (lista.length === 0) break; // pagina vazia encerra a varredura.
-    processos.push(...lista);
-    console.error(`[pagina ${pagina}] +${lista.length} (acumulado ${processos.length})`);
+    const isFim = lista.length === 0; // pagina vazia encerra a varredura.
+
+    const body = {
+      gatilho: "agendada",
+      recurso: RECURSO,
+      processos: lista,
+      ...(execucaoId ? { execucao_id: execucaoId } : {}),
+      ...(isFim ? { final: true } : {}),
+    };
+
+    const r = await postLote(body);
+
+    if (r.status === 409 && !execucaoId) {
+      fail(`coleta recusada: ja ha execucao em andamento (${r.text.slice(0, 200)})`, 1);
+    }
+    if (!r.ok) {
+      if (execucaoId) await abortarExecucao(execucaoId);
+      fail(`push da pagina ${pagina} falhou (${r.status}): ${r.text.slice(0, 300)}`, 1);
+    }
+
+    if (!execucaoId) execucaoId = r.json?.execucao_id ?? null;
+    acc.novos += r.json?.novos ?? 0;
+    acc.alterados += r.json?.alterados ?? 0;
+    acc.ignorados += r.json?.ignorados ?? 0;
+    acc.erros += r.json?.erros ?? 0;
+    acc.recebidos += r.json?.recebidos ?? lista.length;
+
+    if (isFim) {
+      console.error(`[pagina ${pagina}] vazia: fim da varredura, execucao finalizada.`);
+      break;
+    }
+
+    totalColetado += lista.length;
+    console.error(
+      `[pagina ${pagina}] +${lista.length} enviado | acum novos=${acc.novos} ` +
+        `alterados=${acc.alterados} ignorados=${acc.ignorados} erros=${acc.erros} ` +
+        `(coletado ${totalColetado}) | t=${Math.round((Date.now() - t0) / 1000)}s`,
+    );
 
     chamadasNoLote += 1;
     if (chamadasNoLote >= TAMANHO_LOTE) {
@@ -206,7 +260,8 @@ async function coletarTudo() {
       await delay(PAUSA_LOTE_MS);
     }
   }
-  return processos;
+
+  return { execucaoId, ...acc, totalColetado };
 }
 
 /** id numerico do processo (p.id). NaN quando ausente/nao-numerico. */
@@ -358,23 +413,23 @@ async function pushEmLotes(processos) {
 
 const startedAt = Date.now();
 
-let processos;
+let resumo;
 if (MODO === "full") {
-  console.log("Modo FULL (backfill): varrendo todas as paginas, ignorando a marca d'agua.");
-  processos = await coletarTudo();
+  console.log("Modo FULL (backfill): push por pagina + log de rate limit ativo.");
+  resumo = await coletarEEnviarFull();
 } else {
   const watermark = await fetchWatermark();
   if (watermark === null) {
-    console.log("Modo incremental, mas o banco esta vazio: varredura completa (1a coleta).");
-    processos = await coletarTudo();
+    console.log("Modo incremental, banco vazio: varredura completa por pagina (1a coleta).");
+    resumo = await coletarEEnviarFull();
   } else {
     console.log(`Modo incremental: coletando processos com id > ${watermark}.`);
-    processos = await coletarIncremental(watermark);
+    const processos = await coletarIncremental(watermark);
+    console.log(`Coletados ${processos.length} novos em ${Date.now() - startedAt}ms.`);
+    resumo = await pushEmLotes(processos);
   }
 }
-console.log(`Coletados ${processos.length} processos do Nomus em ${Date.now() - startedAt}ms.`);
-
-const resumo = await pushEmLotes(processos);
+console.log(`Concluido em ${Date.now() - startedAt}ms.`);
 console.log("Resumo da ingestao:");
 console.log(JSON.stringify(resumo, null, 2));
 process.exit(0);
