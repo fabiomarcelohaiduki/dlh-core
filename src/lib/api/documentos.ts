@@ -9,10 +9,13 @@ import type { ConfigExtracaoState } from "@/lib/api/types";
 // Variaveis em camelCase; o Edge ja aceita camel no body.
 // ---------------------------------------------------------------------
 
+/** Fontes que tem funcao de descoberta de anexos (mesma fila, adaptador por fonte). */
+export type FonteDescoberta = "nomus" | "effecti";
+
 export interface DescobrirInput {
-  /** Unica fonte com descoberta hoje. */
-  fonte?: "nomus";
-  /** Filtra nomus_processos.tipo (ex.: 'Venda Governamental'). */
+  /** Fonte da descoberta. Default 'nomus'. */
+  fonte?: FonteDescoberta;
+  /** So Nomus: filtra nomus_processos.tipo (ex.: 'Venda Governamental'). */
   tipo?: string | null;
   /** Allowlist de extensoes (sem ponto). Ausente = todas. */
   extensoes?: string[] | null;

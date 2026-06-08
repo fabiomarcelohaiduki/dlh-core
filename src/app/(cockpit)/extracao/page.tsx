@@ -41,10 +41,7 @@ export default async function ExtracaoPage() {
         </div>
       </div>
 
-      <ExtracaoPanel
-        blocked={!nomusConfigurado}
-        blockedReason="Cadastre e salve a chave do Nomus (em Fontes e credenciais) antes de descobrir anexos."
-      />
+      <ExtracaoPanel nomusConfigurado={nomusConfigurado} />
     </section>
   );
 }

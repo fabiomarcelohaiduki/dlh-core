@@ -10,36 +10,48 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useDescobrir, useExtracaoResumo } from "@/hooks/use-documentos";
+import type { FonteDescoberta } from "@/lib/api/documentos";
 import { ApiError } from "@/lib/api/client";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type Feedback = { kind: "ok" | "err"; message: string };
 
+/** Rotulo amigavel por fonte (usado em textos da UI). */
+const FONTE_LABEL: Record<FonteDescoberta, string> = {
+  nomus: "Nomus",
+  effecti: "Effecti",
+};
+
 /**
- * cmp-extracao-panel — Camada 1 do pipeline de documentos (Nomus).
+ * cmp-extracao-panel — Camada 1 do pipeline de documentos (multi-fonte).
  *
  * Reune as duas operacoes que o Fabio pediu no cockpit:
- *  1. DESCOBRIR: enfileira os anexos pendentes (POST documentos-descobrir).
- *     Idempotente — rodar de novo so pega anexos ineditos.
+ *  1. DESCOBRIR: enfileira os anexos pendentes da fonte escolhida
+ *     (POST documentos-descobrir). Idempotente — rodar de novo so pega
+ *     anexos ineditos. Nomus e Effecti caem na MESMA fila (adaptador por fonte).
  *  2. VISIBILIDADE: contagens por status + tabela dos anexos que FALHARAM
- *     (qual arquivo, qual extensao, por que). Dados via Edge (service_role).
+ *     (qual arquivo, qual extensao, por que). Dados via Edge (service_role),
+ *     GLOBAIS (somam todas as fontes).
  *
- * Bloqueia o disparo quando a fonte Nomus esta sem credencial (mesma regra do
- * cmp-nomus-coleta-button).
+ * A descoberta Nomus exige a credencial Nomus salva; a Effecti le os avisos
+ * ja presentes no banco e nao tem esse gate.
  */
 export function ExtracaoPanel({
-  blocked = false,
-  blockedReason,
+  nomusConfigurado = false,
 }: {
-  blocked?: boolean;
-  blockedReason?: string;
+  nomusConfigurado?: boolean;
 }) {
   const resumo = useExtracaoResumo();
   const descobrir = useDescobrir();
+  const [fonte, setFonte] = useState<FonteDescoberta>("nomus");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
 
   const pending = descobrir.isPending;
+  // So Nomus depende de credencial; Effecti descobre direto dos avisos do banco.
+  const blocked = fonte === "nomus" && !nomusConfigurado;
+  const blockedReason =
+    "Cadastre e salve a chave do Nomus (em Fontes e credenciais) antes de descobrir anexos.";
   const disabled = blocked || pending;
   const contagens = resumo.data?.contagens;
   const erros = resumo.data?.erros ?? [];
@@ -48,7 +60,7 @@ export function ExtracaoPanel({
     if (disabled) return;
     setFeedback(null);
     try {
-      const r = await descobrir.mutateAsync({ fonte: "nomus" });
+      const r = await descobrir.mutateAsync({ fonte });
       setFeedback({
         kind: "ok",
         message:
@@ -82,10 +94,10 @@ export function ExtracaoPanel({
           <FileText aria-hidden="true" />
         </div>
         <div style={{ flex: 1 }}>
-          <b style={{ fontSize: 14.5 }}>Extração de anexos · Nomus</b>
+          <b style={{ fontSize: 14.5 }}>Extração de anexos</b>
           <div style={{ color: "var(--muted)", fontSize: 12 }}>
-            Camada 1: enfileira os anexos e extrai o texto. O conteúdo é processado em segundo
-            plano pelo runner de nuvem.
+            Camada 1: enfileira os anexos e extrai o texto. Nomus e Effecti caem na mesma fila; o
+            conteúdo é processado em segundo plano pelo runner de nuvem.
           </div>
         </div>
       </div>
@@ -101,22 +113,38 @@ export function ExtracaoPanel({
 
       {/* Acao de descoberta */}
       <div className="action-col">
-        <button
-          type="button"
-          className="btn"
-          onClick={handleDescobrir}
-          disabled={disabled}
-          aria-disabled={disabled}
-          title={blocked ? blockedReason : undefined}
-        >
-          {pending ? <Loader2 className="spin" aria-hidden="true" /> : <Search aria-hidden="true" />}
-          <span>{pending ? "Descobrindo…" : "Descobrir anexos pendentes"}</span>
-        </button>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
+          <select
+            value={fonte}
+            onChange={(e) => {
+              setFonte(e.target.value as FonteDescoberta);
+              setFeedback(null);
+            }}
+            disabled={pending}
+            aria-label="Fonte dos anexos a descobrir"
+          >
+            <option value="nomus">{FONTE_LABEL.nomus}</option>
+            <option value="effecti">{FONTE_LABEL.effecti}</option>
+          </select>
+          <button
+            type="button"
+            className="btn"
+            onClick={handleDescobrir}
+            disabled={disabled}
+            aria-disabled={disabled}
+            title={blocked ? blockedReason : undefined}
+          >
+            {pending ? <Loader2 className="spin" aria-hidden="true" /> : <Search aria-hidden="true" />}
+            <span>
+              {pending ? "Descobrindo…" : `Descobrir anexos pendentes · ${FONTE_LABEL[fonte]}`}
+            </span>
+          </button>
+        </div>
 
         {blocked ? (
           <span className="action-hint">
             <TriangleAlert aria-hidden="true" />
-            {blockedReason ?? "Cadastre e salve a chave do Nomus antes de descobrir."}
+            {blockedReason}
           </span>
         ) : feedback ? (
           <span
@@ -162,7 +190,7 @@ export function ExtracaoPanel({
               <tr>
                 <th>Arquivo</th>
                 <th>Extensão</th>
-                <th>Processo</th>
+                <th>Origem</th>
                 <th>Motivo</th>
                 <th>Quando</th>
               </tr>
