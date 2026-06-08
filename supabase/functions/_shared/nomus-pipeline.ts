@@ -224,7 +224,12 @@ export async function persistAndIndexRecord(
     throw new Error(`falha ao persistir processo: ${upError?.message ?? "sem id"}`);
   }
   const registroId = String((upserted as { id: string }).id);
-  const acao: PersistAcao = existing ? "atualizado" : "inserido";
+  // acao reflete a decisao de reindex (hash do conteudo canonico): novo =>
+  // 'inserido'; existente com hash MUDADO => 'atualizado'; existente com hash
+  // IGUAL => 'ignorado' (o snapshot ainda e re-upsertado p/ manter campos fora
+  // do hash atualizados, mas nada reindexa). Antes todo existente virava
+  // 'atualizado' mesmo sem mudanca, inflando o contador de alterados no resync.
+  const acao: PersistAcao = !existing ? "inserido" : (reindexar ? "atualizado" : "ignorado");
 
   // 4. Reindexacao (apenas quando o conteudo mudou e ha provider configurado).
   if (!reindexar) return { acao, reindexado: false, registroId };
