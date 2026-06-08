@@ -56,7 +56,7 @@ export const CONFIG_PADRAO = Object.freeze({
   extensoesHabilitadas: null,
 });
 
-class ExtracaoError extends Error {
+export class ExtracaoError extends Error {
   constructor(message, code) {
     super(message);
     this.name = "ExtracaoError";
