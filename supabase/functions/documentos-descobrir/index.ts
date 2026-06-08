@@ -26,10 +26,16 @@
 //                NUNCA por leitura direta do browser — RLS/grant fragil).
 //
 //   PARAMETROS de descoberta (body, todos opcionais):
-//     fonte           'nomus' (unica fonte com descoberta hoje); default nomus.
+//     fonte           'nomus' | 'effecti'; default 'nomus'. Cada fonte tem
+//                     sua funcao SQL (nomus varre nomus_processos; effecti
+//                     varre avisos) e seu adaptador no runner.
 //     tipo            filtra nomus_processos.tipo (ex.: 'Venda Governamental').
+//                     So aplica a 'nomus'; ignorado em 'effecti'.
 //     extensoes       allowlist normalizada (sem ponto): ['pdf','docx',...].
-//     limiteProcessos teto de PROCESSOS varridos (id DESC); ausente = todos.
+//                     Em 'effecti' a ext e derivada do nome (ver caveat na
+//                     migration); prefira null e deixe o Tika detectar.
+//     limiteProcessos teto de REGISTROS varridos (procs ou avisos, mais novos
+//                     primeiro); ausente = todos.
 //
 //   Toda escrita via service_role server-side (SEC-05). Acao auditada.
 // =====================================================================
@@ -48,11 +54,14 @@ type StatusVinculo = typeof STATUS_VINCULO[number];
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
+const FONTES_DESCOBRIVEIS = ["nomus", "effecti"] as const;
+type FonteDescobrivel = typeof FONTES_DESCOBRIVEIS[number];
+
 interface DescobrirInput {
-  fonte: "nomus";
-  tipo: string | null;
+  fonte: FonteDescobrivel;
+  tipo: string | null; // so aplica a 'nomus'; ignorado em 'effecti'
   extensoes: string[] | null;
-  limiteProcessos: number | null;
+  limiteProcessos: number | null; // teto de registros varridos (procs ou avisos)
 }
 
 interface CallerContext {
@@ -86,13 +95,14 @@ async function readBody(req: Request): Promise<Record<string, unknown>> {
 
 function parseInput(o: Record<string, unknown>): DescobrirInput {
   const fonteRaw = typeof o.fonte === "string" ? o.fonte : "nomus";
-  if (fonteRaw !== "nomus") {
+  if (!FONTES_DESCOBRIVEIS.includes(fonteRaw as FonteDescobrivel)) {
     throw new HttpError(
       422,
       "fonte_nao_suportada",
-      "descoberta disponivel apenas para a fonte 'nomus'",
+      `descoberta disponivel apenas para as fontes: ${FONTES_DESCOBRIVEIS.join(", ")}`,
     );
   }
+  const fonte = fonteRaw as FonteDescobrivel;
 
   const tipo = typeof o.tipo === "string" && o.tipo.trim() !== "" ? o.tipo.trim() : null;
 
@@ -111,7 +121,7 @@ function parseInput(o: Record<string, unknown>): DescobrirInput {
     limiteProcessos = Math.min(Math.floor(lim), MAX_LIMITE_PROCESSOS);
   }
 
-  return { fonte: "nomus", tipo, extensoes, limiteProcessos };
+  return { fonte, tipo, extensoes, limiteProcessos };
 }
 
 // ---------------------------------------------------------------------
@@ -190,11 +200,18 @@ async function handler(req: Request): Promise<Response> {
 
     const input = parseInput(body);
 
-    const { data, error } = await service.rpc("descobrir_vinculos_nomus", {
-      p_tipo: input.tipo,
-      p_extensoes: input.extensoes,
-      p_limite_procs: input.limiteProcessos,
-    });
+    // Cada fonte tem sua funcao SQL de descoberta (mesma fila, adaptador
+    // proprio no runner). Nomus varre nomus_processos; Effecti varre avisos.
+    const { data, error } = input.fonte === "effecti"
+      ? await service.rpc("descobrir_vinculos_effecti", {
+        p_extensoes: input.extensoes,
+        p_limite_avisos: input.limiteProcessos,
+      })
+      : await service.rpc("descobrir_vinculos_nomus", {
+        p_tipo: input.tipo,
+        p_extensoes: input.extensoes,
+        p_limite_procs: input.limiteProcessos,
+      });
 
     if (error) {
       throw new HttpError(500, "descoberta_falhou", "falha ao descobrir anexos pendentes");
