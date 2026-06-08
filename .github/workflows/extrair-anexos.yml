@@ -1,0 +1,74 @@
+name: Extrator de anexos (camada 1)
+
+# Camada 1 do pipeline de documentos: extracao de TEXTO PURO de anexos
+# (editais, contratos, atas, planilhas...), deterministica e ZERO LLM.
+#
+# Motor = Apache Tika imagem `full` (Tesseract OCR embutido), rodando como
+# SERVICO EFEMERO neste job (bloco services:). Sobe junto com o job, o runner
+# fala em localhost:9998, e morre com o job => zero infra parada, custo so nos
+# minutos do Actions. Mesma filosofia do coletor Nomus.
+#
+# O runner Node le os parametros em config_extracao (Supabase) no inicio do
+# job (administravel pelo cockpit, sem hardcode) e usa o miolo agnostico em
+# .github/scripts/extrator.mjs (bytes+nome -> texto+hashes).
+#
+# FLUXO: o orquestrador extrair-anexos.mjs pede ao Edge documentos-ingerir os
+# VINCULOS pendentes (+ config_extracao), obtem os bytes de cada anexo pelo
+# ADAPTADOR da fonte (nomus/effecti), extrai o texto via Tika e empurra de
+# volta ao Edge, que faz dedup global + grava texto + indexa.
+on:
+  workflow_dispatch:
+    inputs:
+      limite:
+        description: "Teto de vinculos pendentes a processar neste run (vazio = config_extracao)"
+        type: string
+        required: false
+
+concurrency:
+  group: extrair-anexos
+  cancel-in-progress: false
+
+jobs:
+  extrair:
+    runs-on: ubuntu-latest
+
+    # Servico Tika efemero: morre com o job. `full` traz Tesseract para OCR.
+    # TODO(prod): fixar a tag em uma versao especifica em vez de latest.
+    services:
+      tika:
+        image: apache/tika:latest-full
+        ports:
+          - 9998:9998
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Aguardar Tika ficar pronto
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:9998/version >/dev/null; then
+              echo "Tika pronto: $(curl -s http://localhost:9998/version)"
+              exit 0
+            fi
+            echo "aguardando Tika... ($i)"
+            sleep 2
+          done
+          echo "Tika nao respondeu a tempo" >&2
+          exit 1
+
+      - name: Extrair anexos (orquestrador camada 1)
+        env:
+          TIKA_ENDPOINT: http://localhost:9998
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
+          NOMUS_API_KEY: ${{ secrets.NOMUS_API_KEY }}
+          # Teto opcional de vinculos por run (vazio = config_extracao do cockpit).
+          EXTRACAO_LIMITE: ${{ github.event.inputs.limite }}
+        run: node .github/scripts/extrair-anexos.mjs

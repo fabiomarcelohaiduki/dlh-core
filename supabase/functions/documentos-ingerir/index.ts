@@ -1,0 +1,397 @@
+// =====================================================================
+// Edge Function: documentos-ingerir  ->  POST /documentos/ingerir
+// Endpoint de PUSH do extrator de NUVEM (GitHub Actions / runner Node).
+//
+//   CAMADA 1 do pipeline de documentos. O runner Node (onde o Tika vive)
+//   obtem os bytes por adaptador de fonte, extrai o TEXTO e empurra para
+//   ca. Este Edge e o dono da PERSISTENCIA: dedup global, gravacao do
+//   texto e indexacao (chunks/embeddings) reusando o motor existente
+//   (generateAndStoreMemoriaChunks, origem='documento'). EMBEDDINGS_ENDPOINT
+//   e o service_role so existem no Edge -> a indexacao mora aqui, nao no
+//   runner (mesma divisao do nomus-ingerir).
+//
+//   DEDUP (decisao Fabio 2026-06-08): documento e entidade unica; mesma
+//   licitacao chega por N fontes -> 1 documento, N vinculos. Chave canonica
+//   = hash_texto_normalizado; sha256_bytes = atalho quando nao ha texto.
+//   Quem chega primeiro EXTRAI e grava; o resto so LINKA (status='herdado').
+//
+//   NAO-BLOQUEIO: o texto grava mesmo com embedding OFF (status_indexacao
+//   fica 'pendente', igual avisos); ligar bge-m3 depois + reindexar.
+//
+//   - Autentica por chamada interna: Bearer service_role OU X-Cron-Secret.
+//   - action='pendentes' (read): lista vinculos a extrair (com ref_obtencao).
+//   - default (push): processa os resultados de extracao do runner.
+//   - Falha isolada por item NAO derruba o lote; vira status='erro' no vinculo.
+// =====================================================================
+
+import { handleCorsPreflight } from "../_shared/cors.ts";
+import { assertMethod, errorResponse, HttpError, jsonResponse } from "../_shared/http.ts";
+import { getEnv } from "../_shared/env.ts";
+import { extractBearerToken } from "../_shared/auth.ts";
+import { createServiceClient } from "../_shared/supabase.ts";
+import { getServiceSecret } from "../_shared/vault.ts";
+import {
+  createEmbeddingProvider,
+  type EmbeddingProvider,
+  generateAndStoreMemoriaChunks,
+} from "../_shared/embeddings.ts";
+
+const CRON_SECRET_NAME = "CRON_DISPATCH_SECRET" as const;
+const DEFAULT_PENDENTES_LIMITE = 50;
+const MAX_PENDENTES_LIMITE = 500;
+
+type ServiceClient = ReturnType<typeof createServiceClient>;
+
+/** Resultado de extracao de um anexo, empurrado pelo runner. */
+interface ResultadoExtracao {
+  vinculo_id: string;
+  ok: boolean;
+  erro?: string;
+  nome_arquivo?: string | null;
+  extensao?: string | null;
+  tamanho_bytes?: number | null;
+  sha256_bytes?: string | null;
+  hash_texto_normalizado?: string | null;
+  texto?: string | null;
+  usou_ocr?: boolean;
+  via?: string | null;
+  /** Classificacao do tipo (gancho camada 2); opcional nesta fase. */
+  tipo_documento?: string | null;
+}
+
+interface IngerirInput {
+  action?: string;
+  limite?: number;
+  documentos: ResultadoExtracao[];
+}
+
+interface ItemResultado {
+  vinculo_id: string;
+  estado: "novo" | "herdado" | "erro";
+  documento_id?: string;
+  indexado?: boolean;
+}
+
+// ---------------------------------------------------------------------
+// Autenticacao da chamada interna (service_role OU X-Cron-Secret no Vault)
+// ---------------------------------------------------------------------
+
+async function assertInternalAuth(req: Request): Promise<void> {
+  const bearer = extractBearerToken(req);
+  const env = getEnv();
+  if (bearer && bearer === env.serviceRoleKey) return;
+
+  const provided = req.headers.get("X-Cron-Secret")?.trim() ?? "";
+  const expected = (await getServiceSecret(CRON_SECRET_NAME))?.trim() ?? "";
+  if (expected && provided && timingSafeEqual(provided, expected)) return;
+
+  throw new HttpError(401, "cron_unauthorized", "chamada interna nao autorizada");
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+// ---------------------------------------------------------------------
+// Parse do corpo
+// ---------------------------------------------------------------------
+
+async function parseInput(req: Request): Promise<IngerirInput> {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    throw new HttpError(400, "corpo_invalido", "corpo da requisicao nao e JSON valido");
+  }
+  if (!body || typeof body !== "object") {
+    throw new HttpError(400, "corpo_invalido", "corpo da requisicao ausente");
+  }
+  const o = body as Record<string, unknown>;
+  const action = typeof o.action === "string" ? o.action : undefined;
+  const limiteRaw = typeof o.limite === "number" ? o.limite : NaN;
+
+  if (!action && !Array.isArray(o.documentos)) {
+    throw new HttpError(422, "documentos_ausentes", "campo 'documentos' (array) e obrigatorio");
+  }
+
+  const documentos = Array.isArray(o.documentos)
+    ? o.documentos
+      .filter((d): d is Record<string, unknown> => !!d && typeof d === "object")
+      .map(normalizeResultado)
+      .filter((d): d is ResultadoExtracao => d !== null)
+    : [];
+
+  return {
+    action,
+    limite: Number.isFinite(limiteRaw) && limiteRaw > 0
+      ? Math.min(Math.floor(limiteRaw), MAX_PENDENTES_LIMITE)
+      : undefined,
+    documentos,
+  };
+}
+
+function normalizeResultado(o: Record<string, unknown>): ResultadoExtracao | null {
+  const vinculoId = typeof o.vinculo_id === "string" ? o.vinculo_id : null;
+  if (!vinculoId) return null;
+  const str = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
+  const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  return {
+    vinculo_id: vinculoId,
+    ok: o.ok === true,
+    erro: str(o.erro) ?? undefined,
+    nome_arquivo: str(o.nome_arquivo),
+    extensao: str(o.extensao),
+    tamanho_bytes: num(o.tamanho_bytes),
+    sha256_bytes: str(o.sha256_bytes),
+    hash_texto_normalizado: str(o.hash_texto_normalizado),
+    texto: typeof o.texto === "string" ? o.texto : null,
+    usou_ocr: o.usou_ocr === true,
+    via: str(o.via),
+    tipo_documento: str(o.tipo_documento),
+  };
+}
+
+// ---------------------------------------------------------------------
+// action='pendentes': lista vinculos a extrair (status='pendente').
+// ---------------------------------------------------------------------
+
+async function listarPendentes(service: ServiceClient, limite: number): Promise<unknown[]> {
+  const { data, error } = await service
+    .from("documento_vinculos")
+    .select("id, fonte, registro_origem_id, nome_anexo, ref_obtencao")
+    .eq("status_extracao", "pendente")
+    .order("created_at", { ascending: true })
+    .limit(limite);
+  if (error) {
+    throw new HttpError(500, "pendentes_query_failed", "falha ao listar vinculos pendentes");
+  }
+  return data ?? [];
+}
+
+/**
+ * Le a config_extracao (singleton GLOBAL) e devolve ao runner junto dos
+ * pendentes. O runner do Actions NAO tem service_role (so X-Cron-Secret),
+ * entao a leitura dos parametros administraveis do cockpit passa por aqui
+ * (decisao Fabio: "runner le config no inicio do job"). Camel-case para o
+ * extrator consumir direto. Null => extrator usa CONFIG_PADRAO.
+ */
+async function loadConfigExtracao(service: ServiceClient): Promise<Record<string, unknown> | null> {
+  const { data, error } = await service
+    .from("config_extracao")
+    .select(
+      "ocr_estrategia, ocr_idioma, tamanho_max_bytes, timeout_ms, extensoes_habilitadas, lote_tamanho, pausa_lote_ms",
+    )
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  const c = data as Record<string, unknown>;
+  return {
+    ocrEstrategia: c.ocr_estrategia,
+    ocrIdioma: c.ocr_idioma,
+    tamanhoMaxBytes: c.tamanho_max_bytes,
+    timeoutMs: c.timeout_ms,
+    extensoesHabilitadas: c.extensoes_habilitadas,
+    loteTamanho: c.lote_tamanho,
+    pausaLoteMs: c.pausa_lote_ms,
+  };
+}
+
+// ---------------------------------------------------------------------
+// Dedup: acha documento existente pela chave canonica (hash do texto) ou,
+// quando nao ha texto, pelo sha256 dos bytes. Retorna id ou null.
+// ---------------------------------------------------------------------
+
+async function acharDocumentoExistente(
+  service: ServiceClient,
+  r: ResultadoExtracao,
+): Promise<string | null> {
+  if (r.hash_texto_normalizado) {
+    const { data, error } = await service
+      .from("documentos")
+      .select("id")
+      .eq("hash_texto_normalizado", r.hash_texto_normalizado)
+      .maybeSingle();
+    if (error) throw new HttpError(500, "dedup_query_failed", "falha no dedup por texto");
+    if (data) return String((data as { id: string }).id);
+    return null;
+  }
+  if (r.sha256_bytes) {
+    const { data, error } = await service
+      .from("documentos")
+      .select("id")
+      .eq("sha256_bytes", r.sha256_bytes)
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new HttpError(500, "dedup_query_failed", "falha no dedup por bytes");
+    if (data) return String((data as { id: string }).id);
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------
+// Processa um resultado de extracao: dedup -> grava/linka -> indexa.
+// ---------------------------------------------------------------------
+
+async function processarResultado(
+  service: ServiceClient,
+  provider: EmbeddingProvider | undefined,
+  r: ResultadoExtracao,
+): Promise<ItemResultado> {
+  // Extracao falhou no runner: marca o vinculo e segue.
+  if (!r.ok) {
+    await service
+      .from("documento_vinculos")
+      .update({ status_extracao: "erro", erro: r.erro ?? "falha de extracao no runner" })
+      .eq("id", r.vinculo_id);
+    return { vinculo_id: r.vinculo_id, estado: "erro" };
+  }
+
+  // Dedup: se ja existe o documento, so LINKA (herdado), nao reextrai/reindexar.
+  const existenteId = await acharDocumentoExistente(service, r);
+  if (existenteId) {
+    await service
+      .from("documento_vinculos")
+      .update({ documento_id: existenteId, status_extracao: "herdado", erro: null })
+      .eq("id", r.vinculo_id);
+    return { vinculo_id: r.vinculo_id, estado: "herdado", documento_id: existenteId };
+  }
+
+  // Documento novo: grava o texto (status_indexacao='pendente' ate indexar).
+  let documentoId: string;
+  const { data: ins, error: insError } = await service
+    .from("documentos")
+    .insert({
+      nome_arquivo: r.nome_arquivo,
+      extensao: r.extensao,
+      tamanho_bytes: r.tamanho_bytes,
+      sha256_bytes: r.sha256_bytes,
+      hash_texto_normalizado: r.hash_texto_normalizado,
+      texto: r.texto,
+      usou_ocr: r.usou_ocr ?? false,
+      via: r.via,
+      tipo_documento: r.tipo_documento,
+      status_indexacao: "pendente",
+    })
+    .select("id")
+    .single();
+
+  if (insError) {
+    // Corrida: outro lote inseriu o mesmo hash entre o dedup e o insert
+    // (unique parcial em hash_texto_normalizado). Re-resolve e LINKA.
+    if (insError.code === "23505") {
+      const reId = await acharDocumentoExistente(service, r);
+      if (reId) {
+        await service
+          .from("documento_vinculos")
+          .update({ documento_id: reId, status_extracao: "herdado", erro: null })
+          .eq("id", r.vinculo_id);
+        return { vinculo_id: r.vinculo_id, estado: "herdado", documento_id: reId };
+      }
+    }
+    throw new HttpError(500, "documento_insert_failed", "falha ao gravar o documento");
+  }
+  documentoId = String((ins as { id: string }).id);
+
+  // Liga o vinculo ao documento recem-criado (este extraiu).
+  await service
+    .from("documento_vinculos")
+    .update({ documento_id: documentoId, status_extracao: "extraido", erro: null })
+    .eq("id", r.vinculo_id);
+
+  // Indexacao (chunks/embeddings) reusa o motor agnostico. NAO bloqueia: se o
+  // endpoint esta OFF, o texto ja esta salvo e fica status_indexacao='pendente'.
+  let indexado = false;
+  if (provider && r.texto && r.texto.trim() !== "") {
+    try {
+      await generateAndStoreMemoriaChunks(service, {
+        origem: "documento",
+        tipo: r.tipo_documento ?? null,
+        registroId: documentoId,
+        verbatim: r.texto,
+        provider,
+      });
+      await service
+        .from("documentos")
+        .update({ status_indexacao: "concluida" })
+        .eq("id", documentoId);
+      indexado = true;
+    } catch (err) {
+      // Indexacao e best-effort: deixa 'pendente' para reindexar depois.
+      console.error("[documentos-ingerir] falha ao indexar documento", {
+        documentoId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return { vinculo_id: r.vinculo_id, estado: "novo", documento_id: documentoId, indexado };
+}
+
+// ---------------------------------------------------------------------
+// Handler
+// ---------------------------------------------------------------------
+
+async function handler(req: Request): Promise<Response> {
+  const preflight = handleCorsPreflight(req);
+  if (preflight) return preflight;
+
+  try {
+    assertMethod(req, "POST");
+    await assertInternalAuth(req);
+
+    const input = await parseInput(req);
+    const service = createServiceClient();
+
+    if (input.action === "pendentes") {
+      const limite = input.limite ?? DEFAULT_PENDENTES_LIMITE;
+      const [pendentes, config] = await Promise.all([
+        listarPendentes(service, limite),
+        loadConfigExtracao(service),
+      ]);
+      return jsonResponse({ pendentes, config, total: pendentes.length }, 200);
+    }
+
+    const env = getEnv();
+    const provider = env.embeddingsEndpoint ? createEmbeddingProvider() : undefined;
+
+    const resultados: ItemResultado[] = [];
+    let novos = 0;
+    let herdados = 0;
+    let erros = 0;
+
+    for (const r of input.documentos) {
+      try {
+        const out = await processarResultado(service, provider, r);
+        resultados.push(out);
+        if (out.estado === "novo") novos += 1;
+        else if (out.estado === "herdado") herdados += 1;
+        else erros += 1;
+      } catch (err) {
+        erros += 1;
+        // Falha isolada nao derruba o lote: marca o vinculo e continua.
+        await service
+          .from("documento_vinculos")
+          .update({
+            status_extracao: "erro",
+            erro: err instanceof Error ? err.message : "falha ao persistir documento",
+          })
+          .eq("id", r.vinculo_id);
+        resultados.push({ vinculo_id: r.vinculo_id, estado: "erro" });
+      }
+    }
+
+    return jsonResponse(
+      { recebidos: input.documentos.length, novos, herdados, erros, resultados },
+      200,
+    );
+  } catch (err) {
+    return await errorResponse(err, { fn: "documentos-ingerir" });
+  }
+}
+
+getEnv();
+
+Deno.serve(handler);
