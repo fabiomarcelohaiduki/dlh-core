@@ -260,25 +260,32 @@ function montarConfigExtrator(config) {
 }
 
 // ---------------------------------------------------------------------
-// Push dos resultados ao Edge (em lotes; texto e pesado).
+// Push dos resultados ao Edge (em lotes; texto e pesado). INCREMENTAL:
+// drena o buffer assim que junta PUSH_CHUNK resultados, liberando memoria
+// e PERSISTINDO o que ja foi extraido. Resiliencia: se o run cair ou
+// estourar o tempo do Actions no meio, o que ja foi empurrado nao se perde
+// nem reextrai no proximo run (a fila so guarda os vinculos que faltam).
 // ---------------------------------------------------------------------
 
-async function pushResultados(resultados) {
-  const acc = { recebidos: 0, novos: 0, herdados: 0, erros: 0 };
-  for (let i = 0; i < resultados.length; i += PUSH_CHUNK) {
-    const lote = resultados.slice(i, i + PUSH_CHUNK);
+const resumo = { recebidos: 0, novos: 0, herdados: 0, erros: 0 };
+let pushSeq = 0;
+
+/** Empurra o buffer enquanto tiver >= `minimo` itens (drena removendo do buffer). */
+async function drenarBuffer(buffer, minimo) {
+  while (buffer.length > 0 && buffer.length >= minimo) {
+    const lote = buffer.splice(0, PUSH_CHUNK);
     const r = await postEdge({ documentos: lote });
     if (!r.ok) fail(`push de resultados falhou (${r.status}): ${r.text.slice(0, 300)}`, 1);
-    acc.recebidos += r.json?.recebidos ?? lote.length;
-    acc.novos += r.json?.novos ?? 0;
-    acc.herdados += r.json?.herdados ?? 0;
-    acc.erros += r.json?.erros ?? 0;
+    resumo.recebidos += r.json?.recebidos ?? lote.length;
+    resumo.novos += r.json?.novos ?? 0;
+    resumo.herdados += r.json?.herdados ?? 0;
+    resumo.erros += r.json?.erros ?? 0;
+    pushSeq += 1;
     console.error(
-      `[push ${i / PUSH_CHUNK + 1}] enviados ${lote.length} | ` +
-        `acum novos=${acc.novos} herdados=${acc.herdados} erros=${acc.erros}`,
+      `[push ${pushSeq}] enviados ${lote.length} | ` +
+        `acum novos=${resumo.novos} herdados=${resumo.herdados} erros=${resumo.erros}`,
     );
   }
-  return acc;
 }
 
 // ---------------------------------------------------------------------
@@ -304,18 +311,20 @@ console.log(
     `(OCR=${configExtrator.ocrEstrategia ?? "padrao"}, lote=${loteTamanho}).`,
 );
 
-const resultados = [];
+const buffer = [];
 let processados = 0;
 for (const vinculo of pendentes) {
   const out = await processarVinculo(vinculo, configExtrator);
-  resultados.push(out);
+  buffer.push(out);
   processados += 1;
   const tag = out.ok ? `ok (${out.texto?.length ?? 0} chars, via=${out.via})` : `ERRO ${out.erro}`;
   console.error(`[extrair ${processados}/${pendentes.length}] vinculo ${vinculo.id}: ${tag}`);
+  // Persiste e libera memoria assim que junta um chunk cheio.
+  await drenarBuffer(buffer, PUSH_CHUNK);
   if (pausaLoteMs > 0 && processados % loteTamanho === 0) await delay(pausaLoteMs);
 }
-
-const resumo = await pushResultados(resultados);
+// Empurra o resto que nao completou um chunk.
+await drenarBuffer(buffer, 1);
 
 console.log(`Concluido em ${Date.now() - startedAt}ms.`);
 console.log("Resumo da extracao:");
