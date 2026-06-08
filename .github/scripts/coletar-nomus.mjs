@@ -59,6 +59,11 @@ const MAX_PAGINAS = posInt(process.env.NOMUS_MAX_PAGINAS, 1_000);
 const PUSH_CHUNK = posInt(process.env.NOMUS_PUSH_CHUNK, 25);
 const BASE_DELAY_MS = 500;
 const BACKOFF_TETO_MS = 60_000;
+// Acima deste tempo, o GET de UMA pagina e considerado "lento" e logado. O
+// Nomus faz throttle por LATENCIA (tarpit), nao por 429: a propria resposta
+// demora (medido 2,5s a 140s/pagina, sem nenhum 429/tempoAteLiberar). Este log
+// da visibilidade ao throttle silencioso, que o log [rate-limit] nao captura.
+const SLOW_GET_MS = posInt(process.env.NOMUS_SLOW_GET_MS, 30_000);
 
 function posInt(raw, fallback) {
   const n = Number(raw);
@@ -206,22 +211,33 @@ async function fetchPagina(pagina) {
  * execucao com final:true. Sem cursor de retomada ainda: o log de rate limit
  * deste run mede o throttle e decide se 1 run basta ou se sera preciso fatiar.
  */
-async function coletarEEnviarFull() {
+async function coletarEEnviarFull(desdePagina = 1) {
   const t0 = Date.now();
   let execucaoId = null;
   const acc = { novos: 0, alterados: 0, ignorados: 0, erros: 0, recebidos: 0 };
   let totalColetado = 0;
   let chamadasNoLote = 0;
 
-  for (let pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
+  if (desdePagina > 1) {
+    console.error(`Retomada: iniciando da pagina ${desdePagina} (paginas anteriores ja varridas).`);
+  }
+
+  for (let pagina = desdePagina; pagina <= MAX_PAGINAS; pagina++) {
     const tGet0 = Date.now();
     const lista = await fetchPagina(pagina);
     const getMs = Date.now() - tGet0;
+    if (getMs >= SLOW_GET_MS) {
+      console.error(
+        `[slow-get] pagina ${pagina}: GET levou ${(getMs / 1000).toFixed(1)}s ` +
+          `(throttle por latencia do Nomus, sem 429)`,
+      );
+    }
     const isFim = lista.length === 0; // pagina vazia encerra a varredura.
 
     const body = {
       gatilho: "agendada",
       recurso: RECURSO,
+      pagina,
       processos: lista,
       ...(execucaoId ? { execucao_id: execucaoId } : {}),
       ...(isFim ? { final: true } : {}),
@@ -357,6 +373,23 @@ async function fetchWatermark() {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Pergunta ao Edge de qual pagina iniciar o backfill (cursor de retomada).
+ * O Edge devolve { desde_pagina } e, se houver execucao ORFA (run anterior
+ * morto por timeout 6h / cancel), a aborta sozinho e manda continuar da
+ * proxima pagina. Se ja houver um run ATIVO (lote recente), responde 409 e
+ * abortamos este ciclo para nao colidir.
+ */
+async function fetchRetomar() {
+  const r = await postLote({ action: "retomar", recurso: RECURSO });
+  if (r.status === 409 && r.json?.ja_ativo) {
+    fail(`coleta recusada: ja ha um run ATIVO em andamento (execucao ${r.json?.execucao_id}).`, 1);
+  }
+  if (!r.ok) fail(`falha ao consultar retomada (${r.status}): ${r.text.slice(0, 300)}`, 1);
+  const desde = Number(r.json?.desde_pagina);
+  return Number.isFinite(desde) && desde >= 1 ? Math.floor(desde) : 1;
+}
+
 /** Pede ao Edge para marcar a execucao em 'erro' (libera o single-flight). */
 async function abortarExecucao(execucaoId) {
   try {
@@ -420,13 +453,18 @@ const startedAt = Date.now();
 
 let resumo;
 if (MODO === "full") {
-  console.log("Modo FULL (backfill): push por pagina + log de rate limit ativo.");
-  resumo = await coletarEEnviarFull();
+  const desde = await fetchRetomar();
+  console.log(
+    `Modo FULL (backfill): push por pagina, cursor de retomada (desde pagina ${desde}). ` +
+      `Logs ativos: [rate-limit] (429) e [slow-get] (latencia > ${SLOW_GET_MS / 1000}s).`,
+  );
+  resumo = await coletarEEnviarFull(desde);
 } else {
   const watermark = await fetchWatermark();
   if (watermark === null) {
-    console.log("Modo incremental, banco vazio: varredura completa por pagina (1a coleta).");
-    resumo = await coletarEEnviarFull();
+    const desde = await fetchRetomar();
+    console.log(`Modo incremental, banco vazio: varredura completa por pagina (desde ${desde}).`);
+    resumo = await coletarEEnviarFull(desde);
   } else {
     console.log(`Modo incremental: coletando processos com id > ${watermark}.`);
     const processos = await coletarIncremental(watermark);

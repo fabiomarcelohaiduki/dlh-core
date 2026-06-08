@@ -55,7 +55,17 @@ interface IngerirInput {
   execucaoId?: string;
   final?: boolean;
   abort?: boolean;
+  /** Pagina (1-indexed) deste lote no backfill — base do cursor de retomada. */
+  pagina?: number;
 }
+
+/**
+ * Janela de frescor do cursor do runner. Se o ultimo lote (checkpoint.runner_ts)
+ * chegou ha menos que isto, ha um run ATIVO de verdade (nao mexer). Se chegou
+ * ha mais, a execucao e ORFA (run morto por timeout/cancel) e pode ser abortada
+ * e retomada. Cada pagina do backfill leva ~70s; 15 min cobre folga de ~12 pag.
+ */
+const RUNNER_STALE_MS = 15 * 60_000;
 
 interface IngerirResponse {
   execucao_id: string | null;
@@ -110,6 +120,7 @@ async function parseInput(req: Request): Promise<IngerirInput> {
   const action = typeof o.action === "string" ? o.action : undefined;
   const abort = o.abort === true;
   const execucaoId = typeof o.execucao_id === "string" ? o.execucao_id : undefined;
+  const paginaRaw = typeof o.pagina === "number" ? o.pagina : NaN;
 
   // No abort/action, 'processos' nao e exigido (acoes read-only ou de controle).
   if (!abort && !action && !Array.isArray(o.processos)) {
@@ -123,6 +134,7 @@ async function parseInput(req: Request): Promise<IngerirInput> {
     execucaoId,
     final: o.final === true,
     abort,
+    pagina: Number.isFinite(paginaRaw) && paginaRaw >= 1 ? Math.floor(paginaRaw) : undefined,
   };
 }
 
@@ -260,6 +272,62 @@ async function handler(req: Request): Promise<Response> {
     if (input.action === "watermark") {
       const max = await loadWatermark(service);
       return jsonResponse({ max_nomus_id: max }, 200);
+    }
+
+    // -----------------------------------------------------------------
+    // RETOMAR (cursor de backfill): o runner pergunta de qual pagina
+    // comecar antes de coletar. Decide entre iniciar do zero, retomar uma
+    // execucao ORFA (run morto por timeout 6h / cancel) ou recusar quando
+    // ha um run ATIVO em paralelo:
+    //   - sem execucao em_andamento -> { desde_pagina: 1 }
+    //   - em_andamento com runner_ts FRESCO -> 409 { ja_ativo: true }
+    //   - em_andamento ORFA (runner_ts velho/ausente) -> aborta (status
+    //     'erro') e devolve { desde_pagina: (runner_pagina ?? 0) + 1 }.
+    // O checkpoint usa { runner_pagina, runner_ts } DE PROPOSITO sem
+    // pagina_atual/janela_inicio: assim parseCheckpoint() do orquestrador
+    // pg_cron retorna null e NAO tenta avancar a execucao pelo Edge (que
+    // nao conecta no Nomus por TLS legado).
+    // -----------------------------------------------------------------
+    if (input.action === "retomar") {
+      const { data: rows, error: retErr } = await service
+        .from("execucoes")
+        .select("id, checkpoint")
+        .eq("status", "em_andamento")
+        .eq("recurso", recurso)
+        .order("inicio", { ascending: false })
+        .limit(1);
+      if (retErr) {
+        throw new HttpError(
+          500,
+          "execucao_query_failed",
+          "falha ao verificar execucoes em andamento",
+        );
+      }
+      if (!rows || rows.length === 0) {
+        return jsonResponse({ desde_pagina: 1, retomar: false }, 200);
+      }
+      const row = rows[0] as { id: string; checkpoint: unknown };
+      const cp = row.checkpoint && typeof row.checkpoint === "object"
+        ? row.checkpoint as Record<string, unknown>
+        : {};
+      const runnerTs = typeof cp.runner_ts === "string" ? Date.parse(cp.runner_ts) : NaN;
+      const idadeMs = Number.isFinite(runnerTs) ? Date.now() - runnerTs : Infinity;
+      if (idadeMs < RUNNER_STALE_MS) {
+        // Lote recente: ha um run ATIVO de verdade. Nao pisar.
+        return jsonResponse({ ja_ativo: true, execucao_id: String(row.id) }, 409);
+      }
+      // Orfa: libera o single-flight (abort) e manda retomar da proxima pagina.
+      await service
+        .from("execucoes")
+        .update({ status: "erro", etapa_atual: null, fim: new Date().toISOString() })
+        .eq("id", row.id)
+        .eq("status", "em_andamento");
+      const runnerPagina = typeof cp.runner_pagina === "number" ? Math.floor(cp.runner_pagina) : 0;
+      return jsonResponse({
+        desde_pagina: Math.max(1, runnerPagina + 1),
+        retomar: true,
+        execucao_anterior: String(row.id),
+      }, 200);
     }
 
     const fonte = await getFonteByTipo("nomus");
@@ -434,9 +502,13 @@ async function handler(req: Request): Promise<Response> {
           error: finError.message,
         });
       }
+      // Coleta na nuvem concluida = prova de conexao com o Nomus (o runner Node
+      // alcancou o ERP e paginou). Marca estado_conexao='conectada' junto da
+      // ultima_coleta_em: a saude da fonte vem da ingestao real, ja que o teste
+      // direto no Edge da sempre falso-negativo (TLS legado, ver fontes-testar).
       const { error: fonteError } = await service
         .from("fontes")
-        .update({ ultima_coleta_em: fim.toISOString() })
+        .update({ ultima_coleta_em: fim.toISOString(), estado_conexao: "conectada" })
         .eq("id", fonte.id);
       if (fonteError) {
         console.error("[nomus-ingerir] falha ao atualizar fontes.ultima_coleta_em", {
@@ -445,6 +517,14 @@ async function handler(req: Request): Promise<Response> {
         });
       }
     } else {
+      // Cursor de retomada: no backfill (input.pagina presente) grava a pagina
+      // ja confirmada + o timestamp do lote. Formato { runner_pagina, runner_ts }
+      // sem pagina_atual/janela_inicio para o orquestrador pg_cron ignorar (ver
+      // bloco "retomar"). No caminho incremental (sem pagina) o checkpoint nao
+      // e tocado.
+      const checkpointUpd = typeof input.pagina === "number"
+        ? { checkpoint: { runner_pagina: input.pagina, runner_ts: new Date().toISOString() } }
+        : {};
       const { error: updError } = await service
         .from("execucoes")
         .update({
@@ -453,6 +533,7 @@ async function handler(req: Request): Promise<Response> {
           total_processar: accTotal,
           processados_sucesso: accSucesso,
           processados_erro: accErro,
+          ...checkpointUpd,
         })
         .eq("id", execucaoId);
       if (updError) {
