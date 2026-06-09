@@ -18,8 +18,9 @@
 //
 // Env obrigatorias:
 //   SUPABASE_URL                 https://<ref>.supabase.co
-//   CRON_DISPATCH_SECRET         X-Cron-Secret do Edge
-//   GOOGLE_OAUTH_CLIENT_ID / _SECRET / _REFRESH_TOKEN   (lidos por drive.mjs)
+//   CRON_DISPATCH_SECRET         X-Cron-Secret do Edge (drive.mjs troca por um
+//                                access_token fresco na Edge drive-oauth; o
+//                                segredo do Google vive no Vault, nao aqui)
 // Env opcionais:
 //   SUPABASE_ANON_KEY            apikey do gateway (incluida quando presente)
 //   DRIVE_FOLDER_ID              override: descobre so esta pasta (teste)

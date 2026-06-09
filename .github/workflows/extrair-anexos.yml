@@ -89,9 +89,6 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
           DRIVE_FOLDER_ID: ${{ github.event.inputs.folder_id }}
-          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
-          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
-          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
         run: node .github/scripts/descobrir-drive.mjs
 
       - name: Extrair anexos (orquestrador camada 1)
@@ -101,10 +98,6 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
           NOMUS_API_KEY: ${{ secrets.NOMUS_API_KEY }}
-          # Credencial Drive para o adaptador 'drive' baixar os bytes (alt=media).
-          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
-          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
-          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
           # Teto opcional de vinculos por run (vazio = config_extracao do cockpit).
           EXTRACAO_LIMITE: ${{ github.event.inputs.limite }}
         run: node .github/scripts/extrair-anexos.mjs
