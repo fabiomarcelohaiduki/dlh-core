@@ -215,6 +215,21 @@ export interface ConfigExtracaoState {
 }
 
 /**
+ * Snapshot do agendamento da EXTRACAO (camada 1), lido server-side para
+ * hidratar o cmp-agendamento-extracao-form. Mora nas colunas de agendamento do
+ * singleton config_extracao e materializa o job pg_cron 'extrair-anexos' (que
+ * dispara o workflow extrair-anexos.yml). O extrator e GLOBAL (drena a fila
+ * inteira), por isso nao ha fonte/recurso. `horarioReferencia` e 'HH:MM' local.
+ */
+export interface AgendamentoExtracaoState {
+  ativo: boolean;
+  frequencia: Frequencia;
+  horarioReferencia: string | null;
+  diaSemana: number | null;
+  diaMes: number | null;
+}
+
+/**
  * Pasta do Google Drive cadastrada no cockpit (tabela drive_pastas), lida
  * server-side para hidratar o cmp-drive-pastas-form. O runner descobre as
  * ATIVAS no inicio do job de extracao. `id` identifica a linha (remover);

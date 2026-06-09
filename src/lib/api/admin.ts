@@ -95,6 +95,30 @@ export function salvarAgendamentoFonte(
   });
 }
 
+/** Payload validado (cliente) do PUT /extracao-agendamento (extrator global). */
+export interface SalvarAgendamentoExtracaoInput {
+  ativo: boolean;
+  frequencia: Frequencia;
+  horarioReferencia: string | null;
+  diaSemana: number | null;
+  diaMes: number | null;
+}
+
+/**
+ * PUT /extracao-agendamento — persiste o agendamento da EXTRACAO (camada 1) no
+ * singleton config_extracao e reescreve o pg_cron 'extrair-anexos' via
+ * aplicar_agendamento_extracao(). O extrator e global (drena a fila inteira),
+ * sem fonte/recurso; a resposta traz o texto do agendamento aplicado.
+ */
+export function salvarAgendamentoExtracao(
+  input: SalvarAgendamentoExtracaoInput,
+): Promise<SalvarAgendamentoResponse> {
+  return apiFetch<SalvarAgendamentoResponse>("extracao-agendamento", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
 /**
  * POST /nomus-disparar — aciona MANUALMENTE a coleta do Nomus pelo card da
  * fonte. O Nomus coleta no runner do GitHub Actions (TLS legado); este disparo

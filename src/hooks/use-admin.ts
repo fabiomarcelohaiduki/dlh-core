@@ -5,11 +5,13 @@ import {
   buscaSemantica,
   dispararGmail,
   dispararNomus,
+  salvarAgendamentoExtracao,
   salvarAgendamentoFonte,
   salvarConfig,
   salvarCredencial,
   testarConexao,
   type BuscaSemanticaInput,
+  type SalvarAgendamentoExtracaoInput,
   type SalvarAgendamentoFonteInput,
   type SalvarConfigInput,
 } from "@/lib/api/admin";
@@ -69,6 +71,18 @@ export function useSalvarAgendamentoFonte() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: monitoringKeys.healthcheck });
     },
+  });
+}
+
+/**
+ * useSalvarAgendamentoExtracao — persiste o agendamento da EXTRACAO (PUT
+ * extracao-agendamento). Reescreve o pg_cron 'extrair-anexos' via
+ * aplicar_agendamento_extracao(); vale na proxima janela. Sem invalidacao: o
+ * agendamento nao altera o resumo de extracao na hora.
+ */
+export function useSalvarAgendamentoExtracao() {
+  return useMutation({
+    mutationFn: (input: SalvarAgendamentoExtracaoInput) => salvarAgendamentoExtracao(input),
   });
 }
 

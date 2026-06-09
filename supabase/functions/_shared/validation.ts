@@ -644,3 +644,37 @@ export const extracaoConfigSchema = z
   .strict();
 
 export type ExtracaoConfigInput = z.infer<typeof extracaoConfigSchema>;
+
+// ---------------------------------------------------------------------
+// Schema: agendamento da EXTRACAO (PUT /extracao-agendamento).
+// Mora no singleton config_extracao (colunas de agendamento, separadas dos
+// parametros do Tika) e materializa o pg_cron 'extrair-anexos' via
+// aplicar_agendamento_extracao(). Sem `fonte`/`recurso`: o extrator e global
+// (drena a fila inteira). Campos espelham agendamentoFonteConfigSchema.
+// ---------------------------------------------------------------------
+export const extracaoAgendamentoSchema = z
+  .object({
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }),
+    frequencia: z.enum(FREQUENCIAS, {
+      errorMap: () => ({ message: `frequencia invalida (use: ${FREQUENCIAS.join(", ")})` }),
+    }),
+    horarioReferencia: z
+      .string({ invalid_type_error: "horarioReferencia deve ser string" })
+      .regex(/^([01]?\d|2[0-3]):[0-5]\d$/, "horario invalido (use HH:MM, 00:00 a 23:59)")
+      .nullish(),
+    diaSemana: z
+      .number({ invalid_type_error: "diaSemana deve ser numero" })
+      .int("diaSemana deve ser inteiro")
+      .min(0, "diaSemana deve estar entre 0 (dom) e 6 (sab)")
+      .max(6, "diaSemana deve estar entre 0 (dom) e 6 (sab)")
+      .nullish(),
+    diaMes: z
+      .number({ invalid_type_error: "diaMes deve ser numero" })
+      .int("diaMes deve ser inteiro")
+      .min(1, "diaMes deve estar entre 1 e 28")
+      .max(28, "diaMes deve estar entre 1 e 28")
+      .nullish(),
+  })
+  .strict();
+
+export type ExtracaoAgendamentoInput = z.infer<typeof extracaoAgendamentoSchema>;
