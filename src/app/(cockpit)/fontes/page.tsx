@@ -3,10 +3,12 @@ import { createClient } from "@/lib/supabase/server";
 import { FontesCredenciais } from "@/components/cockpit/fontes-credenciais";
 import { AgendamentoForm } from "@/components/cockpit/agendamento-form";
 import { ExtracaoConfigForm } from "@/components/cockpit/extracao-config-form";
+import { DrivePastasForm } from "@/components/cockpit/drive-pastas-form";
 import type {
   AgendamentoState,
   ConfigExtracaoState,
   ConfigIngestaoState,
+  DrivePastaState,
   EstadoConexao,
   FonteCredState,
   FonteEffectiState,
@@ -204,13 +206,44 @@ async function loadConfigExtracao(): Promise<ConfigExtracaoState> {
   };
 }
 
+/** Linha lida de public.drive_pastas (pastas do Drive cadastradas no cockpit). */
+interface DrivePastaRow {
+  id: string;
+  folder_id: string | null;
+  nome: string | null;
+  ativo: boolean | null;
+  updated_at: string | null;
+}
+
+/**
+ * Hidratacao server-side (RLS) das pastas do Drive cadastradas para a
+ * descoberta da camada 1 (tabela drive_pastas) — alimenta o cmp-drive-pastas-form.
+ * As escritas (adicionar/pausar/remover) passam pelo Edge drive-pastas.
+ */
+async function loadDrivePastas(): Promise<DrivePastaState[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("drive_pastas")
+    .select("id, folder_id, nome, ativo, updated_at")
+    .order("created_at", { ascending: true });
+
+  return ((data ?? []) as DrivePastaRow[]).map((r) => ({
+    id: r.id,
+    folderId: r.folder_id ?? "",
+    nome: r.nome ?? "(sem nome)",
+    ativo: r.ativo ?? false,
+    updatedAt: r.updated_at ?? null,
+  }));
+}
+
 export default async function FontesPage() {
-  const [fonte, config, agendamento, fonteNomus, configExtracao] = await Promise.all([
+  const [fonte, config, agendamento, fonteNomus, configExtracao, drivePastas] = await Promise.all([
     loadFonte(),
     loadConfig(),
     loadAgendamento(),
     loadFonteNomus(),
     loadConfigExtracao(),
+    loadDrivePastas(),
   ]);
 
   return (
@@ -230,6 +263,8 @@ export default async function FontesPage() {
       <FontesCredenciais effecti={fonte} effectiConfig={config} nomus={fonteNomus} />
 
       <ExtracaoConfigForm initial={configExtracao} />
+
+      <DrivePastasForm initial={drivePastas} />
     </section>
   );
 }

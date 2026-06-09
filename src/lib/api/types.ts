@@ -202,6 +202,20 @@ export interface ConfigExtracaoState {
   pausaLoteMs: number;
 }
 
+/**
+ * Pasta do Google Drive cadastrada no cockpit (tabela drive_pastas), lida
+ * server-side para hidratar o cmp-drive-pastas-form. O runner descobre as
+ * ATIVAS no inicio do job de extracao. `id` identifica a linha (remover);
+ * `folderId` e o id natural da pasta no Drive.
+ */
+export interface DrivePastaState {
+  id: string;
+  folderId: string;
+  nome: string;
+  ativo: boolean;
+  updatedAt: string | null;
+}
+
 /** PUT /fontes/effecti/credencial -> nunca retorna o segredo (RNF-02). */
 export interface SalvarCredencialResponse {
   ok: boolean;

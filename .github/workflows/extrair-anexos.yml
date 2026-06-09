@@ -30,7 +30,7 @@ on:
         type: string
         required: false
       folder_id:
-        description: "PILOTO Drive: id da pasta do Google Drive a descobrir (vazio = nao mexe no Drive, so drena a fila Nomus/Effecti)."
+        description: "OVERRIDE Drive: descobre SO esta pasta (teste pontual). Vazio = descobre as pastas ATIVAS cadastradas no cockpit (tabela drive_pastas)."
         type: string
         required: false
 
@@ -78,12 +78,12 @@ jobs:
           echo "Tika nao respondeu a tempo" >&2
           exit 1
 
-      # PILOTO Drive: so quando o disparo informa folder_id. Lista a pasta
-      # (recursivo) e enfileira vinculos via Edge documentos-descobrir. O step
-      # de extracao abaixo consome a fila (sem filtro de fonte) e baixa pelo
-      # adaptador 'drive'. Runs agendados/sem folder_id pulam este step.
-      - name: Descobrir anexos do Drive (piloto)
-        if: ${{ github.event.inputs.folder_id != '' }}
+      # Drive: descobre as pastas ATIVAS cadastradas no cockpit (drive_pastas),
+      # ou SO a pasta de override quando o disparo informa folder_id. Lista cada
+      # pasta (recursivo) e enfileira vinculos via Edge documentos-descobrir. O
+      # step de extracao abaixo consome a fila (sem filtro de fonte) e baixa pelo
+      # adaptador 'drive'. Sem pastas ativas e sem override = no-op (sai em paz).
+      - name: Descobrir anexos do Drive
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
