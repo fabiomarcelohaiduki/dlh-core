@@ -33,6 +33,14 @@ on:
         description: "OVERRIDE Drive: descobre SO esta pasta (teste pontual). Vazio = descobre as pastas ATIVAS cadastradas no cockpit (tabela drive_pastas)."
         type: string
         required: false
+      gmail_query:
+        description: "OVERRIDE Gmail: query Gmail crua (ex: 'from:fulano@x.com newer_than:30d') para validar 1 email pontual. Vazio = pula a descoberta do Gmail (a montagem pelo cockpit via gmail-config ainda nao esta no fluxo agendado)."
+        type: string
+        required: false
+      gmail_max:
+        description: "Gmail: teto de mensagens varridas no teste (vazio = sem teto). Use 1 para validar um unico email."
+        type: string
+        required: false
 
 concurrency:
   group: extrair-anexos
@@ -90,6 +98,22 @@ jobs:
           CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
           DRIVE_FOLDER_ID: ${{ github.event.inputs.folder_id }}
         run: node .github/scripts/descobrir-drive.mjs
+
+      # Gmail: descoberta GATED por override manual (gmail_query). Lista as
+      # mensagens da query, e para cada uma enfileira um vinculo 'corpo' + N
+      # 'anexo' via Edge documentos-descobrir. O step de extracao abaixo consome
+      # a MESMA fila (sem filtro de fonte) e obtem os bytes pelo adaptador
+      # 'gmail'. SEM gmail_query o step e pulado: o drain agendado da fila segue
+      # intacto e a montagem de query pelo cockpit (gmail-config) entra depois.
+      - name: Descobrir mensagens do Gmail
+        if: ${{ github.event.inputs.gmail_query != '' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
+          GMAIL_QUERY: ${{ github.event.inputs.gmail_query }}
+          GMAIL_MAX: ${{ github.event.inputs.gmail_max }}
+        run: node .github/scripts/descobrir-gmail.mjs
 
       - name: Extrair anexos (orquestrador camada 1)
         env:

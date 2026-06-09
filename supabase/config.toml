@@ -18,3 +18,10 @@ verify_jwt = false
 # reabre o bug.
 [functions.drive-oauth]
 verify_jwt = false
+
+# Mesma razao do drive-oauth: o callback do OAuth do Gmail chega SEM
+# Authorization (navegador vindo do Google) e o runner chama 'access-token' so
+# com X-Cron-Secret. A funcao se autentica sozinha (sessao / state CSRF /
+# X-Cron-Secret). Sem este pin, deploy sem --no-verify-jwt reabre o bug 401.
+[functions.gmail-oauth]
+verify_jwt = false

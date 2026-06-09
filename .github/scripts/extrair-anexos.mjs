@@ -32,6 +32,7 @@
 
 import { extrairTexto, ExtracaoError } from "./extrator.mjs";
 import { baixarArquivoDrive, getDriveAccessToken } from "./drive.mjs";
+import { baixarAnexo, extrairConteudo, obterMensagem, NOME_CORPO } from "./gmail.mjs";
 
 const SUPABASE_URL = (process.env.SUPABASE_URL ?? "").replace(/\/+$/, "");
 const CRON_SECRET = process.env.CRON_DISPATCH_SECRET;
@@ -222,10 +223,38 @@ async function obterBytesDrive(ref) {
   return { bytes, nomeArquivo: ref?.nome ?? "arquivo", extensao: ref?.extensao ?? null };
 }
 
+/**
+ * Gmail: coleta POR MENSAGEM (decisao Fabio 2026-06-09). Dois tipos de vinculo,
+ * distintos pelo ref_obtencao.tipo, ambos re-obtidos por demanda (nada do
+ * binario e guardado):
+ *   - 'corpo' -> re-busca a mensagem, extrai o corpo limpo (sem citacao da
+ *     thread) e entrega como texto .txt (o extrator decodifica no Node);
+ *   - 'anexo' -> baixa os bytes do anexo (messages.attachments.get).
+ */
+async function obterBytesGmail(ref) {
+  const messageId = ref?.message_id;
+  if (!messageId) throw new Error("ref_obtencao.message_id ausente (gmail)");
+  const tipo = ref?.tipo === "corpo" ? "corpo" : "anexo";
+
+  if (tipo === "corpo") {
+    const msg = await obterMensagem(messageId);
+    const { corpo } = extrairConteudo(msg);
+    if (!corpo) throw new Error(`mensagem ${messageId} sem corpo de texto`);
+    const bytes = new Uint8Array(Buffer.from(corpo, "utf-8"));
+    return { bytes, nomeArquivo: ref?.nome ?? NOME_CORPO, extensao: "txt" };
+  }
+
+  const attachmentId = ref?.attachment_id;
+  if (!attachmentId) throw new Error("ref_obtencao.attachment_id ausente (gmail anexo)");
+  const bytes = await baixarAnexo(messageId, attachmentId);
+  return { bytes, nomeArquivo: ref?.nome ?? "anexo", extensao: ref?.extensao ?? null };
+}
+
 const ADAPTADORES = {
   nomus: obterBytesNomus,
   effecti: obterBytesEffecti,
   drive: obterBytesDrive,
+  gmail: obterBytesGmail,
 };
 
 // ---------------------------------------------------------------------

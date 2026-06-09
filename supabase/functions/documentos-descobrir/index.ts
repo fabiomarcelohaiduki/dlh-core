@@ -55,7 +55,7 @@ type StatusVinculo = typeof STATUS_VINCULO[number];
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
-const FONTES_DESCOBRIVEIS = ["nomus", "effecti", "drive"] as const;
+const FONTES_DESCOBRIVEIS = ["nomus", "effecti", "drive", "gmail"] as const;
 type FonteDescobrivel = typeof FONTES_DESCOBRIVEIS[number];
 
 // Arquivo do Drive descoberto pelo runner (a lista vive na API do Google, nao
@@ -67,6 +67,18 @@ interface ArquivoDrive {
   extensao: string | null;
   tamanho: number | null;
   assinatura: string | null;
+}
+
+// Item do Gmail descoberto pelo runner (a lista de mensagens vive na API do
+// Google, nao no banco; ver descobrir-gmail.mjs). Coleta por mensagem: cada
+// email rende um item 'corpo' + N itens 'anexo', distinguidos por 'tipo'.
+interface ItemGmail {
+  message_id: string;
+  thread_id: string | null;
+  tipo: "corpo" | "anexo";
+  nome: string;
+  attachment_id: string | null;
+  extensao: string | null;
 }
 
 interface DescobrirInput {
@@ -173,6 +185,38 @@ function parseArquivosDrive(o: Record<string, unknown>): ArquivoDrive[] {
   return out;
 }
 
+/**
+ * Valida e normaliza a lista de itens do Gmail vinda do runner. Como o Drive,
+ * a verdade vive na API do Google: o runner ja entrega os itens (corpo +
+ * anexos por mensagem); este Edge so persiste via RPC.
+ */
+function parseItensGmail(o: Record<string, unknown>): ItemGmail[] {
+  if (!Array.isArray(o.itens)) {
+    throw new HttpError(422, "itens_ausentes", "fonte 'gmail' exige o campo 'itens' (array)");
+  }
+  if (o.itens.length > MAX_ARQUIVOS_DRIVE) {
+    throw new HttpError(422, "itens_demais", `maximo de ${MAX_ARQUIVOS_DRIVE} itens por chamada`);
+  }
+  const out: ItemGmail[] = [];
+  for (const raw of o.itens) {
+    if (!raw || typeof raw !== "object") continue;
+    const r = raw as Record<string, unknown>;
+    const messageId = typeof r.message_id === "string" ? r.message_id.trim() : "";
+    const nome = typeof r.nome === "string" ? r.nome.trim() : "";
+    if (!messageId || !nome) continue; // sem id natural ou nome = inenfileiravel
+    const tipo = r.tipo === "corpo" ? "corpo" : "anexo";
+    out.push({
+      message_id: messageId,
+      thread_id: typeof r.thread_id === "string" ? r.thread_id : null,
+      tipo,
+      nome,
+      attachment_id: typeof r.attachment_id === "string" ? r.attachment_id : null,
+      extensao: typeof r.extensao === "string" ? r.extensao : null,
+    });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------
 // action='resumo': contagens por status + anexos que falharam na extracao.
 // Tudo via service_role (contagem confiavel; regra do projeto).
@@ -256,7 +300,13 @@ async function handler(req: Request): Promise<Response> {
     let error: unknown;
     let arquivosRecebidos: number | null = null;
 
-    if (input.fonte === "drive") {
+    if (input.fonte === "gmail") {
+      const itens = parseItensGmail(body);
+      arquivosRecebidos = itens.length;
+      ({ data, error } = await service.rpc("descobrir_vinculos_gmail", {
+        p_itens: itens,
+      }));
+    } else if (input.fonte === "drive") {
       const arquivos = parseArquivosDrive(body);
       arquivosRecebidos = arquivos.length;
       ({ data, error } = await service.rpc("descobrir_vinculos_drive", {

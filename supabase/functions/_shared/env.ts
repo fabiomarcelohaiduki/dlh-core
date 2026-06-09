@@ -46,6 +46,10 @@ export interface AppEnv {
   driveOauthRedirect?: string;
   /** URL do cockpit para onde o callback redireciona o navegador apos conectar (ex.: http://localhost:3000/fontes). */
   driveOauthReturnUrl?: string;
+  /** Redirect URI registrada no Google que aponta para o callback da Edge gmail-oauth (conta separada do Drive). */
+  gmailOauthRedirect?: string;
+  /** URL do cockpit para onde o callback do Gmail redireciona o navegador (fallback: a do Drive, mesmo cockpit). */
+  gmailOauthReturnUrl?: string;
 }
 
 /** Embedding default do MVP (bge-m3 local self-hosted, vector(1024)). */
@@ -115,6 +119,8 @@ export function getEnv(): AppEnv {
     driveOauthClientSecret: firstNonEmpty("GOOGLE_OAUTH_CLIENT_SECRET_WEB"),
     driveOauthRedirect: firstNonEmpty("GOOGLE_OAUTH_REDIRECT"),
     driveOauthReturnUrl: firstNonEmpty("DRIVE_OAUTH_RETURN_URL"),
+    gmailOauthRedirect: firstNonEmpty("GMAIL_OAUTH_REDIRECT"),
+    gmailOauthReturnUrl: firstNonEmpty("GMAIL_OAUTH_RETURN_URL", "DRIVE_OAUTH_RETURN_URL"),
   };
 
   return cached;
