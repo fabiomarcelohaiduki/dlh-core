@@ -62,11 +62,7 @@ export default async function ExtracaoConfigPage() {
       <div className="page-head">
         <div className="titles">
           <h2>Parâmetros de extração</h2>
-          <p>
-            Parâmetros da camada 1 do extrator (texto puro, sem LLM). O coletor de anexos lê estes
-            valores no início de cada execução; as alterações valem na próxima extração, sem
-            redeploy. Acompanhe o resultado na tela de Extração, em Monitoramento.
-          </p>
+          <p>Configuração da camada 1 do extrator de anexos (texto puro, sem LLM).</p>
         </div>
       </div>
 

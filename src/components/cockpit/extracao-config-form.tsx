@@ -156,16 +156,6 @@ export function ExtracaoConfigForm({ initial }: { initial: ConfigExtracaoState }
 
   return (
     <form className="card form-card form-card--wide" onSubmit={handleSubmit(onSubmit)} noValidate>
-      <div className="section-title" style={{ margin: "0 0 6px" }}>
-        <div className="titles">
-          <h3>Extração de anexos · parâmetros</h3>
-          <p>
-            Camada 1 (texto puro, sem LLM). O coletor de anexos lê estes parâmetros no início de
-            cada execução. As alterações valem na próxima extração, sem redeploy.
-          </p>
-        </div>
-      </div>
-
       <div className="banner">
         <Info aria-hidden="true" />
         <div>
