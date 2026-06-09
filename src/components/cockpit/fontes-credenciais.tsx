@@ -73,7 +73,6 @@ function ConfigPanelHeader({
 const NOMUS_SOURCE: CredFormSource = {
   fonteTipo: "nomus",
   avatar: "No",
-  subtitulo: "ERP Nomus · processos e operação interna",
   tipoLabel: "API REST",
 };
 
@@ -114,7 +113,6 @@ function DriveCard({
     <OAuthSourceCard
       icon={<HardDrive aria-hidden="true" style={{ width: 18, height: 18 }} />}
       nome="Google Drive"
-      subtitulo="Conector via OAuth · documentos e editais"
       tipoLabel="Google Drive API"
       pill={pill}
       conta={conta}
@@ -170,7 +168,6 @@ function GmailCard({
     <OAuthSourceCard
       icon={<Mail aria-hidden="true" style={{ width: 18, height: 18 }} />}
       nome="Gmail"
-      subtitulo="Conector via OAuth · corpo e anexos dos e-mails"
       tipoLabel="Gmail API"
       pill={pill}
       conta={conta}

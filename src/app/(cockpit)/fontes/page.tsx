@@ -387,10 +387,6 @@ export default async function FontesPage() {
       <div className="page-head">
         <div className="titles">
           <h2>Fontes e credenciais</h2>
-          <p>
-            Gerencie as fontes de ingestão e suas credenciais sem editar código. As fontes ativas
-            são o portal Effecti, o ERP Nomus, o Google Drive e o Gmail.
-          </p>
         </div>
       </div>
 

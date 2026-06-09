@@ -8,7 +8,6 @@ import { Check, Loader2, RefreshCw, TriangleAlert, KeyRound, SlidersHorizontal }
 import { useSalvarCredencial, useTestarConexao } from "@/hooks/use-admin";
 import { ApiError } from "@/lib/api/client";
 import { conexaoDescriptor } from "@/lib/status";
-import { formatDateTime } from "@/lib/format";
 import { SourceCardHeader } from "@/components/cockpit/source-card";
 import type { EstadoConexao, FonteCredState, FonteTipo } from "@/lib/api/types";
 
@@ -25,8 +24,6 @@ export interface CredFormSource {
   fonteTipo: FonteTipo;
   /** Iniciais do avatar do card (ex.: "Ef", "No"). */
   avatar: string;
-  /** Subtitulo sob o nome da fonte. */
-  subtitulo: string;
   /** Rotulo do campo "Tipo" no kv. */
   tipoLabel: string;
 }
@@ -34,7 +31,6 @@ export interface CredFormSource {
 const EFFECTI_SOURCE: CredFormSource = {
   fonteTipo: "effecti",
   avatar: "Ef",
-  subtitulo: "Conector via API · avisos de licitação",
   tipoLabel: "API REST",
 };
 
@@ -192,7 +188,6 @@ export function CredForm({
       <SourceCardHeader
         avatar={source.avatar}
         nome={fonte.nome}
-        subtitulo={source.subtitulo}
         pill={pill}
       />
 
@@ -201,12 +196,6 @@ export function CredForm({
         <dd>{source.tipoLabel}</dd>
         <dt>Endpoint base</dt>
         <dd className="mono">{fonte.endpointBase}</dd>
-        <dt>Última verificação</dt>
-        <dd className="tnum">{formatDateTime(fonte.ultimaVerificacao)}</dd>
-        <dt>Token</dt>
-        <dd className="mono">
-          {configurado ? "•••••••••••••• (cifrado)" : "Não configurado"}
-        </dd>
       </dl>
 
       <form onSubmit={handleSubmit(onSubmit)} style={{ marginTop: 20 }} noValidate>

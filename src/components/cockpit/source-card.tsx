@@ -36,17 +36,15 @@ export function ConfigSectionHeading({
 
 /**
  * Cabecalho padrao de todo card de fonte: avatar (iniciais ou icone) + nome +
- * subtitulo + pill de status. Fonte unica do layout do topo do card.
+ * pill de status. Fonte unica do layout do topo do card.
  */
 export function SourceCardHeader({
   avatar,
   nome,
-  subtitulo,
   pill,
 }: {
   avatar: ReactNode;
   nome: string;
-  subtitulo: string;
   pill: Pill;
 }) {
   return (
@@ -64,10 +62,7 @@ export function SourceCardHeader({
       >
         {avatar}
       </div>
-      <div style={{ flex: 1 }}>
-        <b style={{ fontSize: 15 }}>{nome}</b>
-        <div style={{ color: "var(--muted)", fontSize: 12.5 }}>{subtitulo}</div>
-      </div>
+      <b style={{ flex: 1, fontSize: 15 }}>{nome}</b>
       <StatusPill state={pill.state} label={pill.label} />
     </div>
   );
@@ -126,7 +121,6 @@ type OAuthConectar = {
 export function OAuthSourceCard({
   icon,
   nome,
-  subtitulo,
   tipoLabel,
   pill,
   conta,
@@ -143,7 +137,6 @@ export function OAuthSourceCard({
 }: {
   icon: ReactNode;
   nome: string;
-  subtitulo: string;
   /** Valor da linha "Tipo" do kv (ex.: "Google Drive API"). */
   tipoLabel: string;
   pill: Pill;
@@ -182,7 +175,7 @@ export function OAuthSourceCard({
 
   return (
     <div className="card">
-      <SourceCardHeader avatar={icon} nome={nome} subtitulo={subtitulo} pill={pill} />
+      <SourceCardHeader avatar={icon} nome={nome} pill={pill} />
 
       <dl className="kv">
         <dt>Tipo</dt>
