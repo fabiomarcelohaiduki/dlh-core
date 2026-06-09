@@ -6,22 +6,22 @@
 //   - descobrir-drive.mjs : lista a pasta e enfileira vinculos no Edge;
 //   - extrair-anexos.mjs  : baixa os bytes de cada vinculo pendente.
 //
-// AUTH (headless, decisao Fabio 2026-06-08 = opcao A): o runner NAO faz
-// login interativo. Usa um REFRESH TOKEN de uso prolongado (gerado uma vez
-// pelo Client Desktop via gerar-token-drive.mjs) e o troca por um
-// access_token de curta duracao a cada necessidade. Escopo drive.readonly
-// (minimo privilegio: so listar e baixar).
+// AUTH (decisao Fabio 2026-06-09): a conta do Drive e conectada PELO COCKPIT
+// (botao "Conectar Google"). O refresh_token vive CIFRADO no Vault do
+// Supabase; o runner NAO guarda mais segredos do Google. Para obter um
+// access_token de curta duracao ele chama a Edge drive-oauth
+// (action='access-token') com o X-Cron-Secret — a Edge faz a troca com o
+// refresh do Vault e devolve so o access_token. Escopo drive.readonly.
 //
-// Env (secrets do Actions):
-//   GOOGLE_OAUTH_CLIENT_ID
-//   GOOGLE_OAUTH_CLIENT_SECRET
-//   GOOGLE_OAUTH_REFRESH_TOKEN
+// Env (secrets do Actions, ja existentes para os demais runners):
+//   SUPABASE_URL                 https://<ref>.supabase.co
+//   CRON_DISPATCH_SECRET         X-Cron-Secret do Edge
+//   SUPABASE_ANON_KEY            apikey do gateway (opcional, incluida se presente)
 //
 // Modulo SEM efeitos no top-level: as envs so sao exigidas quando uma funcao
-// que fala com o Google e de fato chamada (runs sem Drive nao quebram).
+// que fala com o Drive e de fato chamada (runs sem Drive nao quebram).
 // =====================================================================
 
-const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const DRIVE_API = "https://www.googleapis.com/drive/v3";
 
 // MIME types nativos do Google (Docs/Sheets/Slides): NAO tem md5Checksum nem
@@ -42,37 +42,46 @@ function requireEnv(name) {
 }
 
 /**
- * Troca o refresh_token por um access_token, com cache. Re-usa o token em
- * cache enquanto valido; renova quando perto de expirar ou forcado.
+ * Obtem um access_token do Drive pedindo a Edge drive-oauth (action=
+ * 'access-token'), que faz a troca com o refresh_token do Vault. O runner so
+ * tem anon + X-Cron-Secret; o segredo do Google nunca passa por aqui. Mantem
+ * o cache: re-usa enquanto valido, renova perto de expirar ou se forcado.
  */
 export async function getDriveAccessToken({ force = false } = {}) {
   if (!force && _cache.token && Date.now() < _cache.exp - EXP_MARGIN_MS) {
     return _cache.token;
   }
-  const body = new URLSearchParams({
-    client_id: requireEnv("GOOGLE_OAUTH_CLIENT_ID"),
-    client_secret: requireEnv("GOOGLE_OAUTH_CLIENT_SECRET"),
-    refresh_token: requireEnv("GOOGLE_OAUTH_REFRESH_TOKEN"),
-    grant_type: "refresh_token",
-  });
-  const res = await fetch(TOKEN_URL, {
+  const base = requireEnv("SUPABASE_URL").replace(/\/+$/, "");
+  const cronSecret = requireEnv("CRON_DISPATCH_SECRET");
+  const anon = process.env.SUPABASE_ANON_KEY?.trim();
+
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Cron-Secret": cronSecret,
+  };
+  if (anon) {
+    headers["apikey"] = anon;
+    headers["Authorization"] = `Bearer ${anon}`;
+  }
+
+  const res = await fetch(`${base}/functions/v1/drive-oauth`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
+    headers,
+    body: JSON.stringify({ action: "access-token" }),
   });
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`falha ao renovar access_token do Drive (${res.status}): ${text.slice(0, 300)}`);
+    throw new Error(`drive-oauth access-token falhou (${res.status}): ${text.slice(0, 300)}`);
   }
   let json;
   try {
     json = JSON.parse(text);
   } catch (_) {
-    throw new Error("resposta nao-JSON do endpoint de token do Google");
+    throw new Error("resposta nao-JSON da Edge drive-oauth");
   }
-  const token = json.access_token;
-  const expiresIn = Number(json.expires_in) || 3600;
-  if (!token) throw new Error("endpoint de token nao devolveu access_token");
+  const token = json.accessToken;
+  const expiresIn = Number(json.expiresIn) || 3600;
+  if (!token) throw new Error("drive-oauth nao devolveu accessToken");
   _cache = { token, exp: Date.now() + expiresIn * 1000 };
   return token;
 }

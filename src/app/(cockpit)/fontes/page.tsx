@@ -7,6 +7,7 @@ import type {
   AgendamentoState,
   ConfigExtracaoState,
   ConfigIngestaoState,
+  DriveContaState,
   DrivePastaState,
   EstadoConexao,
   FonteCredState,
@@ -235,15 +236,44 @@ async function loadDrivePastas(): Promise<DrivePastaState[]> {
   }));
 }
 
+/** Linha lida do singleton public.drive_conta (conta Google conectada). */
+interface DriveContaRow {
+  email: string | null;
+  conectado_em: string | null;
+}
+
+/**
+ * Hidratacao server-side (RLS) da conta Google conectada ao Drive (singleton
+ * drive_conta) para o cmp-drive-card. O refresh_token vive cifrado no Vault;
+ * aqui so o e-mail e quando conectou. `conectado` deriva do e-mail presente.
+ */
+async function loadDriveConta(): Promise<DriveContaState> {
+  const supabase = await createClient();
+  const { data: raw } = await supabase
+    .from("drive_conta")
+    .select("email, conectado_em")
+    .eq("id", true)
+    .maybeSingle();
+
+  const data = (raw ?? null) as DriveContaRow | null;
+  return {
+    conectado: Boolean(data?.email),
+    email: data?.email ?? null,
+    conectadoEm: data?.conectado_em ?? null,
+  };
+}
+
 export default async function FontesPage() {
-  const [fonte, config, agendamento, fonteNomus, configExtracao, drivePastas] = await Promise.all([
-    loadFonte(),
-    loadConfig(),
-    loadAgendamento(),
-    loadFonteNomus(),
-    loadConfigExtracao(),
-    loadDrivePastas(),
-  ]);
+  const [fonte, config, agendamento, fonteNomus, configExtracao, drivePastas, driveConta] =
+    await Promise.all([
+      loadFonte(),
+      loadConfig(),
+      loadAgendamento(),
+      loadFonteNomus(),
+      loadConfigExtracao(),
+      loadDrivePastas(),
+      loadDriveConta(),
+    ]);
 
   return (
     <section className="screen">
@@ -264,6 +294,7 @@ export default async function FontesPage() {
         effectiConfig={config}
         nomus={fonteNomus}
         drivePastas={drivePastas}
+        driveConta={driveConta}
       />
 
       <ExtracaoConfigForm initial={configExtracao} />

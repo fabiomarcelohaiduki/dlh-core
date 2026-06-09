@@ -1,14 +1,17 @@
 "use client";
 
-import { useRef, useState, type RefObject } from "react";
-import { HardDrive, SlidersHorizontal, X } from "lucide-react";
+import { useEffect, useRef, useState, type RefObject } from "react";
+import { Check, HardDrive, Link2, Loader2, SlidersHorizontal, TriangleAlert, X } from "lucide-react";
 import { CredForm, type CredFormSource } from "@/components/cockpit/cred-form";
 import { CfgForm } from "@/components/cockpit/cfg-form";
 import { NomusCfgForm } from "@/components/cockpit/nomus-cfg-form";
 import { DrivePastasForm } from "@/components/cockpit/drive-pastas-form";
 import { StatusPill } from "@/components/cockpit/status-pill";
+import { useConectarDrive } from "@/hooks/use-drive-oauth";
+import { formatDateTime } from "@/lib/format";
 import type {
   ConfigIngestaoState,
+  DriveContaState,
   DrivePastaState,
   FonteCredState,
   FonteEffectiState,
@@ -70,30 +73,81 @@ const NOMUS_PANEL = "painel-config-fonte-nomus";
 const DRIVE_PANEL = "painel-config-fonte-drive";
 
 /**
+ * Le ?drive=conectado|erro do retorno do callback OAuth (uma unica vez no
+ * mount) e limpa a query da URL para nao repetir o aviso ao recarregar. O
+ * callback da Edge redireciona para ca apos o consentimento do Google.
+ */
+function useDriveCallbackFeedback(): { kind: "ok" | "err"; message: string } | null {
+  const [feedback, setFeedback] = useState<{ kind: "ok" | "err"; message: string } | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const drive = params.get("drive");
+    if (drive !== "conectado" && drive !== "erro") return;
+    setFeedback(
+      drive === "conectado"
+        ? { kind: "ok", message: "Conta do Google conectada · pronto para varrer as pastas." }
+        : { kind: "err", message: "Não foi possível conectar a conta do Google. Tente novamente." },
+    );
+    params.delete("drive");
+    const limpa = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      window.location.pathname + (limpa ? `?${limpa}` : ""),
+    );
+  }, []);
+  return feedback;
+}
+
+/**
  * cmp-drive-card — Card de identidade da fonte Drive na mesma grade de Effecti
- * e Nomus. O Drive nao tem credencial gerenciavel pela UI (o OAuth vive nos
- * Secrets do GitHub Actions, nunca no Vault), entao o card nao exibe token nem
- * acao de testar conexao. O status deriva apenas das pastas cadastradas e o
- * botao 'Configurar' revela o painel de pastas abaixo (mesmo padrao dos demais).
+ * e Nomus. A conta Google e conectada pelo proprio cockpit (botao "Conectar
+ * Google"): o fluxo OAuth volta na Edge drive-oauth, que grava o refresh_token
+ * cifrado no Vault e registra a conta. Trocar de conta limpa as pastas. O card
+ * mostra a conta conectada e o botao 'Configurar pastas' revela o painel abaixo.
  */
 function DriveCard({
   pastas,
+  conta,
   configAberto,
   onConfigurar,
   configPanelId,
 }: {
   pastas: DrivePastaState[];
+  conta: DriveContaState;
   configAberto: boolean;
   onConfigurar: () => void;
   configPanelId: string;
 }) {
+  const conectar = useConectarDrive();
+  const callbackFeedback = useDriveCallbackFeedback();
+  const [erroIniciar, setErroIniciar] = useState<string | null>(null);
+
   const ativas = pastas.filter((p) => p.ativo).length;
-  const pill =
-    ativas > 0
+  const pill = !conta.conectado
+    ? ({ state: "idle", label: "Desconectada" } as const)
+    : ativas > 0
       ? ({ state: "ok", label: "Ativa" } as const)
       : pastas.length > 0
         ? ({ state: "idle", label: "Pausada" } as const)
         : ({ state: "idle", label: "Sem pastas" } as const);
+
+  async function handleConectar() {
+    setErroIniciar(null);
+    try {
+      const { url } = await conectar.mutateAsync();
+      // Redireciona o navegador inteiro ao consentimento do Google; o callback
+      // volta para esta pagina com ?drive=conectado|erro.
+      window.location.assign(url);
+    } catch {
+      setErroIniciar("Não foi possível iniciar a conexão. Tente novamente.");
+    }
+  }
+
+  const conectando = conectar.isPending;
+  const feedback = erroIniciar
+    ? ({ kind: "err", message: erroIniciar } as const)
+    : callbackFeedback;
 
   return (
     <div className="card">
@@ -123,8 +177,10 @@ function DriveCard({
       <dl className="kv">
         <dt>Tipo</dt>
         <dd>Google Drive API</dd>
-        <dt>Autenticação</dt>
-        <dd>OAuth (GitHub Actions)</dd>
+        <dt>Conta conectada</dt>
+        <dd className="mono">{conta.email ?? "Nenhuma"}</dd>
+        <dt>Conectada em</dt>
+        <dd className="tnum">{formatDateTime(conta.conectadoEm)}</dd>
         <dt>Pastas cadastradas</dt>
         <dd className="tnum">{pastas.length}</dd>
         <dt>Pastas ativas</dt>
@@ -132,6 +188,26 @@ function DriveCard({
       </dl>
 
       <div className="form-foot cred-actions" style={{ marginTop: 20 }}>
+        <button
+          className={`btn${conta.conectado ? "" : " btn-primary"}`}
+          type="button"
+          onClick={handleConectar}
+          disabled={conectando}
+        >
+          {conectando ? (
+            <Loader2 className="spin" aria-hidden="true" />
+          ) : (
+            <Link2 aria-hidden="true" />
+          )}
+          <span>
+            {conectando
+              ? "Abrindo o Google…"
+              : conta.conectado
+                ? "Reconectar / trocar conta"
+                : "Conectar Google"}
+          </span>
+        </button>
+
         <button
           className={`btn${configAberto ? " btn-primary" : ""}`}
           type="button"
@@ -143,6 +219,23 @@ function DriveCard({
           <span>Configurar pastas</span>
         </button>
       </div>
+
+      {!conta.conectado && (
+        <div className="helper" style={{ marginTop: 12 }}>
+          Conecte uma conta Google para varrer as pastas. Trocar de conta limpa as pastas cadastradas.
+        </div>
+      )}
+
+      {feedback && (
+        <span className={`save-note${feedback.kind === "err" ? " err" : ""}`} style={{ marginTop: 14 }}>
+          {feedback.kind === "err" ? (
+            <TriangleAlert aria-hidden="true" />
+          ) : (
+            <Check aria-hidden="true" />
+          )}
+          {feedback.message}
+        </span>
+      )}
     </div>
   );
 }
@@ -159,11 +252,13 @@ export function FontesCredenciais({
   effectiConfig,
   nomus,
   drivePastas,
+  driveConta,
 }: {
   effecti: FonteEffectiState;
   effectiConfig: ConfigIngestaoState;
   nomus: FonteCredState;
   drivePastas: DrivePastaState[];
+  driveConta: DriveContaState;
 }) {
   const [effectiAberto, setEffectiAberto] = useState(false);
   const [nomusAberto, setNomusAberto] = useState(false);
@@ -206,6 +301,7 @@ export function FontesCredenciais({
         />
         <DriveCard
           pastas={drivePastas}
+          conta={driveConta}
           configAberto={driveAberto}
           onConfigurar={() => toggle(setDriveAberto, driveRef)}
           configPanelId={DRIVE_PANEL}

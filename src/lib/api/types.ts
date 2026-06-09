@@ -216,6 +216,17 @@ export interface DrivePastaState {
   updatedAt: string | null;
 }
 
+/**
+ * Conta Google conectada ao Drive (singleton drive_conta), lida server-side
+ * para o cmp-drive-card. O refresh_token vive cifrado no Vault — aqui so o
+ * e-mail e quando conectou. `conectado` deriva da presenca do e-mail.
+ */
+export interface DriveContaState {
+  conectado: boolean;
+  email: string | null;
+  conectadoEm: string | null;
+}
+
 /** PUT /fontes/effecti/credencial -> nunca retorna o segredo (RNF-02). */
 export interface SalvarCredencialResponse {
   ok: boolean;

@@ -38,6 +38,14 @@ export interface AppEnv {
   alertEmailFrom?: string;
   /** Destinatarios dos alertas de falha (lista separada por virgula). */
   alertEmailRecipients: string[];
+  /** Client ID do OAuth Google (Aplicativo Web) usado na conexao do Drive pelo cockpit. */
+  driveOauthClientId?: string;
+  /** Client secret do OAuth Google (Aplicativo Web) — troca de code/refresh por access_token. */
+  driveOauthClientSecret?: string;
+  /** Redirect URI registrada no Google que aponta para o callback da Edge drive-oauth. */
+  driveOauthRedirect?: string;
+  /** URL do cockpit para onde o callback redireciona o navegador apos conectar (ex.: http://localhost:3000/fontes). */
+  driveOauthReturnUrl?: string;
 }
 
 /** Embedding default do MVP (bge-m3 local self-hosted, vector(1024)). */
@@ -103,6 +111,10 @@ export function getEnv(): AppEnv {
     emailProviderApiKey: firstNonEmpty("EMAIL_PROVIDER_API_KEY"),
     alertEmailFrom: firstNonEmpty("ALERT_EMAIL_FROM"),
     alertEmailRecipients: parseList(firstNonEmpty("ALERT_EMAIL_RECIPIENTS")),
+    driveOauthClientId: firstNonEmpty("GOOGLE_OAUTH_CLIENT_ID_WEB"),
+    driveOauthClientSecret: firstNonEmpty("GOOGLE_OAUTH_CLIENT_SECRET_WEB"),
+    driveOauthRedirect: firstNonEmpty("GOOGLE_OAUTH_REDIRECT"),
+    driveOauthReturnUrl: firstNonEmpty("DRIVE_OAUTH_RETURN_URL"),
   };
 
   return cached;

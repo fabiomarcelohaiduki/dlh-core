@@ -1,0 +1,20 @@
+project_id = "qvggrrirsjidtqsdvmxf"
+
+# Chamada pelo pg_cron com X-Cron-Secret puro (SEM header Authorization). Se o
+# verify_jwt ficar no default (ON), o GATEWAY do Supabase barra com 401
+# {UNAUTHORIZED_NO_AUTH_HEADER} antes do codigo rodar -> ciclo agendado morto
+# em silencio. A funcao se autentica sozinha (assertInternalAuth: X-Cron-Secret
+# do Vault OU service_role bearer), entao desligar a checagem do gateway aqui e
+# seguro. Sem este pin, todo `supabase functions deploy` sem --no-verify-jwt
+# reabre o bug.
+[functions.ingestao-orquestrar]
+verify_jwt = false
+
+# O callback do OAuth do Drive chega SEM Authorization (o navegador vem do
+# Google), e o runner chama 'access-token' so com X-Cron-Secret. Com verify_jwt
+# no default (ON) o gateway barraria ambos antes do codigo. A funcao se
+# autentica sozinha (sessao / state CSRF / X-Cron-Secret), entao desligar a
+# checagem do gateway aqui e seguro. Sem este pin, deploy sem --no-verify-jwt
+# reabre o bug.
+[functions.drive-oauth]
+verify_jwt = false
