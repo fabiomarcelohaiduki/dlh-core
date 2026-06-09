@@ -49,13 +49,25 @@ import { logSensitiveAction } from "../_shared/audit.ts";
 
 const MAX_LIMITE_PROCESSOS = 100_000;
 const MAX_ERROS_RESUMO = 200;
+const MAX_ARQUIVOS_DRIVE = 50_000;
 const STATUS_VINCULO = ["pendente", "extraido", "herdado", "erro"] as const;
 type StatusVinculo = typeof STATUS_VINCULO[number];
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
-const FONTES_DESCOBRIVEIS = ["nomus", "effecti"] as const;
+const FONTES_DESCOBRIVEIS = ["nomus", "effecti", "drive"] as const;
 type FonteDescobrivel = typeof FONTES_DESCOBRIVEIS[number];
+
+// Arquivo do Drive descoberto pelo runner (a lista vive na API do Google, nao
+// no banco — por isso o runner lista e passa pronto; ver descobrir-drive.mjs).
+interface ArquivoDrive {
+  file_id: string;
+  nome: string | null;
+  mimeType: string | null;
+  extensao: string | null;
+  tamanho: number | null;
+  assinatura: string | null;
+}
 
 interface DescobrirInput {
   fonte: FonteDescobrivel;
@@ -122,6 +134,36 @@ function parseInput(o: Record<string, unknown>): DescobrirInput {
   }
 
   return { fonte, tipo, extensoes, limiteProcessos };
+}
+
+/**
+ * Valida e normaliza a lista de arquivos do Drive vinda do runner. Diferente
+ * de Nomus/Effecti (varredura SQL), a fonte da verdade aqui e a API do Google,
+ * entao o runner ja entrega a lista; este Edge so persiste via RPC.
+ */
+function parseArquivosDrive(o: Record<string, unknown>): ArquivoDrive[] {
+  if (!Array.isArray(o.arquivos)) {
+    throw new HttpError(422, "arquivos_ausentes", "fonte 'drive' exige o campo 'arquivos' (array)");
+  }
+  if (o.arquivos.length > MAX_ARQUIVOS_DRIVE) {
+    throw new HttpError(422, "arquivos_demais", `maximo de ${MAX_ARQUIVOS_DRIVE} arquivos por chamada`);
+  }
+  const out: ArquivoDrive[] = [];
+  for (const raw of o.arquivos) {
+    if (!raw || typeof raw !== "object") continue;
+    const r = raw as Record<string, unknown>;
+    const fileId = typeof r.file_id === "string" ? r.file_id.trim() : "";
+    if (!fileId) continue; // sem id natural = inobtenivel
+    out.push({
+      file_id: fileId,
+      nome: typeof r.nome === "string" ? r.nome : null,
+      mimeType: typeof r.mimeType === "string" ? r.mimeType : null,
+      extensao: typeof r.extensao === "string" ? r.extensao : null,
+      tamanho: typeof r.tamanho === "number" && Number.isFinite(r.tamanho) ? r.tamanho : null,
+      assinatura: typeof r.assinatura === "string" ? r.assinatura : null,
+    });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------
@@ -201,17 +243,30 @@ async function handler(req: Request): Promise<Response> {
     const input = parseInput(body);
 
     // Cada fonte tem sua funcao SQL de descoberta (mesma fila, adaptador
-    // proprio no runner). Nomus varre nomus_processos; Effecti varre avisos.
-    const { data, error } = input.fonte === "effecti"
-      ? await service.rpc("descobrir_vinculos_effecti", {
+    // proprio no runner). Nomus varre nomus_processos; Effecti varre avisos;
+    // Drive recebe a lista pronta do runner (a verdade vive na API do Google).
+    let data: unknown;
+    let error: unknown;
+    let arquivosRecebidos: number | null = null;
+
+    if (input.fonte === "drive") {
+      const arquivos = parseArquivosDrive(body);
+      arquivosRecebidos = arquivos.length;
+      ({ data, error } = await service.rpc("descobrir_vinculos_drive", {
+        p_arquivos: arquivos,
+      }));
+    } else if (input.fonte === "effecti") {
+      ({ data, error } = await service.rpc("descobrir_vinculos_effecti", {
         p_extensoes: input.extensoes,
         p_limite_avisos: input.limiteProcessos,
-      })
-      : await service.rpc("descobrir_vinculos_nomus", {
+      }));
+    } else {
+      ({ data, error } = await service.rpc("descobrir_vinculos_nomus", {
         p_tipo: input.tipo,
         p_extensoes: input.extensoes,
         p_limite_procs: input.limiteProcessos,
-      });
+      }));
+    }
 
     if (error) {
       throw new HttpError(500, "descoberta_falhou", "falha ao descobrir anexos pendentes");
@@ -229,6 +284,7 @@ async function handler(req: Request): Promise<Response> {
         tipo: input.tipo,
         extensoes: input.extensoes,
         limiteProcessos: input.limiteProcessos,
+        arquivosRecebidos,
         inseridos,
       },
     });

@@ -31,6 +31,7 @@
 //   EXTRACAO_PUSH_CHUNK    resultados por push ao Edge (default 3; texto e pesado)
 
 import { extrairTexto, ExtracaoError } from "./extrator.mjs";
+import { baixarArquivoDrive, getDriveAccessToken } from "./drive.mjs";
 
 const SUPABASE_URL = (process.env.SUPABASE_URL ?? "").replace(/\/+$/, "");
 const CRON_SECRET = process.env.CRON_DISPATCH_SECRET;
@@ -207,9 +208,24 @@ async function obterBytesEffecti(ref) {
   return { bytes, nomeArquivo, extensao: ref?.extensao ?? null };
 }
 
+/**
+ * Drive: o anexo e re-obtido por demanda via API (alt=media), autenticando
+ * com o refresh_token de longa duracao (opcao A). O documento e o mesmo
+ * cidadao de 1a classe; muda so a obtencao dos bytes. ref_obtencao guarda o
+ * file_id (estavel) e a assinatura de versao usada na re-descoberta.
+ */
+async function obterBytesDrive(ref) {
+  const fileId = ref?.file_id;
+  if (!fileId) throw new Error("ref_obtencao.file_id ausente (drive)");
+  const token = await getDriveAccessToken();
+  const bytes = await baixarArquivoDrive(fileId, token);
+  return { bytes, nomeArquivo: ref?.nome ?? "arquivo", extensao: ref?.extensao ?? null };
+}
+
 const ADAPTADORES = {
   nomus: obterBytesNomus,
   effecti: obterBytesEffecti,
+  drive: obterBytesDrive,
 };
 
 // ---------------------------------------------------------------------
