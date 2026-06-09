@@ -45,8 +45,10 @@ import { assertMethod, errorResponse, HttpError, jsonResponse } from "../_shared
 import { getEnv } from "../_shared/env.ts";
 import { extractBearerToken, requireAuthorizedUser } from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
+import { getServiceSecret } from "../_shared/vault.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 
+const CRON_SECRET_NAME = "CRON_DISPATCH_SECRET" as const;
 const MAX_LIMITE_PROCESSOS = 100_000;
 const MAX_ERROS_RESUMO = 200;
 const MAX_ARQUIVOS_DRIVE = 50_000;
@@ -81,14 +83,30 @@ interface CallerContext {
   usuario: string | null;
 }
 
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 /**
- * Resolve o chamador: service_role (sistema/cron -> 'agendada') ou sessao
- * humana autorizada (cockpit -> 'manual'). Mesmo padrao de ingestao-coletar.
+ * Resolve o chamador (mesma divisao de documentos-ingerir.assertInternalAuth):
+ *   - Bearer == service_role        -> SISTEMA (cron/workflow), 'agendada'.
+ *   - X-Cron-Secret == Vault secret  -> SISTEMA (runner do Actions, que NAO
+ *     tem service_role, so o cron secret), 'agendada'. Sem este caminho o
+ *     runner cai no requireAuthorizedUser e leva 401 (anon nao e sessao).
+ *   - sessao humana autorizada       -> COCKPIT, 'manual', usuario = e-mail.
  */
 async function resolveCaller(req: Request): Promise<CallerContext> {
   const token = extractBearerToken(req);
   const env = getEnv();
   if (token && token === env.serviceRoleKey) {
+    return { gatilho: "agendada", usuario: null };
+  }
+  const provided = req.headers.get("X-Cron-Secret")?.trim() ?? "";
+  const expected = (await getServiceSecret(CRON_SECRET_NAME))?.trim() ?? "";
+  if (expected && provided && timingSafeEqual(provided, expected)) {
     return { gatilho: "agendada", usuario: null };
   }
   const { email } = await requireAuthorizedUser(req);
