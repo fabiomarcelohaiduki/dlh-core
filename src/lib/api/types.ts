@@ -186,11 +186,15 @@ export interface AgendamentoState {
 /** Estrategia de OCR da camada 1 (mapeia no Tika): auto/nunca/sempre. */
 export type OcrEstrategia = "auto" | "nunca" | "sempre";
 
+/** Fontes que o extrator sabe obter bytes (adaptadores do runner). */
+export type FonteExtracao = "nomus" | "effecti" | "drive";
+
 /**
  * Snapshot dos parametros da camada 1 do extrator (singleton config_extracao)
  * lido server-side para hidratar o cmp-extracao-config-form. O runner Node le
  * a mesma config no inicio do job; alterar aqui vale na PROXIMA execucao.
- * `extensoesHabilitadas` null = todas as extensoes.
+ * `extensoesHabilitadas` null = todas as extensoes; `fontesHabilitadas`
+ * null = todas as fontes (so as listadas entram na fila de extracao).
  */
 export interface ConfigExtracaoState {
   ocrEstrategia: OcrEstrategia;
@@ -198,6 +202,7 @@ export interface ConfigExtracaoState {
   tamanhoMaxBytes: number;
   timeoutMs: number;
   extensoesHabilitadas: string[] | null;
+  fontesHabilitadas: FonteExtracao[] | null;
   loteTamanho: number;
   pausaLoteMs: number;
 }

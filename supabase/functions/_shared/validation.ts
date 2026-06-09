@@ -453,6 +453,11 @@ export type LiaTokenActionInput = z.infer<typeof liaTokenActionSchema>;
 export const OCR_ESTRATEGIAS = ["auto", "nunca", "sempre"] as const;
 export type OcrEstrategia = (typeof OCR_ESTRATEGIAS)[number];
 
+// Fontes que o extrator sabe obter bytes (adaptadores em extrair-anexos.mjs).
+// null em fontes_habilitadas = TODAS (default, futuro-prova).
+export const FONTES_EXTRACAO = ["nomus", "effecti", "drive"] as const;
+export type FonteExtracao = (typeof FONTES_EXTRACAO)[number];
+
 const MAX_TAMANHO_BYTES = 1_073_741_824; // 1 GiB
 const MAX_TIMEOUT_MS = 1_800_000; // 30 min
 const MAX_LOTE = 1_000;
@@ -499,6 +504,19 @@ export const extracaoConfigSchema = z
       .int("pausaLoteMs deve ser inteiro")
       .min(0, "pausaLoteMs deve ser >= 0")
       .max(MAX_PAUSA_MS, "pausaLoteMs excede o teto (10 min)"),
+    // Allowlist de fontes: null/ausente = todas; array = subconjunto. Dedup
+    // e normaliza; array vazio cai para null (= todas) no Edge.
+    fontesHabilitadas: z
+      .array(
+        z.enum(FONTES_EXTRACAO, {
+          errorMap: () => ({
+            message: `fonte invalida (use: ${FONTES_EXTRACAO.join(", ")})`,
+          }),
+        }),
+      )
+      .transform((items) => Array.from(new Set(items)))
+      .nullable()
+      .optional(),
   })
   .strict();
 

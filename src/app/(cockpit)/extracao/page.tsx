@@ -35,8 +35,8 @@ export default async function ExtracaoPage() {
           <h2>Extração de anexos</h2>
           <p>
             Monitoramento da camada 1 do pipeline de documentos. Enfileire os anexos pendentes e
-            acompanhe o que foi extraído, herdado ou falhou. Os parâmetros ficam em Fontes e
-            credenciais.
+            acompanhe o que foi extraído, herdado ou falhou. Os parâmetros ficam em Parâmetros de
+            extração, na Administração.
           </p>
         </div>
       </div>

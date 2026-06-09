@@ -10,6 +10,7 @@ const PROTECTED_PREFIXES = [
   "/erros",
   "/edital",
   "/fontes",
+  "/extracao-config",
   "/ingestao",
   "/api",
 ];

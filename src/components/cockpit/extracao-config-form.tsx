@@ -8,7 +8,7 @@ import { Check, FileCog, Info, Loader2, TriangleAlert } from "lucide-react";
 import { useSalvarConfigExtracao } from "@/hooks/use-documentos";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
-import type { ConfigExtracaoState } from "@/lib/api/types";
+import type { ConfigExtracaoState, FonteExtracao } from "@/lib/api/types";
 
 /** Estrategias de OCR expostas no painel (mapeiam no Tika no runner). */
 const OCR_ESTRATEGIAS = [
@@ -16,6 +16,13 @@ const OCR_ESTRATEGIAS = [
   { value: "nunca", label: "Nunca (apenas texto nativo, ignora escaneados)" },
   { value: "sempre", label: "Sempre (força OCR em todo documento)" },
 ] as const;
+
+/** Fontes que o extrator sabe processar (adaptadores do runner). */
+const FONTES: ReadonlyArray<{ value: FonteExtracao; label: string }> = [
+  { value: "nomus", label: "Nomus (ERP)" },
+  { value: "effecti", label: "Effecti (portal de licitações)" },
+  { value: "drive", label: "Google Drive" },
+];
 
 const BYTES_POR_MIB = 1024 * 1024;
 
@@ -42,6 +49,9 @@ const cfgSchema = z.object({
     .min(1, "Mínimo 1 segundo.")
     .max(1800, "Máximo 1800 s (30 min)."),
   extensoes: z.string(),
+  fontes: z
+    .array(z.enum(["nomus", "effecti", "drive"]))
+    .min(1, "Selecione ao menos uma fonte para extrair."),
   loteTamanho: z
     .number({ invalid_type_error: "Informe quantos arquivos por lote." })
     .int("Use um valor inteiro.")
@@ -64,9 +74,17 @@ function toDefaults(initial: ConfigExtracaoState): CfgValues {
     tamanhoMaxMib: Math.max(1, Math.round(initial.tamanhoMaxBytes / BYTES_POR_MIB)),
     timeoutSegundos: Math.max(1, Math.round(initial.timeoutMs / 1000)),
     extensoes: (initial.extensoesHabilitadas ?? []).join(", "),
+    // null = todas: marca todas as fontes conhecidas.
+    fontes: initial.fontesHabilitadas ?? FONTES.map((f) => f.value),
     loteTamanho: initial.loteTamanho,
     pausaLoteMs: initial.pausaLoteMs,
   };
+}
+
+/** Selecao -> allowlist. Todas marcadas = null (= todas, futuro-prova). */
+function parseFontes(sel: FonteExtracao[]): FonteExtracao[] | null {
+  const dedup = Array.from(new Set(sel));
+  return dedup.length >= FONTES.length ? null : dedup;
 }
 
 /** Texto livre -> allowlist normalizada (sem ponto, minúsculas, dedup). Vazio = null. */
@@ -94,11 +112,22 @@ export function ExtracaoConfigForm({ initial }: { initial: ConfigExtracaoState }
     register,
     handleSubmit,
     reset,
+    watch,
+    setValue,
     formState: { errors, isDirty },
   } = useForm<CfgValues>({
     resolver: zodResolver(cfgSchema),
     defaultValues: toDefaults(initial),
   });
+
+  const fontesSel = watch("fontes");
+
+  function toggleFonte(value: FonteExtracao, checked: boolean) {
+    const next = checked
+      ? Array.from(new Set([...fontesSel, value]))
+      : fontesSel.filter((v) => v !== value);
+    setValue("fontes", next, { shouldDirty: true, shouldValidate: true });
+  }
 
   async function onSubmit(values: CfgValues) {
     setFeedback(null);
@@ -109,6 +138,7 @@ export function ExtracaoConfigForm({ initial }: { initial: ConfigExtracaoState }
         tamanhoMaxBytes: values.tamanhoMaxMib * BYTES_POR_MIB,
         timeoutMs: values.timeoutSegundos * 1000,
         extensoesHabilitadas: parseExtensoes(values.extensoes),
+        fontesHabilitadas: parseFontes(values.fontes),
         loteTamanho: values.loteTamanho,
         pausaLoteMs: values.pausaLoteMs,
       });
@@ -230,6 +260,33 @@ export function ExtracaoConfigForm({ initial }: { initial: ConfigExtracaoState }
         />
         <div className="helper">
           Allowlist separada por vírgula (sem ponto). Deixe vazio para extrair todas as extensões.
+        </div>
+      </div>
+
+      <div className={cn("field", errors.fontes && "invalid")}>
+        <label>Fontes a extrair</label>
+        <div className="chk-grid" role="group" aria-label="Fontes a extrair">
+          {FONTES.map((f) => {
+            const on = fontesSel.includes(f.value);
+            return (
+              <label key={f.value} className={cn("chk", on && "on")}>
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={(e) => toggleFonte(f.value, e.target.checked)}
+                />
+                <div className="t">{f.label}</div>
+              </label>
+            );
+          })}
+        </div>
+        <div className="err-msg">
+          <TriangleAlert aria-hidden="true" />
+          {errors.fontes?.message ?? "Selecione ao menos uma fonte."}
+        </div>
+        <div className="helper">
+          Só os anexos das fontes marcadas entram na fila de extração. Todas marcadas = todas as
+          fontes (inclui fontes novas no futuro).
         </div>
       </div>
 

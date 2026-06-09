@@ -147,11 +147,25 @@ function normalizeResultado(o: Record<string, unknown>): ResultadoExtracao | nul
 // action='pendentes': lista vinculos a extrair (status='pendente').
 // ---------------------------------------------------------------------
 
-async function listarPendentes(service: ServiceClient, limite: number): Promise<unknown[]> {
-  const { data, error } = await service
+/**
+ * Lista vinculos a extrair (status='pendente'), opcionalmente restritos a uma
+ * allowlist de fontes (config_extracao.fontes_habilitadas). Filtrar AQUI (na
+ * origem da fila, nao no runner) e o que torna a selecao de fontes efetiva sem
+ * loop: vinculos de fonte desabilitada simplesmente nao saem como pendentes.
+ */
+async function listarPendentes(
+  service: ServiceClient,
+  limite: number,
+  fontes: string[] | null,
+): Promise<unknown[]> {
+  let query = service
     .from("documento_vinculos")
     .select("id, fonte, registro_origem_id, nome_anexo, ref_obtencao")
-    .eq("status_extracao", "pendente")
+    .eq("status_extracao", "pendente");
+  if (fontes && fontes.length > 0) {
+    query = query.in("fonte", fontes);
+  }
+  const { data, error } = await query
     .order("created_at", { ascending: true })
     .limit(limite);
   if (error) {
@@ -171,7 +185,7 @@ async function loadConfigExtracao(service: ServiceClient): Promise<Record<string
   const { data, error } = await service
     .from("config_extracao")
     .select(
-      "ocr_estrategia, ocr_idioma, tamanho_max_bytes, timeout_ms, extensoes_habilitadas, lote_tamanho, pausa_lote_ms",
+      "ocr_estrategia, ocr_idioma, tamanho_max_bytes, timeout_ms, extensoes_habilitadas, fontes_habilitadas, lote_tamanho, pausa_lote_ms",
     )
     .limit(1)
     .maybeSingle();
@@ -183,6 +197,7 @@ async function loadConfigExtracao(service: ServiceClient): Promise<Record<string
     tamanhoMaxBytes: c.tamanho_max_bytes,
     timeoutMs: c.timeout_ms,
     extensoesHabilitadas: c.extensoes_habilitadas,
+    fontesHabilitadas: c.fontes_habilitadas,
     loteTamanho: c.lote_tamanho,
     pausaLoteMs: c.pausa_lote_ms,
   };
@@ -336,10 +351,12 @@ async function handler(req: Request): Promise<Response> {
 
     if (input.action === "pendentes") {
       const limite = input.limite ?? DEFAULT_PENDENTES_LIMITE;
-      const [pendentes, config] = await Promise.all([
-        listarPendentes(service, limite),
-        loadConfigExtracao(service),
-      ]);
+      // Le a config primeiro: a allowlist de fontes restringe a fila na origem.
+      const config = await loadConfigExtracao(service);
+      const fontes = Array.isArray(config?.fontesHabilitadas)
+        ? (config.fontesHabilitadas as string[])
+        : null;
+      const pendentes = await listarPendentes(service, limite, fontes);
       return jsonResponse({ pendentes, config, total: pendentes.length }, 200);
     }
 

@@ -114,6 +114,7 @@ export function salvarConfigExtracao(
       tamanhoMaxBytes: input.tamanhoMaxBytes,
       timeoutMs: input.timeoutMs,
       extensoesHabilitadas: input.extensoesHabilitadas,
+      fontesHabilitadas: input.fontesHabilitadas,
       loteTamanho: input.loteTamanho,
       pausaLoteMs: input.pausaLoteMs,
     }),

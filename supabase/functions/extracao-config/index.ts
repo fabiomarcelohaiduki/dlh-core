@@ -37,6 +37,10 @@ async function handlePut(req: Request): Promise<Response> {
       input.extensoesHabilitadas && input.extensoesHabilitadas.length > 0
         ? input.extensoesHabilitadas
         : null,
+    fontes_habilitadas:
+      input.fontesHabilitadas && input.fontesHabilitadas.length > 0
+        ? input.fontesHabilitadas
+        : null,
     lote_tamanho: input.loteTamanho,
     pausa_lote_ms: input.pausaLoteMs,
     updated_at: new Date().toISOString(),
@@ -78,6 +82,7 @@ async function handlePut(req: Request): Promise<Response> {
       tamanhoMaxBytes: input.tamanhoMaxBytes,
       timeoutMs: input.timeoutMs,
       extensoesHabilitadas: payload.extensoes_habilitadas,
+      fontesHabilitadas: payload.fontes_habilitadas,
       loteTamanho: input.loteTamanho,
       pausaLoteMs: input.pausaLoteMs,
     },
