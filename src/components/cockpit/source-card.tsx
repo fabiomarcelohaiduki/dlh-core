@@ -3,7 +3,6 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Check, Link2, Loader2, SlidersHorizontal, TriangleAlert } from "lucide-react";
 import { StatusPill } from "@/components/cockpit/status-pill";
-import { formatDateTime } from "@/lib/format";
 import type { PillState } from "@/lib/status";
 
 type Pill = { state: PillState; label: string };
@@ -103,7 +102,6 @@ function useOAuthCallbackFeedback(
 type OAuthConta = {
   conectado: boolean;
   email: string | null;
-  conectadoEm: string | null;
 };
 
 /** Mutation de inicio do fluxo OAuth (useConectarDrive/useConectarGmail). */
@@ -182,8 +180,6 @@ export function OAuthSourceCard({
         <dd>{tipoLabel}</dd>
         <dt>Conta conectada</dt>
         <dd className="mono">{conta.email ?? "Nenhuma"}</dd>
-        <dt>Conectada em</dt>
-        <dd className="tnum">{formatDateTime(conta.conectadoEm)}</dd>
         {children}
       </dl>
 
