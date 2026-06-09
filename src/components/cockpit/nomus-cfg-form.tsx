@@ -39,10 +39,6 @@ const TIPOS_POR_RECURSO: Record<string, string[]> = {
 interface RecursoFormState {
   ativo: boolean;
   tiposAtivos: string[];
-  /** Janela por recurso: corte por id (texto do input; "" = sem corte). */
-  idInicial: string;
-  /** Janela por recurso: corte por data 'YYYY-MM-DD' ("" = sem corte). */
-  dataInicial: string;
 }
 type RecursosState = Record<string, RecursoFormState>;
 
@@ -54,11 +50,9 @@ function defaultRecurso(key: string, futuro: boolean): RecursoFormState {
     return {
       ativo: true,
       tiposAtivos: ["Venda Governamental", "Cobrança DARLU"],
-      idInicial: "",
-      dataInicial: "",
     };
   }
-  return { ativo: !futuro, tiposAtivos: [], idInicial: "", dataInicial: "" };
+  return { ativo: !futuro, tiposAtivos: [] };
 }
 
 /** Hidrata o estado do form a partir do snapshot vindo do GET ingestao-config. */
@@ -67,14 +61,7 @@ function hydrate(recursos: Record<string, RecursoConfig>): RecursosState {
   for (const r of RECURSOS) {
     const cfg = recursos[r.key];
     next[r.key] = cfg
-      ? {
-          ativo: cfg.ativo,
-          tiposAtivos: cfg.tiposAtivos,
-          idInicial:
-            typeof cfg.idInicial === "number" ? String(cfg.idInicial) : "",
-          dataInicial:
-            typeof cfg.dataInicial === "string" ? cfg.dataInicial.slice(0, 10) : "",
-        }
+      ? { ativo: cfg.ativo, tiposAtivos: cfg.tiposAtivos }
       : defaultRecurso(r.key, r.futuro);
   }
   return next;
@@ -138,9 +125,10 @@ function TipoToggle({
 /**
  * cmp-nomus-cfg-form — Configuracao da ingestao Nomus (US-04/US-05).
  *
- * Toggles de recursos e de tipos por recurso + data de corte da coleta
- * (data_inicial): o processo do Nomus nao tem data de alteracao, entao a janela
- * movel por dias nao se aplica; o corte e por DATA DE CRIACAO (>= data_inicial).
+ * Toggles de recursos e de tipos por recurso. A janela deslizante (janela_dias)
+ * e exibida apenas como informacao (configurada no banco, 365 dias p/ processos):
+ * o regime diario re-varre os registros dessa janela e atualiza o que mudou; o
+ * backfill completo do historico e disparado pela coleta manual (full).
  * Consome useIngestaoConfig (GET) para hidratar e useSalvarIngestaoConfig (PUT)
  * para persistir; as alteracoes valem na PROXIMA execucao (sem redeploy).
  * Estados de loading (skeleton) e erro (inline) presentes na leitura e gravacao.
@@ -167,12 +155,6 @@ export function NomusCfgForm() {
     setSaveFeedback(null);
   }
 
-  function setJanela(key: string, campo: "idInicial" | "dataInicial", valor: string) {
-    setRecursos((prev) => ({ ...prev, [key]: { ...prev[key], [campo]: valor } }));
-    setDirty(true);
-    setSaveFeedback(null);
-  }
-
   function toggleTipo(key: string, tipo: string, on: boolean) {
     setRecursos((prev) => {
       const current = prev[key]?.tiposAtivos ?? [];
@@ -194,18 +176,11 @@ export function NomusCfgForm() {
         recursos: Object.fromEntries(
           RECURSOS.map((r) => {
             const s = recursos[r.key];
-            // Janela por recurso: "" limpa o corte (null); senao envia o valor.
-            const idTrim = (s?.idInicial ?? "").trim();
-            const idNum = idTrim === "" ? null : Number(idTrim);
-            const dataTrim = (s?.dataInicial ?? "").trim();
             return [
               r.key,
               {
                 ativo: s?.ativo ?? false,
                 tiposAtivos: s?.tiposAtivos ?? [],
-                idInicial:
-                  idTrim !== "" && Number.isFinite(idNum) ? Math.floor(idNum as number) : null,
-                dataInicial: dataTrim === "" ? null : dataTrim,
               },
             ];
           }),
@@ -225,7 +200,7 @@ export function NomusCfgForm() {
   const header = (
     <ConfigSectionHeading
       title="Configuração da ingestão"
-      description="Quais recursos (módulos) do Nomus esta fonte deve ingerir, com tipos e janela de partida por recurso. Os módulos futuros entram em fases seguintes."
+      description="Quais recursos (módulos) do Nomus esta fonte deve ingerir e os tipos de cada um. Os módulos futuros entram em fases seguintes."
     />
   );
 
@@ -317,46 +292,23 @@ export function NomusCfgForm() {
                 </div>
               )}
 
-              {!r.futuro && ativo && (
-                <div style={{ marginTop: 16 }}>
-                  <div className="section-title" style={{ margin: "0 0 8px" }}>
-                    <h3>Janela de coleta</h3>
-                  </div>
-                  <div className="helper" style={{ margin: "-4px 0 10px" }}>
-                    Janela de partida própria deste recurso. Deixe em branco para coletar todo o
-                    histórico.
-                  </div>
-                  <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-                    <div className="field" style={{ maxWidth: 240 }}>
-                      <label htmlFor={`nomus-id-inicial-${r.key}`}>Coletar a partir do id</label>
-                      <input
-                        type="number"
-                        min={0}
-                        step={1}
-                        id={`nomus-id-inicial-${r.key}`}
-                        value={s?.idInicial ?? ""}
-                        placeholder="ex.: 25000"
-                        onChange={(e) => setJanela(r.key, "idInicial", e.target.value)}
-                      />
-                      <div className="helper">
-                        Ignora registros com <b>id</b> menor que este.
-                      </div>
+              {!r.futuro && ativo && (() => {
+                const janelaDias = config.data?.recursos?.[r.key]?.janelaDias ?? null;
+                if (janelaDias === null) return null;
+                return (
+                  <div style={{ marginTop: 16 }}>
+                    <div className="section-title" style={{ margin: "0 0 8px" }}>
+                      <h3>Janela de coleta</h3>
                     </div>
-                    <div className="field" style={{ maxWidth: 240 }}>
-                      <label htmlFor={`nomus-data-inicial-${r.key}`}>Coletar a partir da data</label>
-                      <input
-                        type="date"
-                        id={`nomus-data-inicial-${r.key}`}
-                        value={s?.dataInicial ?? ""}
-                        onChange={(e) => setJanela(r.key, "dataInicial", e.target.value)}
-                      />
-                      <div className="helper">
-                        Ignora registros criados antes desta <b>data</b>.
-                      </div>
+                    <div className="helper">
+                      Janela deslizante de <b>{janelaDias} dias</b> (configurada no banco). O
+                      regime diário re-varre os registros dos últimos {janelaDias} dias e atualiza
+                      o que mudou. Para recarregar o histórico inteiro, use{" "}
+                      <b>Recarregar histórico (full)</b> na coleta manual acima.
                     </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           );
         })}

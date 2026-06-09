@@ -369,6 +369,8 @@ export interface RecursoConfig {
   idInicial?: number | null;
   /** Janela por recurso: corte por data de criacao 'YYYY-MM-DD'. */
   dataInicial?: string | null;
+  /** Janela deslizante (retencao) em dias deste recurso; null = sem janela. */
+  janelaDias?: number | null;
 }
 
 /** GET ingestao-config?fonte= -> config corrente da fonte (camelCase). */

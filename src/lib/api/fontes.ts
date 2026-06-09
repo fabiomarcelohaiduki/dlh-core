@@ -37,6 +37,9 @@ function toRecursoConfig(raw: unknown): RecursoConfig {
     ? Math.floor(o.id_inicial)
     : null;
   const dataInicial = typeof o.data_inicial === "string" ? o.data_inicial : null;
+  const janelaDias = typeof o.janela_dias === "number" && Number.isFinite(o.janela_dias)
+    ? Math.floor(o.janela_dias)
+    : null;
   return {
     ativo: typeof o.ativo === "boolean" ? o.ativo : false,
     tiposAtivos,
@@ -45,6 +48,7 @@ function toRecursoConfig(raw: unknown): RecursoConfig {
     etapasTerminais,
     idInicial,
     dataInicial,
+    janelaDias,
   };
 }
 
