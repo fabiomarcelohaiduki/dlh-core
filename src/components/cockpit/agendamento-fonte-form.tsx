@@ -97,7 +97,7 @@ export function AgendamentoFonteForm({ initial }: { initial: AgendamentoFonteSta
   async function onSubmit(values: AgValues) {
     setFeedback(null);
     try {
-      const res = await salvar.mutateAsync({
+      await salvar.mutateAsync({
         fonte: initial.fonte,
         // recurso presente => grava o agendamento POR MODULO; ausente =>
         // agendamento POR FONTE (Effecti/Gmail). Propaga o que veio do server.
@@ -112,7 +112,7 @@ export function AgendamentoFonteForm({ initial }: { initial: AgendamentoFonteSta
       setFeedback({
         kind: "ok",
         message: values.ativo
-          ? `Agendamento salvo · coleta ligada${res.agendamento ? ` (${res.agendamento})` : ""}`
+          ? "Agendamento salvo · coleta automática ligada"
           : "Agendamento salvo · coleta automática desligada",
       });
     } catch (err) {

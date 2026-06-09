@@ -14,9 +14,12 @@ type Feedback = { kind: "ok" | "err"; message: string };
  *
  * O Nomus coleta num runner Node do GitHub Actions (o Edge nao fecha o TLS
  * legado do Nomus). Estes botoes acionam o workflow_dispatch sob demanda:
- *   - "Coletar agora" (incremental): regime permanente (watermark por id).
- *   - "Recarregar histórico" (full): backfill completo, varre tudo de novo —
- *     operacao pesada, por isso exige confirmacao explicita.
+ *   - "Coletar agora" (incremental): so os processos NOVOS (id acima da marca
+ *     d'agua). Rapido, mas NAO reprocessa edicoes de processos ja coletados.
+ *   - "Re-varrer janela" (full): re-varre todos os processos da JANELA
+ *     configurada e atualiza o que mudou, inclusive edicoes — operacao pesada,
+ *     por isso exige confirmacao. E o mesmo modo do agendamento diario (o Nomus
+ *     nao expoe data de alteracao, entao so o full captura edicoes).
  *
  * A coleta roda assincrona: o disparo so a ENFILEIRA (202); o andamento
  * aparece no Dashboard/Execucoes quando o runner registra o inicio.
@@ -38,7 +41,7 @@ export function NomusDisparoForm({ recurso = "processos" }: { recurso?: string }
         kind: "ok",
         message:
           modo === "full"
-            ? "Recarga do histórico disparada · acompanhe em Execuções."
+            ? "Re-varredura disparada · acompanhe em Execuções."
             : "Coleta disparada · acompanhe em Execuções.",
       });
     } catch (err) {
@@ -97,7 +100,7 @@ export function NomusDisparoForm({ recurso = "processos" }: { recurso?: string }
                 ) : (
                   <History aria-hidden="true" />
                 )}
-                <span>{emVoo === "full" ? "Disparando…" : "Confirmar recarga total"}</span>
+                <span>{emVoo === "full" ? "Disparando…" : "Confirmar re-varredura"}</span>
               </button>
               <button
                 className="btn"
@@ -119,7 +122,7 @@ export function NomusDisparoForm({ recurso = "processos" }: { recurso?: string }
               disabled={ocupado}
             >
               <History aria-hidden="true" />
-              <span>Recarregar histórico (full)</span>
+              <span>Re-varrer janela (full)</span>
             </button>
           )}
 
@@ -137,8 +140,8 @@ export function NomusDisparoForm({ recurso = "processos" }: { recurso?: string }
 
         <div className="helper" style={{ marginTop: 12 }}>
           {confirmandoFull
-            ? "A recarga total varre TODO o histórico do Nomus de novo (operação longa). Use só para backfill; o incremental cobre o dia a dia."
-            : "O incremental coleta apenas o que mudou desde a última coleta (uso normal)."}
+            ? "Re-varre todos os processos da janela configurada e atualiza o que mudou, inclusive edições (operação longa)."
+            : "Traz só os processos novos desde a última coleta; não reprocessa edições (uso normal)."}
         </div>
       </div>
     </>

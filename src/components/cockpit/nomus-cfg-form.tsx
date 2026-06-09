@@ -16,7 +16,7 @@ import type { AgendamentoFonteState, RecursoConfig } from "@/lib/api/types";
  * (toggle inerte). `key` casa 1:1 com a allowlist RECURSOS_PERMITIDOS do backend.
  */
 const RECURSOS = [
-  { key: "processos", label: "Processos", descricao: "Processos comerciais (ativo)", futuro: false },
+  { key: "processos", label: "Processos", descricao: "Processos comerciais", futuro: false },
   { key: "cobranca", label: "Cobrança", descricao: "Títulos e cobranças", futuro: true },
   { key: "propostas", label: "Propostas", descricao: "Propostas comerciais", futuro: true },
   { key: "pedidos", label: "Pedidos", descricao: "Pedidos de venda", futuro: true },
@@ -223,7 +223,7 @@ export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteSt
         ),
       });
       setDirty(false);
-      setSaveFeedback({ kind: "ok", message: "Configuração salva · vale na próxima execução" });
+      setSaveFeedback({ kind: "ok", message: "Configuração salva." });
     } catch (err) {
       const message =
         err instanceof ApiError && (err.status === 400 || err.status === 422)
@@ -236,7 +236,7 @@ export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteSt
   const header = (
     <ConfigSectionHeading
       title="Configuração da ingestão"
-      description="Quais recursos (módulos) do Nomus esta fonte deve ingerir e os tipos de cada um. Os módulos futuros entram em fases seguintes."
+      description="Módulos do Nomus que esta fonte ingere e os tipos de cada um. Desligar um módulo interrompe toda a coleta dele (manual e automática). Módulos futuros entram em fases seguintes."
     />
   );
 
@@ -304,7 +304,7 @@ export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteSt
                 onChange={(on) => toggleRecurso(r.key, on)}
               />
 
-              {r.key === "processos" && agendamento && (
+              {r.key === "processos" && ativo && agendamento && (
                 <div style={{ marginTop: 16 }}>
                   <AgendamentoFonteForm initial={agendamento} />
                   <NomusDisparoForm recurso={r.key} />
@@ -341,22 +341,18 @@ export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteSt
                       <h3>Janela de coleta</h3>
                     </div>
                     <div className="helper">
-                      Janela deslizante de <b>{janelaDias} dias</b> (configurada no banco). A
-                      coleta automática re-varre os registros dos últimos {janelaDias} dias e
-                      atualiza o que mudou.{" "}
+                      Janela deslizante de <b>{janelaDias} dias</b> (definida no banco): re-varre
+                      os últimos {janelaDias} dias e atualiza o que mudou. Tanto a coleta
+                      automática quanto a re-varredura manual (full) respeitam esta janela.{" "}
                       {quando ? (
                         <>
-                          A varredura roda <b>{quando}</b> (horário de Brasília), conforme o
-                          Agendamento da coleta acima.
+                          Roda <b>{quando}</b> (horário de Brasília), conforme o Agendamento acima.
                         </>
                       ) : (
                         <>
-                          A coleta automática está <b>desligada</b>; ligue-a no Agendamento da
-                          coleta acima para a varredura rodar sozinha.
+                          A coleta automática está <b>desligada</b>; ligue-a no Agendamento acima.
                         </>
-                      )}{" "}
-                      Para recarregar o histórico inteiro (sem janela), use{" "}
-                      <b>Recarregar histórico (full)</b> na coleta manual acima.
+                      )}
                     </div>
                   </div>
                 );
