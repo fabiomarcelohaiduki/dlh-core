@@ -250,6 +250,9 @@ export interface GmailContaState {
   conectadoEm: string | null;
 }
 
+/** Slugs das guias (categorias) do Gmail a EXCLUIR; viram -category:<slug>. */
+export type CategoriaGmail = "promotions" | "social" | "updates" | "forums";
+
 /**
  * Config da coleta Gmail (singleton gmail_config), lida server-side para o
  * cmp-gmail-config-form. `dataInicial` ('YYYY-MM-DD') vira after:YYYY/MM/DD na
@@ -257,6 +260,11 @@ export interface GmailContaState {
  */
 export interface GmailConfigState {
   dataInicial: string | null;
+  /**
+   * Slugs de categoria do Gmail a EXCLUIR (promotions/social/updates/forums).
+   * As guias do Gmail nao sao labels comuns; viram -category:<slug> na query.
+   */
+  categoriasExcluidas: CategoriaGmail[];
 }
 
 /**

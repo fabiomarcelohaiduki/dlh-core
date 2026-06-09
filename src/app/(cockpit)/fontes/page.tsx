@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { FontesCredenciais } from "@/components/cockpit/fontes-credenciais";
 import type {
   AgendamentoFonteState,
+  CategoriaGmail,
   ConfigIngestaoState,
   DriveContaState,
   DrivePastaState,
@@ -299,9 +300,10 @@ async function loadGmailConta(): Promise<GmailContaState> {
   };
 }
 
-/** Linha lida do singleton public.gmail_config (data inicial da coleta). */
+/** Linha lida do singleton public.gmail_config (data inicial + categorias). */
 interface GmailConfigRow {
   data_inicial: string | null;
+  categorias_excluidas: CategoriaGmail[] | null;
 }
 
 /**
@@ -312,12 +314,15 @@ async function loadGmailConfig(): Promise<GmailConfigState> {
   const supabase = await createClient();
   const { data: raw } = await supabase
     .from("gmail_config")
-    .select("data_inicial")
+    .select("data_inicial, categorias_excluidas")
     .eq("id", true)
     .maybeSingle();
 
   const data = (raw ?? null) as GmailConfigRow | null;
-  return { dataInicial: data?.data_inicial ?? null };
+  return {
+    dataInicial: data?.data_inicial ?? null,
+    categoriasExcluidas: data?.categorias_excluidas ?? [],
+  };
 }
 
 /** Linha lida de public.gmail_labels (blacklist de labels do Gmail). */

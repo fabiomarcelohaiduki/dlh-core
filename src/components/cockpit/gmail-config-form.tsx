@@ -8,13 +8,14 @@ import { z } from "zod";
 import { Check, CalendarClock, Loader2, Power, Tag, Trash2, TriangleAlert } from "lucide-react";
 import {
   useRemoverGmailLabel,
+  useSalvarGmailCategorias,
   useSalvarGmailConfig,
   useSalvarGmailLabel,
 } from "@/hooks/use-gmail-config";
 import { ConfigSectionHeading } from "@/components/cockpit/source-card";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
-import type { GmailConfigState, GmailLabelState } from "@/lib/api/types";
+import type { CategoriaGmail, GmailConfigState, GmailLabelState } from "@/lib/api/types";
 
 const dataSchema = z.object({
   dataInicial: z
@@ -31,10 +32,33 @@ type LabelValues = z.infer<typeof labelSchema>;
 
 type Feedback = { kind: "ok" | "err"; message: string };
 
+// Guias do Gmail (categorias) que podem ser excluidas da coleta. Diferente das
+// labels (cadastro livre), o conjunto e fixo e cada uma vira -category:<slug>.
+const CATEGORIAS_GMAIL: { slug: CategoriaGmail; nome: string }[] = [
+  { slug: "promotions", nome: "Promoções" },
+  { slug: "social", nome: "Social" },
+  { slug: "updates", nome: "Atualizações" },
+  { slug: "forums", nome: "Fóruns" },
+];
+
 function mensagemErro(err: unknown): string {
   return err instanceof ApiError && (err.status === 400 || err.status === 422)
     ? "Dados inválidos: revise os campos."
     : "Não foi possível concluir. Tente novamente.";
+}
+
+/** Nota de feedback (ok/erro) ao lado do botao de salvar. */
+function SaveNote({ feedback }: { feedback: Feedback }) {
+  return (
+    <span className={cn("save-note", feedback.kind === "err" && "err")}>
+      {feedback.kind === "err" ? (
+        <TriangleAlert aria-hidden="true" />
+      ) : (
+        <Check aria-hidden="true" />
+      )}
+      {feedback.message}
+    </span>
+  );
 }
 
 /**
@@ -56,9 +80,12 @@ export function GmailConfigForm({
 }) {
   const router = useRouter();
   const salvarConfig = useSalvarGmailConfig();
+  const salvarCategorias = useSalvarGmailCategorias();
   const salvarLabel = useSalvarGmailLabel();
   const removerLabel = useRemoverGmailLabel();
   const [dataFeedback, setDataFeedback] = useState<Feedback | null>(null);
+  const [categorias, setCategorias] = useState<CategoriaGmail[]>(config.categoriasExcluidas ?? []);
+  const [catFeedback, setCatFeedback] = useState<Feedback | null>(null);
   const [labelFeedback, setLabelFeedback] = useState<Feedback | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -80,6 +107,23 @@ export function GmailConfigForm({
       router.refresh();
     } catch (err) {
       setDataFeedback({ kind: "err", message: mensagemErro(err) });
+    }
+  }
+
+  async function onToggleCategoria(slug: CategoriaGmail) {
+    const next = categorias.includes(slug)
+      ? categorias.filter((c) => c !== slug)
+      : [...categorias, slug];
+    const anterior = categorias;
+    setCategorias(next);
+    setCatFeedback(null);
+    try {
+      await salvarCategorias.mutateAsync(next);
+      setCatFeedback({ kind: "ok", message: "Categorias salvas · valem na próxima coleta." });
+      router.refresh();
+    } catch (err) {
+      setCategorias(anterior);
+      setCatFeedback({ kind: "err", message: mensagemErro(err) });
     }
   }
 
@@ -157,18 +201,38 @@ export function GmailConfigForm({
             )}
             <span>{salvarConfig.isPending ? "Salvando…" : "Salvar data inicial"}</span>
           </button>
-          {dataFeedback && (
-            <span className={cn("save-note", dataFeedback.kind === "err" && "err")}>
-              {dataFeedback.kind === "err" ? (
-                <TriangleAlert aria-hidden="true" />
-              ) : (
-                <Check aria-hidden="true" />
-              )}
-              {dataFeedback.message}
-            </span>
-          )}
+          {dataFeedback && <SaveNote feedback={dataFeedback} />}
         </div>
       </form>
+
+      <div className="section-title" style={{ margin: "24px 0 13px" }}>
+        <h3>Categorias excluídas da coleta</h3>
+      </div>
+      <p className="muted" style={{ margin: "0 0 12px", fontSize: 13 }}>
+        As guias do Gmail (Promoções, Social…) não são labels comuns. Marque as
+        que <b>não</b> quer coletar — viram <code>-category:</code> na query.
+      </p>
+      <div className="chk-grid" role="group" aria-label="Categorias a excluir">
+        {CATEGORIAS_GMAIL.map((c) => {
+          const on = categorias.includes(c.slug);
+          return (
+            <label key={c.slug} className={cn("chk", on && "on")}>
+              <input
+                type="checkbox"
+                checked={on}
+                disabled={salvarCategorias.isPending}
+                onChange={() => onToggleCategoria(c.slug)}
+              />
+              <div className="t">{c.nome}</div>
+            </label>
+          );
+        })}
+      </div>
+      {catFeedback && (
+        <div className="form-foot" style={{ marginTop: 10 }}>
+          <SaveNote feedback={catFeedback} />
+        </div>
+      )}
 
       <div className="section-title" style={{ margin: "24px 0 13px" }}>
         <h3>Labels excluídas da coleta</h3>
@@ -250,7 +314,7 @@ export function GmailConfigForm({
           <input
             type="text"
             id="gm-label"
-            placeholder="Ex.: Promoções, Social, CATEGORY_PROMOTIONS"
+            placeholder="Ex.: Notas Fiscais, Newsletter, Financeiro"
             aria-invalid={Boolean(labelForm.formState.errors.label)}
             {...labelForm.register("label")}
           />
@@ -269,16 +333,7 @@ export function GmailConfigForm({
             )}
             <span>{salvarLabel.isPending && !busyId ? "Adicionando…" : "Excluir label"}</span>
           </button>
-          {labelFeedback && (
-            <span className={cn("save-note", labelFeedback.kind === "err" && "err")}>
-              {labelFeedback.kind === "err" ? (
-                <TriangleAlert aria-hidden="true" />
-              ) : (
-                <Check aria-hidden="true" />
-              )}
-              {labelFeedback.message}
-            </span>
-          )}
+          {labelFeedback && <SaveNote feedback={labelFeedback} />}
         </div>
       </form>
       </div>

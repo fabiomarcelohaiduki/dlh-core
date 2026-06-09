@@ -16,6 +16,16 @@ export function salvarGmailConfig(dataInicial: string): Promise<{ ok: boolean; d
   });
 }
 
+/** POST /gmail-config { action:'salvar-categorias' } — substitui a selecao de categorias a excluir. */
+export function salvarGmailCategorias(
+  categorias: string[],
+): Promise<{ ok: boolean; categorias: string[] }> {
+  return apiFetch<{ ok: boolean; categorias: string[] }>("gmail-config", {
+    method: "POST",
+    body: JSON.stringify({ action: "salvar-categorias", categorias }),
+  });
+}
+
 export interface SalvarGmailLabelInput {
   /** Nome da label do Gmail a EXCLUIR (vira -label:"label" na query). */
   label: string;

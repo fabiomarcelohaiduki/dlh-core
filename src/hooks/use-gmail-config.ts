@@ -3,6 +3,7 @@
 import { useMutation } from "@tanstack/react-query";
 import {
   removerGmailLabel,
+  salvarGmailCategorias,
   salvarGmailConfig,
   salvarGmailLabel,
   type SalvarGmailLabelInput,
@@ -16,6 +17,13 @@ import {
 export function useSalvarGmailConfig() {
   return useMutation({
     mutationFn: (dataInicial: string) => salvarGmailConfig(dataInicial),
+  });
+}
+
+/** useSalvarGmailCategorias — substitui a selecao de categorias a excluir (POST gmail-config { action:'salvar-categorias' }). */
+export function useSalvarGmailCategorias() {
+  return useMutation({
+    mutationFn: (categorias: string[]) => salvarGmailCategorias(categorias),
   });
 }
 

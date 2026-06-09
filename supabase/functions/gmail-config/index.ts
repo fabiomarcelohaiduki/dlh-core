@@ -30,6 +30,11 @@ import { logSensitiveAction } from "../_shared/audit.ts";
 const MAX_NOME = 200;
 const MAX_LABEL = 200;
 
+// Slugs de categoria do Gmail aceitos na exclusao (as guias visiveis). O valor
+// salvo em gmail_config.categorias_excluidas e o slug em ingles; vira
+// -category:<slug> na query. Conjunto fechado: entrada fora dele e descartada.
+const CATEGORIAS_VALIDAS = new Set(["promotions", "social", "updates", "forums"]);
+
 async function readBody(req: Request): Promise<Record<string, unknown>> {
   try {
     const body = await req.json();
@@ -101,7 +106,7 @@ async function handleMontarQuery(req: Request): Promise<Response> {
 
   const { data: cfg, error: cfgErr } = await service
     .from("gmail_config")
-    .select("data_inicial")
+    .select("data_inicial, categorias_excluidas")
     .eq("id", true)
     .maybeSingle();
   if (cfgErr) {
@@ -123,6 +128,10 @@ async function handleMontarQuery(req: Request): Promise<Response> {
   for (const l of labels ?? []) {
     const nome = (l as { label: string }).label?.trim();
     if (nome) partes.push(termoBlacklist(nome));
+  }
+  const categorias = (cfg?.categorias_excluidas as string[] | null) ?? [];
+  for (const slug of categorias) {
+    if (CATEGORIAS_VALIDAS.has(slug)) partes.push(`-category:${slug}`);
   }
 
   return jsonResponse({ query: partes.join(" ").trim() }, 200);
@@ -156,6 +165,38 @@ async function handleSalvarConfig(req: Request, body: Record<string, unknown>): 
   });
 
   return jsonResponse({ ok: true, dataInicial: dataRaw }, 200);
+}
+
+/** action='salvar-categorias' — substitui a selecao de categorias a excluir. */
+async function handleSalvarCategorias(req: Request, body: Record<string, unknown>): Promise<Response> {
+  const { email } = await requireAuthorizedUser(req);
+
+  const entrada = Array.isArray(body.categorias) ? body.categorias : [];
+  const categorias = [
+    ...new Set(
+      entrada.filter((c): c is string => typeof c === "string" && CATEGORIAS_VALIDAS.has(c)),
+    ),
+  ];
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from("gmail_config")
+    .upsert(
+      { id: true, categorias_excluidas: categorias, atualizado_em: new Date().toISOString() },
+      { onConflict: "id" },
+    );
+  if (error) {
+    throw new HttpError(500, "gmail_config_categorias_failed", "falha ao salvar as categorias do Gmail");
+  }
+
+  await logSensitiveAction({
+    tabela: "gmail_config",
+    acao: "salvar_categorias_gmail",
+    usuario: email,
+    dadosNovos: { categorias },
+  });
+
+  return jsonResponse({ ok: true, categorias }, 200);
 }
 
 /** action='salvar-label' — upsert de uma label da blacklist por 'label'. */
@@ -235,6 +276,8 @@ async function handler(req: Request): Promise<Response> {
         return await handleMontarQuery(req);
       case "salvar-config":
         return await handleSalvarConfig(req, body);
+      case "salvar-categorias":
+        return await handleSalvarCategorias(req, body);
       case "salvar-label":
         return await handleSalvarLabel(req, body);
       case "remover-label":
@@ -243,7 +286,7 @@ async function handler(req: Request): Promise<Response> {
         throw new HttpError(
           422,
           "acao_invalida",
-          "action deve ser 'montar-query', 'salvar-config', 'salvar-label' ou 'remover-label'",
+          "action deve ser 'montar-query', 'salvar-config', 'salvar-categorias', 'salvar-label' ou 'remover-label'",
         );
     }
   } catch (err) {
