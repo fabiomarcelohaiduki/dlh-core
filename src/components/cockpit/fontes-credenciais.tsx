@@ -427,6 +427,7 @@ export function FontesCredenciais({
   effectiConfig,
   effectiAgendamento,
   nomusAgendamento,
+  gmailAgendamento,
   nomus,
   drivePastas,
   driveConta,
@@ -438,6 +439,7 @@ export function FontesCredenciais({
   effectiConfig: ConfigIngestaoState;
   effectiAgendamento: AgendamentoFonteState;
   nomusAgendamento: AgendamentoFonteState;
+  gmailAgendamento: AgendamentoFonteState;
   nomus: FonteCredState;
   drivePastas: DrivePastaState[];
   driveConta: DriveContaState;
@@ -550,6 +552,7 @@ export function FontesCredenciais({
             nome="Gmail"
             onClose={() => toggle(setGmailAberto, gmailRef)}
           />
+          <AgendamentoFonteForm initial={gmailAgendamento} />
           <GmailDisparoForm />
           <GmailConfigForm config={gmailConfig} labels={gmailLabels} />
         </div>

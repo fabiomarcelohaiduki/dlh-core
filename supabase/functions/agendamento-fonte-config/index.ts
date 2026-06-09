@@ -18,7 +18,7 @@ import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 import {
   agendamentoFonteConfigSchema,
-  parseFonteParam,
+  parseFonteAgendavelParam,
   parseJsonBody,
 } from "../_shared/validation.ts";
 
@@ -31,7 +31,7 @@ interface ConfigRow {
   dia_mes: number | null;
 }
 
-/** Resolve o id da fonte pelo tipo (effecti|nomus); 404 quando ausente. */
+/** Resolve o id da fonte pelo tipo (effecti|nomus|gmail); 404 quando ausente. */
 async function fonteIdPorTipo(
   service: ReturnType<typeof createServiceClient>,
   tipo: string,
@@ -52,7 +52,7 @@ async function fonteIdPorTipo(
 }
 
 async function handleGet(req: Request): Promise<Response> {
-  const fonte = parseFonteParam(new URL(req.url).searchParams.get("fonte"));
+  const fonte = parseFonteAgendavelParam(new URL(req.url).searchParams.get("fonte"));
   const service = createServiceClient();
   const fonteId = await fonteIdPorTipo(service, fonte);
 

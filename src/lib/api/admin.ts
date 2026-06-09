@@ -108,8 +108,8 @@ export function dispararNomus(modo: NomusModo): Promise<DispararNomusResponse> {
 
 /**
  * POST /gmail-disparar — aciona MANUALMENTE a coleta do Gmail pelo card da
- * fonte. O Gmail coleta no runner do GitHub Actions (extrair-anexos.yml com
- * fonte=gmail); a janela vem do gmail-config (data inicial + labels), por isso
+ * fonte. O Gmail coleta no runner do GitHub Actions (coletar-gmail.yml); a
+ * janela vem do gmail-config (data inicial + labels), por isso
  * a chamada nao leva corpo. Responde 202 (aceito); a coleta progride assincrona
  * (acompanhar pelo painel de Execucoes).
  */

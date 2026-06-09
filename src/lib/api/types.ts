@@ -325,8 +325,13 @@ export interface BuscaSemanticaResponse {
 // Payloads viajam em snake_case; aqui o front trabalha em camelCase.
 // =====================================================================
 
-/** Tipo de fonte suportado (espelha _shared/validation.ts FONTES). */
-export type FonteTipo = "effecti" | "nomus";
+/**
+ * Tipo de fonte suportado. Credencial/teste/config (cmp-cred-form/cmp-cfg-form)
+ * valem para effecti|nomus; o Gmail entra como fonte AGENDAVEL (relogio proprio
+ * no card, coleta no GitHub Actions via coletar-gmail.yml) — autentica por
+ * OAuth e configura via gmail-config, nao pelos forms de credencial.
+ */
+export type FonteTipo = "effecti" | "nomus" | "gmail";
 
 /**
  * Snapshot de credencial de uma fonte (hidratado server-side via RLS) para o
@@ -400,9 +405,9 @@ export interface DispararNomusResponse {
 }
 
 /**
- * POST gmail-disparar -> aciona o workflow extrair-anexos.yml (fonte=gmail) no
- * GitHub Actions (202). A coleta roda assincrona no runner (a janela vem do
- * gmail-config). `requestId` e o id da requisicao pg_net (telemetria).
+ * POST gmail-disparar -> aciona o workflow coletar-gmail.yml no GitHub Actions
+ * (202). A coleta roda assincrona no runner (a janela vem do gmail-config).
+ * `requestId` e o id da requisicao pg_net (telemetria).
  */
 export interface DispararGmailResponse {
   ok: boolean;

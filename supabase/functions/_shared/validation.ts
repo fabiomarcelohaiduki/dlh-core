@@ -155,6 +155,33 @@ export function parseFonteParam(value: string | null): Fonte {
   return result.data;
 }
 
+/**
+ * Fontes AGENDAVEIS pelo card (cada uma com relogio proprio). Inclui o Gmail,
+ * que tambem coleta no GitHub Actions (coletar-gmail.yml). NAO amplia o enum
+ * `FONTES` (usado por credencial/teste/config/coleta), que segue restrito a
+ * effecti|nomus — o Gmail nao usa esses contratos (autentica por OAuth e
+ * configura via gmail-config).
+ */
+export const FONTES_AGENDAVEIS = ["effecti", "nomus", "gmail"] as const;
+export type FonteAgendavel = (typeof FONTES_AGENDAVEIS)[number];
+
+export const fonteAgendavelEnum = z.enum(FONTES_AGENDAVEIS, {
+  errorMap: () => ({ message: `fonte invalida (use: ${FONTES_AGENDAVEIS.join(", ")})` }),
+});
+
+/** Idem parseFonteParam, mas para o agendamento por fonte (inclui gmail). */
+export function parseFonteAgendavelParam(value: string | null): FonteAgendavel {
+  const result = fonteAgendavelEnum.safeParse(value ?? "effecti");
+  if (!result.success) {
+    throw new HttpError(
+      422,
+      "validation_error",
+      `fonte invalida (use: ${FONTES_AGENDAVEIS.join(", ")})`,
+    );
+  }
+  return result.data;
+}
+
 /** Allowlist de recursos da fonte multi-recurso (Nomus) — secao 2.4 da SPEC. */
 export const RECURSOS_PERMITIDOS = [
   "processos",
@@ -318,12 +345,12 @@ export type AgendamentoConfigInput = z.infer<typeof agendamentoConfigSchema>;
 // Schema: agendamento POR FONTE (PUT /agendamento-fonte-config).
 // Substitui o ciclo global: cada fonte tem seu proprio relogio, persistido na
 // config_ingestao da fonte e materializado no pg_cron via
-// aplicar_agendamento_fonte(tipo). `fonte` enum {effecti,nomus} (default
+// aplicar_agendamento_fonte(tipo). `fonte` enum {effecti,nomus,gmail} (default
 // effecti). Demais campos espelham o agendamento global.
 // ---------------------------------------------------------------------
 export const agendamentoFonteConfigSchema = z
   .object({
-    fonte: fonteEnum.default("effecti"),
+    fonte: fonteAgendavelEnum.default("effecti"),
     ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }),
     frequencia: z.enum(FREQUENCIAS, {
       errorMap: () => ({ message: `frequencia invalida (use: ${FREQUENCIAS.join(", ")})` }),
