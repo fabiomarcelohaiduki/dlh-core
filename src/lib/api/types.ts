@@ -384,3 +384,17 @@ export interface ColetarResponse {
   estado: "em_andamento";
   jaEmAndamento?: boolean;
 }
+
+/** Modo do disparo manual da coleta Nomus (workflow_dispatch). */
+export type NomusModo = "incremental" | "full";
+
+/**
+ * POST nomus-disparar -> aciona o workflow do GitHub Actions (202). A coleta
+ * roda assincrona no runner (TLS legado); `requestId` e o id da requisicao
+ * pg_net (telemetria), nao a execucao em si.
+ */
+export interface DispararNomusResponse {
+  ok: boolean;
+  modo: NomusModo;
+  requestId: number | null;
+}

@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   buscaSemantica,
+  dispararNomus,
   salvarAgendamentoFonte,
   salvarConfig,
   salvarCredencial,
@@ -13,7 +14,7 @@ import {
 } from "@/lib/api/admin";
 import { monitoringKeys } from "@/hooks/use-monitoring";
 import { fonteKeys } from "@/hooks/use-fontes";
-import type { FonteTipo } from "@/lib/api/types";
+import type { FonteTipo, NomusModo } from "@/lib/api/types";
 
 /**
  * useSalvarCredencial — grava/atualiza a credencial da fonte (PUT credencial).
@@ -64,6 +65,22 @@ export function useSalvarAgendamentoFonte() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: SalvarAgendamentoFonteInput) => salvarAgendamentoFonte(input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: monitoringKeys.healthcheck });
+    },
+  });
+}
+
+/**
+ * useDispararNomus — dispara MANUALMENTE a coleta do Nomus (POST nomus-disparar)
+ * no modo escolhido (incremental|full). Aciona o workflow do GitHub Actions; a
+ * coleta roda assincrona no runner. Invalida o monitoramento (a execucao deve
+ * aparecer no Dashboard quando o runner registrar o inicio).
+ */
+export function useDispararNomus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (modo: NomusModo) => dispararNomus(modo),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: monitoringKeys.healthcheck });
     },

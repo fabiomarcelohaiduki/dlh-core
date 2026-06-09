@@ -389,6 +389,25 @@ export const coletarSchema = z
 export type ColetarInput = z.infer<typeof coletarSchema>;
 
 // ---------------------------------------------------------------------
+// Schema: disparo MANUAL do workflow Nomus (POST /nomus-disparar).
+// O Nomus coleta no runner do GitHub Actions (TLS legado); este endpoint
+// aciona o workflow_dispatch sob demanda pelo card da fonte. modo escolhe
+// entre incremental (regime permanente) e full (backfill historico).
+// ---------------------------------------------------------------------
+export const NOMUS_MODOS = ["incremental", "full"] as const;
+export type NomusModo = (typeof NOMUS_MODOS)[number];
+
+export const nomusDispararSchema = z
+  .object({
+    modo: z.enum(NOMUS_MODOS, {
+      errorMap: () => ({ message: `modo invalido (use: ${NOMUS_MODOS.join(", ")})` }),
+    }),
+  })
+  .strict();
+
+export type NomusDispararInput = z.infer<typeof nomusDispararSchema>;
+
+// ---------------------------------------------------------------------
 // Schema: busca semantica multi-origem /v1 (POST /v1/substrato/busca-semantica).
 // query: string nao-vazia (query vazia rejeitada por validacao) e limitada a
 // MAX_QUERY_CHARS para evitar abuso (>limite -> 422 na borda).

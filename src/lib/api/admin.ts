@@ -1,8 +1,10 @@
 import { apiFetch } from "@/lib/api/client";
 import type {
   BuscaSemanticaResponse,
+  DispararNomusResponse,
   FonteTipo,
   Frequencia,
+  NomusModo,
   SalvarAgendamentoResponse,
   SalvarConfigResponse,
   SalvarCredencialResponse,
@@ -87,6 +89,19 @@ export function salvarAgendamentoFonte(
   return apiFetch<SalvarAgendamentoResponse>("agendamento-fonte-config", {
     method: "PUT",
     body: JSON.stringify(input),
+  });
+}
+
+/**
+ * POST /nomus-disparar — aciona MANUALMENTE a coleta do Nomus pelo card da
+ * fonte. O Nomus coleta no runner do GitHub Actions (TLS legado); este disparo
+ * roda o workflow_dispatch no modo escolhido (incremental|full). Responde 202
+ * (aceito); a coleta progride assincrona (acompanhar pelo painel).
+ */
+export function dispararNomus(modo: NomusModo): Promise<DispararNomusResponse> {
+  return apiFetch<DispararNomusResponse>("nomus-disparar", {
+    method: "POST",
+    body: JSON.stringify({ modo }),
   });
 }
 

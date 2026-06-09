@@ -1,0 +1,146 @@
+"use client";
+
+import { useState } from "react";
+import { Check, History, Loader2, Play, TriangleAlert } from "lucide-react";
+import { useDispararNomus } from "@/hooks/use-admin";
+import { ApiError } from "@/lib/api/client";
+import { cn } from "@/lib/utils";
+import type { NomusModo } from "@/lib/api/types";
+
+type Feedback = { kind: "ok" | "err"; message: string };
+
+/**
+ * cmp-nomus-disparo-form — Disparo MANUAL da coleta do Nomus.
+ *
+ * O Nomus coleta num runner Node do GitHub Actions (o Edge nao fecha o TLS
+ * legado do Nomus). Estes botoes acionam o workflow_dispatch sob demanda:
+ *   - "Coletar agora" (incremental): regime permanente (watermark por id).
+ *   - "Recarregar histórico" (full): backfill completo, varre tudo de novo —
+ *     operacao pesada, por isso exige confirmacao explicita.
+ *
+ * A coleta roda assincrona: o disparo so a ENFILEIRA (202); o andamento
+ * aparece no Dashboard/Execucoes quando o runner registra o inicio.
+ */
+export function NomusDisparoForm() {
+  const disparar = useDispararNomus();
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+  // Modo em voo: trava ambos os botoes e mostra o spinner so no acionado.
+  const [emVoo, setEmVoo] = useState<NomusModo | null>(null);
+  // Armado o full -> exige um segundo clique para confirmar o backfill.
+  const [confirmandoFull, setConfirmandoFull] = useState(false);
+
+  async function executar(modo: NomusModo) {
+    setFeedback(null);
+    setEmVoo(modo);
+    try {
+      await disparar.mutateAsync(modo);
+      setFeedback({
+        kind: "ok",
+        message:
+          modo === "full"
+            ? "Recarga do histórico disparada · acompanhe em Execuções."
+            : "Coleta disparada · acompanhe em Execuções.",
+      });
+    } catch (err) {
+      const message =
+        err instanceof ApiError && err.status === 502
+          ? "Não foi possível acionar o coletor na nuvem. Tente novamente."
+          : "Falha ao disparar a coleta. Tente novamente.";
+      setFeedback({ kind: "err", message });
+    } finally {
+      setEmVoo(null);
+      setConfirmandoFull(false);
+    }
+  }
+
+  const ocupado = emVoo !== null;
+
+  return (
+    <>
+      <div className="section-title" style={{ margin: "6px 0 13px" }}>
+        <div className="titles">
+          <h3>Coleta manual</h3>
+          <p>
+            Dispara a coleta do Nomus agora, sob demanda. A coleta roda na nuvem (runner) e o
+            andamento aparece em Execuções.
+          </p>
+        </div>
+      </div>
+
+      <div className="card form-card">
+        <div className="form-foot" style={{ marginTop: 0, flexWrap: "wrap" }}>
+          <button
+            className="btn btn-primary"
+            type="button"
+            onClick={() => executar("incremental")}
+            disabled={ocupado}
+          >
+            {emVoo === "incremental" ? (
+              <Loader2 className="spin" aria-hidden="true" />
+            ) : (
+              <Play aria-hidden="true" />
+            )}
+            <span>{emVoo === "incremental" ? "Disparando…" : "Coletar agora"}</span>
+          </button>
+
+          {confirmandoFull ? (
+            <>
+              <button
+                className="btn"
+                type="button"
+                style={{ color: "var(--err)", borderColor: "var(--err-bg)" }}
+                onClick={() => executar("full")}
+                disabled={ocupado}
+              >
+                {emVoo === "full" ? (
+                  <Loader2 className="spin" aria-hidden="true" />
+                ) : (
+                  <History aria-hidden="true" />
+                )}
+                <span>{emVoo === "full" ? "Disparando…" : "Confirmar recarga total"}</span>
+              </button>
+              <button
+                className="btn"
+                type="button"
+                onClick={() => setConfirmandoFull(false)}
+                disabled={ocupado}
+              >
+                Cancelar
+              </button>
+            </>
+          ) : (
+            <button
+              className="btn"
+              type="button"
+              onClick={() => {
+                setFeedback(null);
+                setConfirmandoFull(true);
+              }}
+              disabled={ocupado}
+            >
+              <History aria-hidden="true" />
+              <span>Recarregar histórico (full)</span>
+            </button>
+          )}
+
+          {feedback && (
+            <span className={cn("save-note", feedback.kind === "err" && "err")}>
+              {feedback.kind === "err" ? (
+                <TriangleAlert aria-hidden="true" />
+              ) : (
+                <Check aria-hidden="true" />
+              )}
+              {feedback.message}
+            </span>
+          )}
+        </div>
+
+        <div className="helper" style={{ marginTop: 12 }}>
+          {confirmandoFull
+            ? "A recarga total varre TODO o histórico do Nomus de novo (operação longa). Use só para backfill; o incremental cobre o dia a dia."
+            : "O incremental coleta apenas o que mudou desde a última coleta (uso normal)."}
+        </div>
+      </div>
+    </>
+  );
+}
