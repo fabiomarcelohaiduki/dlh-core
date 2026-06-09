@@ -9,9 +9,10 @@
 //     cria execucao com checkpoint, retorna 202 { execucao_id, estado } e
 //     processa UM BLOCO de paginas em background (RF-20). O orquestrador
 //     avanca os blocos seguintes nos tiques do ciclo.
-//   - Anti-duplo-disparo GLOBAL (single-flight): recusa novo disparo enquanto
-//     houver execucao 'em_andamento' -> 409 (US-04). No Nomus o 409 referencia
-//     a execucao corrente ({ ja_em_andamento:true }).
+//   - Anti-duplo-disparo POR FONTE (lock-por-fonte): recusa novo disparo
+//     enquanto houver execucao 'em_andamento' DA MESMA FONTE -> 409 (US-04).
+//     Backfill de outra fonte nao barra. No Nomus o 409 referencia a
+//     execucao corrente ({ ja_em_andamento:true }).
 //
 // Toda escrita usa service_role server-side (SEC-05). Credencial lida do Vault
 // em runtime, nunca de .env/cliente. Acao auditada.
@@ -110,6 +111,30 @@ async function handleEffecti(
       409,
       "credencial_nao_configurada",
       "credencial Effecti nao configurada: salve o token antes de coletar",
+    );
+  }
+
+  // Anti-duplo-disparo POR FONTE (lock-por-fonte, alinhado ao orquestrador):
+  // recusa novo disparo apenas se ESTA fonte ja coleta. Backfill de outra
+  // fonte (ex.: Nomus) nao barra a coleta manual do Effecti.
+  const { data: emAndamento, error: andamentoError } = await service
+    .from("execucoes")
+    .select("id")
+    .eq("status", "em_andamento")
+    .eq("fonte_id", fonte.id)
+    .limit(1);
+  if (andamentoError) {
+    throw new HttpError(
+      500,
+      "execucao_query_failed",
+      "falha ao verificar execucoes em andamento",
+    );
+  }
+  if (emAndamento && emAndamento.length > 0) {
+    throw new HttpError(
+      409,
+      "execucao_em_andamento",
+      "ja existe uma coleta Effecti em andamento; aguarde a conclusao",
     );
   }
 
@@ -361,27 +386,8 @@ async function handler(req: Request): Promise<Response> {
       return await handleNomus(service, input, caller);
     }
 
-    // Effecti (padrao): anti-duplo-disparo + pipeline completo.
-    const { data: emAndamento, error: andamentoError } = await service
-      .from("execucoes")
-      .select("id")
-      .eq("status", "em_andamento")
-      .limit(1);
-    if (andamentoError) {
-      throw new HttpError(
-        500,
-        "execucao_query_failed",
-        "falha ao verificar execucoes em andamento",
-      );
-    }
-    if (emAndamento && emAndamento.length > 0) {
-      throw new HttpError(
-        409,
-        "execucao_em_andamento",
-        "ja existe uma coleta em andamento; aguarde a conclusao",
-      );
-    }
-
+    // Effecti (padrao): anti-duplo-disparo POR FONTE + pipeline completo
+    // (o lock-por-fonte vive dentro de handleEffecti, apos resolver fonte.id).
     return await handleEffecti(service, input, caller);
   } catch (err) {
     return await errorResponse(err, { fn: "ingestao-coletar" });
