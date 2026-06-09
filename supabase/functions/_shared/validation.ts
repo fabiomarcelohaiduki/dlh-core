@@ -361,6 +361,14 @@ export type AgendamentoConfigInput = z.infer<typeof agendamentoConfigSchema>;
 export const agendamentoFonteConfigSchema = z
   .object({
     fonte: fonteAgendavelEnum.default("effecti"),
+    // recurso opcional: presente => agendamento POR MODULO (jsonb
+    // recursos.<recurso>.agendamento, ex.: Nomus/processos); ausente =>
+    // agendamento POR FONTE (colunas top-level, Effecti/Gmail).
+    recurso: z
+      .enum(RECURSOS_PERMITIDOS, {
+        errorMap: () => ({ message: `recurso invalido (use: ${RECURSOS_PERMITIDOS.join(", ")})` }),
+      })
+      .optional(),
     ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }),
     frequencia: z.enum(FREQUENCIAS, {
       errorMap: () => ({ message: `frequencia invalida (use: ${FREQUENCIAS.join(", ")})` }),
@@ -439,6 +447,13 @@ export const nomusDispararSchema = z
     modo: z.enum(NOMUS_MODOS, {
       errorMap: () => ({ message: `modo invalido (use: ${NOMUS_MODOS.join(", ")})` }),
     }),
+    // recurso/modulo alvo do disparo manual. Default 'processos' aplicado no
+    // Edge/RPC (unico coletor vivo hoje); os demais ficam inertes.
+    recurso: z
+      .enum(RECURSOS_PERMITIDOS, {
+        errorMap: () => ({ message: `recurso invalido (use: ${RECURSOS_PERMITIDOS.join(", ")})` }),
+      })
+      .optional(),
   })
   .strict();
 

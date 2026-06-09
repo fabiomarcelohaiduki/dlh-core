@@ -51,6 +51,15 @@ interface AgendamentoFonteRow {
   dia_mes: number | null;
 }
 
+/** Agendamento POR MODULO guardado em config_ingestao.recursos.<recurso>.agendamento. */
+interface AgendamentoRecursoJson {
+  ativo?: boolean | null;
+  frequencia?: string | null;
+  horario_referencia?: string | null;
+  dia_semana?: number | null;
+  dia_mes?: number | null;
+}
+
 function normalizeFrequencia(value: string | null): Frequencia {
   return value && FREQUENCIAS.has(value as Frequencia) ? (value as Frequencia) : "manual";
 }
@@ -147,6 +156,7 @@ async function loadConfig(): Promise<ConfigIngestaoState> {
  */
 async function loadAgendamentoFonte(
   tipo: AgendamentoFonteState["fonte"],
+  recurso?: string,
 ): Promise<AgendamentoFonteState> {
   const supabase = await createClient();
 
@@ -157,6 +167,33 @@ async function loadAgendamentoFonte(
     .maybeSingle();
 
   const fonteRef = (fonteRaw ?? null) as { id: string } | null;
+
+  // recurso presente => agendamento POR MODULO (jsonb recursos.<recurso>);
+  // ausente => POR FONTE (colunas top-level, Effecti/Gmail).
+  if (recurso) {
+    const { data: raw } = fonteRef
+      ? await supabase
+          .from("config_ingestao")
+          .select("recursos")
+          .eq("fonte_id", fonteRef.id)
+          .maybeSingle()
+      : { data: null };
+
+    const recursos = ((raw ?? null) as { recursos: Record<string, unknown> | null } | null)
+      ?.recursos ?? null;
+    const ag = ((recursos?.[recurso] ?? null) as { agendamento?: AgendamentoRecursoJson } | null)
+      ?.agendamento ?? null;
+
+    return {
+      fonte: tipo,
+      recurso,
+      ativo: ag?.ativo ?? false,
+      frequencia: normalizeFrequencia(ag?.frequencia ?? null),
+      horarioReferencia: ag?.horario_referencia ?? null,
+      diaSemana: ag?.dia_semana ?? null,
+      diaMes: ag?.dia_mes ?? null,
+    };
+  }
 
   const { data: raw } = fonteRef
     ? await supabase
@@ -330,7 +367,7 @@ export default async function FontesPage() {
     loadFonte(),
     loadConfig(),
     loadAgendamentoFonte("effecti"),
-    loadAgendamentoFonte("nomus"),
+    loadAgendamentoFonte("nomus", "processos"),
     loadAgendamentoFonte("gmail"),
     loadFonteNomus(),
     loadDrivePastas(),

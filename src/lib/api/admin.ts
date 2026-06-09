@@ -15,6 +15,8 @@ import type {
 /** Payload validado (cliente) do PUT /agendamento-fonte-config (por fonte). */
 export interface SalvarAgendamentoFonteInput {
   fonte: FonteTipo;
+  /** Recurso/modulo quando o agendamento e por modulo (ex.: Nomus/processos). */
+  recurso?: string | null;
   ativo: boolean;
   frequencia: Frequencia;
   horarioReferencia: string | null;
@@ -99,10 +101,13 @@ export function salvarAgendamentoFonte(
  * roda o workflow_dispatch no modo escolhido (incremental|full). Responde 202
  * (aceito); a coleta progride assincrona (acompanhar pelo painel).
  */
-export function dispararNomus(modo: NomusModo): Promise<DispararNomusResponse> {
+export function dispararNomus(
+  modo: NomusModo,
+  recurso?: string,
+): Promise<DispararNomusResponse> {
   return apiFetch<DispararNomusResponse>("nomus-disparar", {
     method: "POST",
-    body: JSON.stringify({ modo }),
+    body: JSON.stringify(recurso ? { modo, recurso } : { modo }),
   });
 }
 

@@ -420,11 +420,16 @@ async function handler(req: Request): Promise<Response> {
       execucaoId = input.execucaoId;
       prev = await loadExecCounters(service, execucaoId);
     } else {
-      // Single-flight GLOBAL: nao iniciar enquanto houver execucao em andamento.
+      // Single-flight POR RECURSO: nao iniciar enquanto houver execucao em
+      // andamento DESTE recurso desta fonte. Escopar por (fonte_id, recurso)
+      // permite modulos coletarem em paralelo (ex.: processos x cobranca) e
+      // que uma orfa de um modulo nao barre os demais.
       const { data: emAndamento, error: andamentoError } = await service
         .from("execucoes")
         .select("id")
         .eq("status", "em_andamento")
+        .eq("fonte_id", fonte.id)
+        .eq("recurso", recurso)
         .limit(1);
       if (andamentoError) {
         throw new HttpError(

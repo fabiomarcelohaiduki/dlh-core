@@ -29,6 +29,25 @@ interface ConfigRow {
   horario_referencia: string | null;
   dia_semana: number | null;
   dia_mes: number | null;
+  recursos: Record<string, unknown> | null;
+}
+
+/** Shape do agendamento guardado em recursos.<recurso>.agendamento (jsonb). */
+interface AgendamentoRecurso {
+  ativo?: boolean;
+  frequencia?: string;
+  horario_referencia?: string | null;
+  dia_semana?: number | null;
+  dia_mes?: number | null;
+}
+
+/** Le o agendamento de um recurso especifico do jsonb recursos. */
+function agendamentoDoRecurso(
+  recursos: Record<string, unknown> | null,
+  recurso: string,
+): AgendamentoRecurso {
+  const r = (recursos?.[recurso] ?? null) as { agendamento?: AgendamentoRecurso } | null;
+  return r?.agendamento ?? {};
 }
 
 /** Resolve o id da fonte pelo tipo (effecti|nomus|gmail); 404 quando ausente. */
@@ -52,19 +71,40 @@ async function fonteIdPorTipo(
 }
 
 async function handleGet(req: Request): Promise<Response> {
-  const fonte = parseFonteAgendavelParam(new URL(req.url).searchParams.get("fonte"));
+  const params = new URL(req.url).searchParams;
+  const fonte = parseFonteAgendavelParam(params.get("fonte"));
+  // recurso opcional: presente => agendamento POR MODULO (jsonb); ausente =>
+  // agendamento POR FONTE (colunas top-level, legado Effecti/Gmail).
+  const recurso = params.get("recurso")?.trim() || null;
   const service = createServiceClient();
   const fonteId = await fonteIdPorTipo(service, fonte);
 
   const { data, error } = await service
     .from("config_ingestao")
-    .select("id, agendamento_ativo, frequencia, horario_referencia, dia_semana, dia_mes")
+    .select("id, agendamento_ativo, frequencia, horario_referencia, dia_semana, dia_mes, recursos")
     .eq("fonte_id", fonteId)
     .maybeSingle();
   if (error) {
     throw new HttpError(500, "agendamento_query_failed", "falha ao consultar o agendamento");
   }
   const row = data as ConfigRow | null;
+
+  if (recurso) {
+    const ag = agendamentoDoRecurso(row?.recursos ?? null, recurso);
+    return jsonResponse(
+      {
+        fonte,
+        recurso,
+        ativo: ag.ativo ?? false,
+        frequencia: ag.frequencia ?? "manual",
+        horarioReferencia: ag.horario_referencia ?? null,
+        diaSemana: ag.dia_semana ?? null,
+        diaMes: ag.dia_mes ?? null,
+      },
+      200,
+    );
+  }
+
   return jsonResponse(
     {
       fonte,
@@ -83,35 +123,58 @@ async function handlePut(req: Request): Promise<Response> {
   const { db, email } = await requireAuthorizedUser(req);
   const input = await parseJsonBody(req, agendamentoFonteConfigSchema);
 
+  const recurso = input.recurso ?? null;
   const service = createServiceClient();
   const fonteId = await fonteIdPorTipo(service, input.fonte);
 
-  const payload = {
-    agendamento_ativo: input.ativo,
-    frequencia: input.frequencia,
-    horario_referencia: input.horarioReferencia ?? null,
-    dia_semana: input.diaSemana ?? null,
-    dia_mes: input.diaMes ?? null,
-    updated_at: new Date().toISOString(),
-  };
-
-  // config_ingestao e por fonte: atualiza a linha existente. Sem linha (fonte
-  // ainda sem config salva) cria com defaults inertes para os filtros — janela
-  // e filtros sao geridos pelo cmp-cfg-form; aqui so o agendamento.
+  // Linha de config da fonte (uma por fonte). Quando o agendamento e por
+  // recurso, precisamos do jsonb recursos atual para fazer merge.
   const { data: existing, error: selErr } = await db
     .from("config_ingestao")
-    .select("id")
+    .select(recurso ? "id, recursos" : "id")
     .eq("fonte_id", fonteId)
     .maybeSingle();
   if (selErr) {
     throw new HttpError(500, "agendamento_query_failed", "falha ao consultar o agendamento");
   }
+  const existingRow = existing as { id: string; recursos?: Record<string, unknown> | null } | null;
 
-  if (existing?.id) {
+  let payload: Record<string, unknown>;
+  if (recurso) {
+    // Agendamento POR MODULO: grava em recursos.<recurso>.agendamento (jsonb),
+    // preservando os demais campos do recurso (id_inicial, janela_dias, etc.).
+    const recursos = { ...(existingRow?.recursos ?? {}) } as Record<string, unknown>;
+    const atual = (recursos[recurso] ?? {}) as Record<string, unknown>;
+    recursos[recurso] = {
+      ...atual,
+      agendamento: {
+        ativo: input.ativo,
+        frequencia: input.frequencia,
+        horario_referencia: input.horarioReferencia ?? null,
+        dia_semana: input.diaSemana ?? null,
+        dia_mes: input.diaMes ?? null,
+      },
+    };
+    payload = { recursos, updated_at: new Date().toISOString() };
+  } else {
+    // Agendamento POR FONTE (legado Effecti/Gmail): colunas top-level.
+    payload = {
+      agendamento_ativo: input.ativo,
+      frequencia: input.frequencia,
+      horario_referencia: input.horarioReferencia ?? null,
+      dia_semana: input.diaSemana ?? null,
+      dia_mes: input.diaMes ?? null,
+      updated_at: new Date().toISOString(),
+    };
+  }
+
+  // Sem linha (fonte ainda sem config salva) cria com defaults inertes para os
+  // filtros — janela e filtros sao geridos pelo cmp-cfg-form; aqui so o agendamento.
+  if (existingRow?.id) {
     const { error: updErr } = await db
       .from("config_ingestao")
       .update(payload)
-      .eq("id", (existing as { id: string }).id);
+      .eq("id", existingRow.id);
     if (updErr) {
       throw new HttpError(500, "agendamento_update_failed", "falha ao salvar o agendamento");
     }
@@ -128,10 +191,16 @@ async function handlePut(req: Request): Promise<Response> {
     }
   }
 
-  // Reescreve o pg_cron coleta-<tipo> a partir da config recem-salva.
-  const { data: resultado, error: rpcErr } = await service.rpc("aplicar_agendamento_fonte", {
-    p_fonte_tipo: input.fonte,
-  });
+  // Reescreve o pg_cron a partir da config recem-salva. Com recurso => o job
+  // por modulo (coleta-<fonte>-<recurso>); sem recurso => por fonte (legado).
+  const { data: resultado, error: rpcErr } = recurso
+    ? await service.rpc("aplicar_agendamento_recurso", {
+      p_fonte_tipo: input.fonte,
+      p_recurso: recurso,
+    })
+    : await service.rpc("aplicar_agendamento_fonte", {
+      p_fonte_tipo: input.fonte,
+    });
   if (rpcErr) {
     throw new HttpError(500, "cron_apply_failed", "config salva, mas falhou ao reagendar o cron");
   }
@@ -139,10 +208,11 @@ async function handlePut(req: Request): Promise<Response> {
   await logSensitiveAction({
     tabela: "config_ingestao",
     acao: "salvar_agendamento_fonte",
-    registroId: existing?.id ?? null,
+    registroId: existingRow?.id ?? null,
     usuario: email,
     dadosNovos: {
       fonte: input.fonte,
+      recurso,
       ativo: input.ativo,
       frequencia: input.frequencia,
       horarioReferencia: input.horarioReferencia ?? null,

@@ -177,6 +177,12 @@ export interface ConfigIngestaoState {
  */
 export interface AgendamentoFonteState {
   fonte: FonteTipo;
+  /**
+   * Recurso/modulo quando o agendamento e POR MODULO (ex.: Nomus/processos,
+   * mora em config_ingestao.recursos.<recurso>.agendamento). Ausente/null no
+   * agendamento POR FONTE (Effecti/Gmail, colunas top-level).
+   */
+  recurso?: string | null;
   ativo: boolean;
   frequencia: Frequencia;
   horarioReferencia: string | null;

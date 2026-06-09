@@ -20,6 +20,10 @@ on:
         options:
           - incremental
           - full
+      recurso:
+        description: "Recurso/modulo do Nomus a coletar"
+        type: string
+        default: processos
 
 # Garante que duas execucoes nao rodem em paralelo (alinhado ao single-flight
 # global do cockpit, que recusaria a 2a com 409).
@@ -41,8 +45,10 @@ jobs:
 
       - name: Coletar Nomus e enviar ao Supabase
         env:
-          # Disparo manual escolhe o modo; o agendado roda sempre incremental.
+          # Modo: disparo manual escolhe; o agendado diario manda 'full'.
+          # Recurso/modulo: default 'processos' (unico coletor vivo hoje).
           NOMUS_MODO: ${{ github.event.inputs.modo || 'incremental' }}
+          NOMUS_RECURSO: ${{ github.event.inputs.recurso || 'processos' }}
           NOMUS_API_KEY: ${{ secrets.NOMUS_API_KEY }}
           NOMUS_BASE_URL: ${{ secrets.NOMUS_BASE_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

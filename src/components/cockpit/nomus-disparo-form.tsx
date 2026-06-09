@@ -21,7 +21,7 @@ type Feedback = { kind: "ok" | "err"; message: string };
  * A coleta roda assincrona: o disparo so a ENFILEIRA (202); o andamento
  * aparece no Dashboard/Execucoes quando o runner registra o inicio.
  */
-export function NomusDisparoForm() {
+export function NomusDisparoForm({ recurso = "processos" }: { recurso?: string }) {
   const disparar = useDispararNomus();
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   // Modo em voo: trava ambos os botoes e mostra o spinner so no acionado.
@@ -33,7 +33,7 @@ export function NomusDisparoForm() {
     setFeedback(null);
     setEmVoo(modo);
     try {
-      await disparar.mutateAsync(modo);
+      await disparar.mutateAsync({ modo, recurso });
       setFeedback({
         kind: "ok",
         message:

@@ -99,6 +99,9 @@ export function AgendamentoFonteForm({ initial }: { initial: AgendamentoFonteSta
     try {
       const res = await salvar.mutateAsync({
         fonte: initial.fonte,
+        // recurso presente => grava o agendamento POR MODULO; ausente =>
+        // agendamento POR FONTE (Effecti/Gmail). Propaga o que veio do server.
+        recurso: initial.recurso ?? undefined,
         ativo: values.ativo,
         frequencia: values.frequencia,
         horarioReferencia: values.horarioReferencia,

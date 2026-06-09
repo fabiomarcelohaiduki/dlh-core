@@ -81,7 +81,8 @@ export function useSalvarAgendamentoFonte() {
 export function useDispararNomus() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (modo: NomusModo) => dispararNomus(modo),
+    mutationFn: ({ modo, recurso }: { modo: NomusModo; recurso?: string }) =>
+      dispararNomus(modo, recurso),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: monitoringKeys.healthcheck });
     },

@@ -31,12 +31,17 @@ async function handler(req: Request): Promise<Response> {
 
     // Autorizacao primeiro (SEC-02); corpo validado por allowlist (SEC-03).
     const { email } = await requireAuthorizedUser(req);
-    const { modo } = await parseJsonBody(req, nomusDispararSchema, { validationStatus: 422 });
+    const { modo, recurso } = await parseJsonBody(req, nomusDispararSchema, {
+      validationStatus: 422,
+    });
+    // Recurso/modulo alvo: default 'processos' (unico coletor vivo hoje).
+    const recursoAlvo = recurso ?? "processos";
 
     // Dispara o workflow via RPC (le GITHUB_DISPATCH_TOKEN do Vault server-side).
     const service = createServiceClient();
     const { data: requestId, error } = await service.rpc("disparar_workflow_nomus", {
       p_modo: modo,
+      p_recurso: recursoAlvo,
     });
     if (error) {
       throw new HttpError(502, "nomus_dispatch_failed", "falha ao acionar o workflow do Nomus");
@@ -47,12 +52,12 @@ async function handler(req: Request): Promise<Response> {
       acao: "disparar_coleta_nomus",
       registroId: null,
       usuario: email,
-      dadosNovos: { fonte: "nomus", modo, requestId: requestId ?? null },
+      dadosNovos: { fonte: "nomus", modo, recurso: recursoAlvo, requestId: requestId ?? null },
     });
 
     // 202 Accepted: o workflow_dispatch foi aceito; a coleta roda assincrona
     // no runner do GitHub Actions (visibilidade pelo painel/heartbeat).
-    return jsonResponse({ ok: true, modo, requestId: requestId ?? null }, 202);
+    return jsonResponse({ ok: true, modo, recurso: recursoAlvo, requestId: requestId ?? null }, 202);
   } catch (err) {
     return await errorResponse(err, { fn: "nomus-disparar" });
   }

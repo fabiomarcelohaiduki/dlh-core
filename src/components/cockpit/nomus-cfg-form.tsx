@@ -310,7 +310,7 @@ export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteSt
               {r.key === "processos" && agendamento && (
                 <div style={{ marginTop: 16 }}>
                   <AgendamentoFonteForm initial={agendamento} />
-                  <NomusDisparoForm />
+                  <NomusDisparoForm recurso={r.key} />
                 </div>
               )}
 
