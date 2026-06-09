@@ -179,11 +179,12 @@ async function fetchPagina(pagina) {
       continue;
     }
 
-    if (!res.ok) fail(`requisicao Nomus rejeitada (${res.status}).`, 1);
-
+    // Lemos o corpo ANTES de decidir falhar: o rate limit do Nomus
+    // ({tempoAteLiberar}) pode vir junto de um status 200 OU ate de um 400.
+    // Se ja falhassemos no !res.ok, perderiamos esse sinal de espera.
     const text = await res.text();
 
-    // Rate limit pode vir no CORPO ({tempoAteLiberar}), por vezes com 200.
+    // Rate limit pode vir no CORPO ({tempoAteLiberar}), independente do status.
     const tempoMs = peekTempoAteLiberar(text);
     if (tempoMs !== null) {
       if (attempt >= MAX_RETRIES) fail("limite de requisicoes atingido (tempoAteLiberar).", 1);
@@ -195,6 +196,25 @@ async function fetchPagina(pagina) {
       attempt += 1;
       continue;
     }
+
+    // HTTP 400 sem tempoAteLiberar, tipicamente apos GETs lentos (tarpit): e
+    // throttle/transiente do gateway do Nomus, NAO request malformado (as
+    // paginas anteriores usaram request identico e funcionaram). Tratamos como
+    // recuperavel com backoff em vez de matar o job e perder todo o progresso.
+    if (res.status === 400) {
+      if (attempt >= MAX_RETRIES) {
+        fail(`requisicao Nomus rejeitada (400) apos ${MAX_RETRIES} tentativas.`, 1);
+      }
+      console.error(
+        `[rate-limit] pagina ${pagina}: HTTP 400 (provavel throttle do gateway, ` +
+          `tentativa ${attempt + 1}/${MAX_RETRIES}), aguardando backoff`,
+      );
+      await delay(backoff(attempt));
+      attempt += 1;
+      continue;
+    }
+
+    if (!res.ok) fail(`requisicao Nomus rejeitada (${res.status}).`, 1);
 
     let json;
     try {
