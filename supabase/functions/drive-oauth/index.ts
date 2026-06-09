@@ -34,6 +34,9 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+// openid+email habilitam o userinfo (identificar a conta conectada); sem eles
+// o access_token nao le o e-mail e o callback falha com userinfo_failed.
+const OAUTH_SCOPE = `openid email ${DRIVE_SCOPE}`;
 
 /** Nome deterministico do refresh_token do Drive no Vault (server-side only). */
 const DRIVE_REFRESH_NAME = "GOOGLE_DRIVE_REFRESH_TOKEN" as const;
@@ -118,7 +121,7 @@ async function handleIniciar(req: Request): Promise<Response> {
   url.searchParams.set("client_id", cfg.clientId);
   url.searchParams.set("redirect_uri", cfg.redirect);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", DRIVE_SCOPE);
+  url.searchParams.set("scope", OAUTH_SCOPE);
   url.searchParams.set("access_type", "offline");
   // prompt=consent forca o Google a devolver SEMPRE um refresh_token novo,
   // mesmo que a conta ja tenha concedido acesso antes (evita refresh ausente).
@@ -212,50 +215,58 @@ async function handleCallback(req: Request): Promise<Response> {
     return redirectCockpit(cfg.returnUrl, "erro");
   }
 
-  const { refreshToken, accessToken } = await trocarCodePorTokens(code, cfg);
-  if (!refreshToken) {
-    // Sem refresh_token nao da pra renovar offline; trata como falha.
+  // A partir daqui qualquer falha (token/userinfo/persistencia) deve devolver o
+  // navegador ao cockpit com ?drive=erro, nunca despejar JSON cru na tela. O
+  // detalhe fica nos logs do Edge.
+  try {
+    const { refreshToken, accessToken } = await trocarCodePorTokens(code, cfg);
+    if (!refreshToken) {
+      // Sem refresh_token nao da pra renovar offline; trata como falha.
+      return redirectCockpit(cfg.returnUrl, "erro");
+    }
+    const email = await lerEmailDaConta(accessToken);
+
+    const service = createServiceClient();
+
+    // Conta anterior: se MUDOU, limpa as pastas cadastradas (decisao Fabio).
+    const { data: contaAtual } = await service
+      .from("drive_conta")
+      .select("email")
+      .eq("id", true)
+      .maybeSingle();
+    const emailAnterior = (contaAtual?.email as string | null) ?? null;
+    const trocouConta = emailAnterior != null && emailAnterior !== email;
+    if (trocouConta) {
+      await service.from("drive_pastas").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    }
+
+    // Grava o refresh_token CIFRADO no Vault (nunca persiste em coluna).
+    await setServiceSecret(DRIVE_REFRESH_NAME, refreshToken);
+
+    // Registra a conta conectada (singleton id=true).
+    const agora = new Date().toISOString();
+    const { error: upErr } = await service
+      .from("drive_conta")
+      .upsert(
+        { id: true, email, conectado_em: agora, atualizado_em: agora },
+        { onConflict: "id" },
+      );
+    if (upErr) {
+      throw new HttpError(500, "drive_conta_upsert_failed", "falha ao registrar a conta do Drive");
+    }
+
+    await logSensitiveAction({
+      tabela: "drive_conta",
+      acao: "conectar_drive",
+      usuario: iniciadoPor,
+      dadosNovos: { email, contaTrocada: trocouConta, pastasLimpas: trocouConta },
+    });
+
+    return redirectCockpit(cfg.returnUrl, "conectado");
+  } catch (err) {
+    console.error("[drive-oauth] callback falhou:", err);
     return redirectCockpit(cfg.returnUrl, "erro");
   }
-  const email = await lerEmailDaConta(accessToken);
-
-  const service = createServiceClient();
-
-  // Conta anterior: se MUDOU, limpa as pastas cadastradas (decisao Fabio).
-  const { data: contaAtual } = await service
-    .from("drive_conta")
-    .select("email")
-    .eq("id", true)
-    .maybeSingle();
-  const emailAnterior = (contaAtual?.email as string | null) ?? null;
-  const trocouConta = emailAnterior != null && emailAnterior !== email;
-  if (trocouConta) {
-    await service.from("drive_pastas").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-  }
-
-  // Grava o refresh_token CIFRADO no Vault (nunca persiste em coluna).
-  await setServiceSecret(DRIVE_REFRESH_NAME, refreshToken);
-
-  // Registra a conta conectada (singleton id=true).
-  const agora = new Date().toISOString();
-  const { error: upErr } = await service
-    .from("drive_conta")
-    .upsert(
-      { id: true, email, conectado_em: agora, atualizado_em: agora },
-      { onConflict: "id" },
-    );
-  if (upErr) {
-    throw new HttpError(500, "drive_conta_upsert_failed", "falha ao registrar a conta do Drive");
-  }
-
-  await logSensitiveAction({
-    tabela: "drive_conta",
-    acao: "conectar_drive",
-    usuario: iniciadoPor,
-    dadosNovos: { email, contaTrocada: trocouConta, pastasLimpas: trocouConta },
-  });
-
-  return redirectCockpit(cfg.returnUrl, "conectado");
 }
 
 /** action='status' — estado da conexao para o cockpit. */
