@@ -121,6 +121,7 @@ export function ExtracaoConfigForm({ initial }: { initial: ConfigExtracaoState }
   });
 
   const fontesSel = watch("fontes");
+  const ocrDesligado = watch("ocrEstrategia") === "nunca";
 
   function toggleFonte(value: FonteExtracao, checked: boolean) {
     const next = checked
@@ -197,13 +198,18 @@ export function ExtracaoConfigForm({ initial }: { initial: ConfigExtracaoState }
             id="ex-idioma"
             placeholder="por+eng"
             aria-invalid={Boolean(errors.ocrIdioma)}
+            disabled={ocrDesligado}
             {...register("ocrIdioma")}
           />
           <div className="err-msg">
             <TriangleAlert aria-hidden="true" />
             {errors.ocrIdioma?.message ?? "Use códigos Tesseract (ex.: por+eng)."}
           </div>
-          <div className="helper">Códigos Tesseract separados por +. Português + inglês cobre editais.</div>
+          <div className="helper">
+            {ocrDesligado
+              ? "OCR desligado (Estratégia = Nunca): o idioma não é usado."
+              : "Códigos Tesseract separados por +. Português + inglês cobre editais."}
+          </div>
         </div>
       </div>
 
