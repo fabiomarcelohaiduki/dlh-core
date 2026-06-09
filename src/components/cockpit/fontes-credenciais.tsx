@@ -36,10 +36,12 @@ function ConfigPanelHeader({
   avatar,
   nome,
   onClose,
+  subtitle = "Parâmetros aplicados na próxima coleta desta fonte.",
 }: {
   avatar: string;
   nome: string;
   onClose: () => void;
+  subtitle?: string;
 }) {
   return (
     <div className="cfg-panel-head">
@@ -58,9 +60,7 @@ function ConfigPanelHeader({
       </div>
       <div style={{ flex: 1 }}>
         <b style={{ fontSize: 14.5 }}>{nome}</b>
-        <div style={{ color: "var(--muted)", fontSize: 12 }}>
-          Parâmetros aplicados na próxima coleta desta fonte.
-        </div>
+        <div style={{ color: "var(--muted)", fontSize: 12 }}>{subtitle}</div>
       </div>
       <button type="button" className="btn btn-ghost" onClick={onClose}>
         <X aria-hidden="true" />
@@ -289,6 +289,7 @@ function GmailCard({
   conta,
   config,
   labels,
+  agendamento,
   configAberto,
   onConfigurar,
   configPanelId,
@@ -296,6 +297,7 @@ function GmailCard({
   conta: GmailContaState;
   config: GmailConfigState;
   labels: GmailLabelState[];
+  agendamento: AgendamentoFonteState;
   configAberto: boolean;
   onConfigurar: () => void;
   configPanelId: string;
@@ -307,7 +309,9 @@ function GmailCard({
   const excluidas = labels.filter((l) => l.ativo).length;
   const pill = !conta.conectado
     ? ({ state: "idle", label: "Desconectada" } as const)
-    : ({ state: "ok", label: "Ativa" } as const);
+    : agendamento.ativo
+      ? ({ state: "ok", label: "Ativa" } as const)
+      : ({ state: "idle", label: "Pausada" } as const);
 
   async function handleConectar() {
     setErroIniciar(null);
@@ -502,6 +506,7 @@ export function FontesCredenciais({
           conta={gmailConta}
           config={gmailConfig}
           labels={gmailLabels}
+          agendamento={gmailAgendamento}
           configAberto={gmailAberto}
           onConfigurar={() => toggle(setGmailAberto, gmailRef)}
           configPanelId={GMAIL_PANEL}
@@ -539,6 +544,7 @@ export function FontesCredenciais({
           <ConfigPanelHeader
             avatar="Dr"
             nome="Google Drive"
+            subtitle="Pastas administradas para extração de documentos."
             onClose={() => toggle(setDriveAberto, driveRef)}
           />
           <DrivePastasForm initial={drivePastas} />
