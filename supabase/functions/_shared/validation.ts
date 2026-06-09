@@ -455,7 +455,7 @@ export type OcrEstrategia = (typeof OCR_ESTRATEGIAS)[number];
 
 // Fontes que o extrator sabe obter bytes (adaptadores em extrair-anexos.mjs).
 // null em fontes_habilitadas = TODAS (default, futuro-prova).
-export const FONTES_EXTRACAO = ["nomus", "effecti", "drive"] as const;
+export const FONTES_EXTRACAO = ["nomus", "effecti", "drive", "gmail"] as const;
 export type FonteExtracao = (typeof FONTES_EXTRACAO)[number];
 
 const MAX_TAMANHO_BYTES = 1_073_741_824; // 1 GiB

@@ -22,6 +22,7 @@ const FONTES: ReadonlyArray<{ value: FonteExtracao; label: string }> = [
   { value: "nomus", label: "Nomus (ERP)" },
   { value: "effecti", label: "Effecti (portal de licitações)" },
   { value: "drive", label: "Google Drive" },
+  { value: "gmail", label: "Gmail" },
 ];
 
 const BYTES_POR_MIB = 1024 * 1024;
@@ -50,7 +51,7 @@ const cfgSchema = z.object({
     .max(1800, "Máximo 1800 s (30 min)."),
   extensoes: z.string(),
   fontes: z
-    .array(z.enum(["nomus", "effecti", "drive"]))
+    .array(z.enum(["nomus", "effecti", "drive", "gmail"]))
     .min(1, "Selecione ao menos uma fonte para extrair."),
   loteTamanho: z
     .number({ invalid_type_error: "Informe quantos arquivos por lote." })

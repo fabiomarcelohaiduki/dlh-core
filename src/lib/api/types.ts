@@ -187,7 +187,7 @@ export interface AgendamentoState {
 export type OcrEstrategia = "auto" | "nunca" | "sempre";
 
 /** Fontes que o extrator sabe obter bytes (adaptadores do runner). */
-export type FonteExtracao = "nomus" | "effecti" | "drive";
+export type FonteExtracao = "nomus" | "effecti" | "drive" | "gmail";
 
 /**
  * Snapshot dos parametros da camada 1 do extrator (singleton config_extracao)
