@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   buscaSemantica,
+  dispararGmail,
   dispararNomus,
   salvarAgendamentoFonte,
   salvarConfig,
@@ -81,6 +82,23 @@ export function useDispararNomus() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (modo: NomusModo) => dispararNomus(modo),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: monitoringKeys.healthcheck });
+    },
+  });
+}
+
+/**
+ * useDispararGmail — dispara MANUALMENTE a coleta do Gmail (POST gmail-disparar).
+ * Aciona o workflow do GitHub Actions (extrair-anexos.yml com fonte=gmail); a
+ * coleta roda assincrona no runner com a janela definida no gmail-config.
+ * Invalida o monitoramento (a execucao aparece no Dashboard quando o runner
+ * registrar o inicio).
+ */
+export function useDispararGmail() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => dispararGmail(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: monitoringKeys.healthcheck });
     },

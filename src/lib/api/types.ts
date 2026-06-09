@@ -398,3 +398,13 @@ export interface DispararNomusResponse {
   modo: NomusModo;
   requestId: number | null;
 }
+
+/**
+ * POST gmail-disparar -> aciona o workflow extrair-anexos.yml (fonte=gmail) no
+ * GitHub Actions (202). A coleta roda assincrona no runner (a janela vem do
+ * gmail-config). `requestId` e o id da requisicao pg_net (telemetria).
+ */
+export interface DispararGmailResponse {
+  ok: boolean;
+  requestId: number | null;
+}

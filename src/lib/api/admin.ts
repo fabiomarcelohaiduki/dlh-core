@@ -1,6 +1,7 @@
 import { apiFetch } from "@/lib/api/client";
 import type {
   BuscaSemanticaResponse,
+  DispararGmailResponse,
   DispararNomusResponse,
   FonteTipo,
   Frequencia,
@@ -102,6 +103,19 @@ export function dispararNomus(modo: NomusModo): Promise<DispararNomusResponse> {
   return apiFetch<DispararNomusResponse>("nomus-disparar", {
     method: "POST",
     body: JSON.stringify({ modo }),
+  });
+}
+
+/**
+ * POST /gmail-disparar — aciona MANUALMENTE a coleta do Gmail pelo card da
+ * fonte. O Gmail coleta no runner do GitHub Actions (extrair-anexos.yml com
+ * fonte=gmail); a janela vem do gmail-config (data inicial + labels), por isso
+ * a chamada nao leva corpo. Responde 202 (aceito); a coleta progride assincrona
+ * (acompanhar pelo painel de Execucoes).
+ */
+export function dispararGmail(): Promise<DispararGmailResponse> {
+  return apiFetch<DispararGmailResponse>("gmail-disparar", {
+    method: "POST",
   });
 }
 

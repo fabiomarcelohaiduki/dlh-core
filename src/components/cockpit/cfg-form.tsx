@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Check, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
 import { useSalvarConfig } from "@/hooks/use-admin";
-import { useColetaDemanda, useExecucoes } from "@/hooks/use-monitoring";
+import { useExecucoes } from "@/hooks/use-monitoring";
 import { hasRunningExecucao } from "@/lib/status";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
@@ -79,18 +79,23 @@ function toDefaults(initial: ConfigIngestaoState): CfgValues {
  *
  * Estados idle/success/error. action-salvar-cfg (useSalvarConfig -> PUT config)
  * persiste e VALE NA PROXIMA EXECUCAO, sem redeploy e sem afetar a coleta
- * atual. action-coleta-demanda-cfg (useColetaDemanda) avisa o usuario quando
- * ha alteracoes nao salvas (form sujo) antes de disparar e reflete processing.
+ * atual. O disparo manual vive no bloco "Coleta manual" (cmp-effecti-disparo-
+ * form), acima; este form so reporta o estado `dirty` (onDirtyChange) para que
+ * aquele bloco avise sobre alteracoes nao salvas antes de disparar.
  */
-export function CfgForm({ initial }: { initial: ConfigIngestaoState }) {
+export function CfgForm({
+  initial,
+  onDirtyChange,
+}: {
+  initial: ConfigIngestaoState;
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const salvar = useSalvarConfig();
-  const coleta = useColetaDemanda();
   const execucoes = useExecucoes({ limit: 50 });
 
   const running = hasRunningExecucao(execucoes.data?.items, "effecti");
 
   const [saveFeedback, setSaveFeedback] = useState<Feedback | null>(null);
-  const [coletaFeedback, setColetaFeedback] = useState<Feedback | null>(null);
 
   const {
     register,
@@ -103,6 +108,12 @@ export function CfgForm({ initial }: { initial: ConfigIngestaoState }) {
     resolver: zodResolver(cfgSchema),
     defaultValues: toDefaults(initial),
   });
+
+  // Sobe o estado "alteracoes nao salvas" para o painel pai, que repassa ao
+  // bloco de coleta manual (aviso antes de disparar com config pendente).
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
 
   const modalidades = watch("modalidades");
   const portais = watch("portais");
@@ -141,30 +152,6 @@ export function CfgForm({ initial }: { initial: ConfigIngestaoState }) {
     }
   }
 
-  async function handleColeta() {
-    if (running || coleta.isPending) return;
-    if (isDirty) {
-      const ok = window.confirm(
-        "Há alterações não salvas na configuração. Elas NÃO valem para esta coleta " +
-          "(somente após salvar, na próxima execução). Deseja disparar a coleta agora mesmo assim?",
-      );
-      if (!ok) return;
-    }
-    setColetaFeedback(null);
-    try {
-      await coleta.mutateAsync(undefined);
-      setColetaFeedback({ kind: "ok", message: "Coleta disparada · acompanhe em Execuções" });
-    } catch (err) {
-      const message =
-        err instanceof ApiError && err.status === 409
-          ? "Já existe uma coleta em andamento; aguarde a conclusão."
-          : "Não foi possível disparar a coleta. Tente novamente.";
-      setColetaFeedback({ kind: "err", message });
-    }
-  }
-
-  const coletaDisabled = running || coleta.isPending;
-
   return (
     <>
       <div className="section-title">
@@ -174,41 +161,6 @@ export function CfgForm({ initial }: { initial: ConfigIngestaoState }) {
             Janela de avisos e quais modalidades e portais esta fonte deve ingerir. A frequência da
             coleta é definida no Agendamento da coleta, acima.
           </p>
-        </div>
-        <div className="action-col" style={{ alignItems: "flex-end" }}>
-          <button
-            type="button"
-            className="btn"
-            onClick={handleColeta}
-            disabled={coletaDisabled}
-            aria-disabled={coletaDisabled}
-            title={running ? "Coleta em andamento" : undefined}
-          >
-            {coleta.isPending ? (
-              <Loader2 className="spin" aria-hidden="true" />
-            ) : (
-              <RefreshCw aria-hidden="true" />
-            )}
-            <span>{coleta.isPending ? "Disparando…" : "Executar coleta agora"}</span>
-          </button>
-          {running ? (
-            <span className="action-hint">
-              <Loader2 className="spin" aria-hidden="true" />
-              Coleta em andamento; aguarde a conclusão.
-            </span>
-          ) : coletaFeedback ? (
-            <span
-              className="action-hint"
-              style={{ color: coletaFeedback.kind === "err" ? "var(--err)" : "var(--ok)" }}
-            >
-              {coletaFeedback.kind === "err" ? (
-                <TriangleAlert aria-hidden="true" />
-              ) : (
-                <Check aria-hidden="true" />
-              )}
-              {coletaFeedback.message}
-            </span>
-          ) : null}
         </div>
       </div>
 

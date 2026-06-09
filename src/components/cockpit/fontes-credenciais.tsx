@@ -4,11 +4,13 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { Check, HardDrive, Link2, Loader2, Mail, SlidersHorizontal, TriangleAlert, X } from "lucide-react";
 import { CredForm, type CredFormSource } from "@/components/cockpit/cred-form";
 import { CfgForm } from "@/components/cockpit/cfg-form";
+import { EffectiDisparoForm } from "@/components/cockpit/effecti-disparo-form";
 import { AgendamentoFonteForm } from "@/components/cockpit/agendamento-fonte-form";
 import { NomusCfgForm } from "@/components/cockpit/nomus-cfg-form";
 import { NomusDisparoForm } from "@/components/cockpit/nomus-disparo-form";
 import { DrivePastasForm } from "@/components/cockpit/drive-pastas-form";
 import { GmailConfigForm } from "@/components/cockpit/gmail-config-form";
+import { GmailDisparoForm } from "@/components/cockpit/gmail-disparo-form";
 import { StatusPill } from "@/components/cockpit/status-pill";
 import { useConectarDrive } from "@/hooks/use-drive-oauth";
 import { useConectarGmail } from "@/hooks/use-gmail-oauth";
@@ -445,6 +447,9 @@ export function FontesCredenciais({
 }) {
   const [effectiAberto, setEffectiAberto] = useState(false);
   const [nomusAberto, setNomusAberto] = useState(false);
+  // Estado "alteracoes nao salvas" do CfgForm, subido para o bloco de coleta
+  // manual do Effecti avisar antes de disparar com config pendente.
+  const [effectiCfgDirty, setEffectiCfgDirty] = useState(false);
   const [driveAberto, setDriveAberto] = useState(false);
   const [gmailAberto, setGmailAberto] = useState(false);
   const effectiRef = useRef<HTMLDivElement | null>(null);
@@ -509,7 +514,8 @@ export function FontesCredenciais({
             onClose={() => toggle(setEffectiAberto, effectiRef)}
           />
           <AgendamentoFonteForm initial={effectiAgendamento} />
-          <CfgForm initial={effectiConfig} />
+          <EffectiDisparoForm configDirty={effectiCfgDirty} />
+          <CfgForm initial={effectiConfig} onDirtyChange={setEffectiCfgDirty} />
         </div>
       )}
 
@@ -544,6 +550,7 @@ export function FontesCredenciais({
             nome="Gmail"
             onClose={() => toggle(setGmailAberto, gmailRef)}
           />
+          <GmailDisparoForm />
           <GmailConfigForm config={gmailConfig} labels={gmailLabels} />
         </div>
       )}
