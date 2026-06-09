@@ -54,8 +54,43 @@ function dataParaGmail(d: string): string {
   return d.slice(0, 10).replace(/-/g, "/");
 }
 
-/** Escapa aspas no nome da label para o operador -label:"...". */
-function labelParaQuery(nome: string): string {
+// Categorias do Gmail (as guias "Promoções", "Social" etc.) NAO sao labels
+// comuns: o operador -label:"Promoções" nao as exclui. O correto e
+// -category:<slug>, com o slug FIXO em ingles. Mapeia os nomes PT/EN conhecidos
+// para o slug; o que nao casa segue como label normal.
+const CATEGORIAS_GMAIL: Record<string, string> = {
+  principal: "primary",
+  primary: "primary",
+  social: "social",
+  promocoes: "promotions",
+  promotions: "promotions",
+  atualizacoes: "updates",
+  updates: "updates",
+  foruns: "forums",
+  forums: "forums",
+  reservas: "reservations",
+  reservations: "reservations",
+  compras: "purchases",
+  purchases: "purchases",
+};
+
+/** Normaliza um nome para casar com as categorias (sem acento, minusculo). */
+function normalizarNome(nome: string): string {
+  return nome
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Converte um item da blacklist no operador de exclusao correto: categorias do
+ * Gmail viram -category:<slug>; labels comuns viram -label:"nome" (aspas
+ * escapadas).
+ */
+function termoBlacklist(nome: string): string {
+  const slug = CATEGORIAS_GMAIL[normalizarNome(nome)];
+  if (slug) return `-category:${slug}`;
   return `-label:"${nome.replace(/"/g, "")}"`;
 }
 
@@ -87,7 +122,7 @@ async function handleMontarQuery(req: Request): Promise<Response> {
   if (dataInicial) partes.push(`after:${dataParaGmail(dataInicial)}`);
   for (const l of labels ?? []) {
     const nome = (l as { label: string }).label?.trim();
-    if (nome) partes.push(labelParaQuery(nome));
+    if (nome) partes.push(termoBlacklist(nome));
   }
 
   return jsonResponse({ query: partes.join(" ").trim() }, 200);
