@@ -89,16 +89,11 @@ export function DrivePastasForm({ initial }: { initial: DrivePastaState[] }) {
   }
 
   return (
-    <div className="card form-card form-card--wide">
-      <div className="section-title" style={{ margin: "0 0 6px" }}>
-        <div className="titles">
-          <h3>Pastas do Google Drive</h3>
-          <p>
-            Cadastre as pastas do Drive a serem varridas pela extração (camada 1). Cada pasta ativa
-            é listada recursivamente a cada execução; arquivos alterados são re-extraídos.
-          </p>
-        </div>
-      </div>
+    <>
+      <p className="helper" style={{ margin: "0 0 14px" }}>
+        Cadastre as pastas do Drive a serem varridas pela extração (camada 1). Cada pasta ativa é
+        listada recursivamente a cada execução; arquivos alterados são re-extraídos.
+      </p>
 
       {initial.length === 0 ? (
         <div className="banner" style={{ marginTop: 8 }}>
@@ -219,6 +214,6 @@ export function DrivePastasForm({ initial }: { initial: DrivePastaState[] }) {
           )}
         </div>
       </form>
-    </div>
+    </>
   );
 }

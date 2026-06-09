@@ -3,7 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 import { FontesCredenciais } from "@/components/cockpit/fontes-credenciais";
 import { AgendamentoForm } from "@/components/cockpit/agendamento-form";
 import { ExtracaoConfigForm } from "@/components/cockpit/extracao-config-form";
-import { DrivePastasForm } from "@/components/cockpit/drive-pastas-form";
 import type {
   AgendamentoState,
   ConfigExtracaoState,
@@ -253,18 +252,21 @@ export default async function FontesPage() {
           <h2>Fontes e credenciais</h2>
           <p>
             Gerencie as fontes de ingestão e suas credenciais sem editar código. As fontes ativas
-            são o portal Effecti e o ERP Nomus.
+            são o portal Effecti, o ERP Nomus e o Google Drive.
           </p>
         </div>
       </div>
 
       <AgendamentoForm initial={agendamento} />
 
-      <FontesCredenciais effecti={fonte} effectiConfig={config} nomus={fonteNomus} />
+      <FontesCredenciais
+        effecti={fonte}
+        effectiConfig={config}
+        nomus={fonteNomus}
+        drivePastas={drivePastas}
+      />
 
       <ExtracaoConfigForm initial={configExtracao} />
-
-      <DrivePastasForm initial={drivePastas} />
     </section>
   );
 }
