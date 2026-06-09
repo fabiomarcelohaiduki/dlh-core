@@ -139,17 +139,21 @@ async function loadConfig(): Promise<ConfigIngestaoState> {
 }
 
 /**
- * Hidratacao server-side (RLS) do agendamento POR FONTE da Effecti (mora na
+ * Hidratacao server-side (RLS) do agendamento POR FONTE (mora na
  * config_ingestao da fonte) para o cmp-agendamento-fonte-form dentro do card
- * do Effecti. Sem config (1o acesso) cai no default desligado/manual.
+ * da fonte. Serve Effecti e Nomus (relogio identico; o destino do disparo —
+ * Edge ou GitHub Actions — e resolvido por aplicar_agendamento_fonte). Sem
+ * config (1o acesso) cai no default desligado/manual.
  */
-async function loadAgendamentoEffecti(): Promise<AgendamentoFonteState> {
+async function loadAgendamentoFonte(
+  tipo: AgendamentoFonteState["fonte"],
+): Promise<AgendamentoFonteState> {
   const supabase = await createClient();
 
   const { data: fonteRaw } = await supabase
     .from("fontes")
     .select("id")
-    .eq("tipo", "effecti")
+    .eq("tipo", tipo)
     .maybeSingle();
 
   const fonteRef = (fonteRaw ?? null) as { id: string } | null;
@@ -165,7 +169,7 @@ async function loadAgendamentoEffecti(): Promise<AgendamentoFonteState> {
   const data = (raw ?? null) as AgendamentoFonteRow | null;
 
   return {
-    fonte: "effecti",
+    fonte: tipo,
     ativo: data?.agendamento_ativo ?? false,
     frequencia: normalizeFrequencia(data?.frequencia ?? null),
     horarioReferencia: data?.horario_referencia ?? null,
@@ -314,6 +318,7 @@ export default async function FontesPage() {
     fonte,
     config,
     agendamentoEffecti,
+    agendamentoNomus,
     fonteNomus,
     drivePastas,
     driveConta,
@@ -323,7 +328,8 @@ export default async function FontesPage() {
   ] = await Promise.all([
     loadFonte(),
     loadConfig(),
-    loadAgendamentoEffecti(),
+    loadAgendamentoFonte("effecti"),
+    loadAgendamentoFonte("nomus"),
     loadFonteNomus(),
     loadDrivePastas(),
     loadDriveConta(),
@@ -348,6 +354,7 @@ export default async function FontesPage() {
         effecti={fonte}
         effectiConfig={config}
         effectiAgendamento={agendamentoEffecti}
+        nomusAgendamento={agendamentoNomus}
         nomus={fonteNomus}
         drivePastas={drivePastas}
         driveConta={driveConta}

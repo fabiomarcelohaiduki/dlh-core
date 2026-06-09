@@ -5,8 +5,11 @@ name: Coletor Nomus (nuvem)
 # pipeline do cockpit. Roda na nuvem porque o Supabase Edge (Deno) nao conecta
 # no Nomus por incompatibilidade TLS (cifra CBC legada).
 #
-# Agendado de hora em hora (UTC) + disparo manual. Ajuste o cron conforme a
-# necessidade; o GitHub pode atrasar execucoes agendadas em horarios de pico.
+# Acionamento: o RELOGIO vive no cockpit (config_ingestao do Nomus), nao mais
+# aqui. O job pg_cron 'coleta-nomus' chama a GitHub API (workflow_dispatch) na
+# cadencia configurada no painel; ajuste a frequencia/horario pelo card da fonte
+# Nomus (Fontes -> Nomus -> Agendamento da coleta). O disparo manual abaixo
+# segue valido para backfill 'full' sob demanda.
 on:
   workflow_dispatch:
     inputs:
@@ -17,8 +20,6 @@ on:
         options:
           - incremental
           - full
-  schedule:
-    - cron: "15 * * * *"
 
 # Garante que duas execucoes nao rodem em paralelo (alinhado ao single-flight
 # global do cockpit, que recusaria a 2a com 409).

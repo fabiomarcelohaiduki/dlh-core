@@ -423,6 +423,7 @@ export function FontesCredenciais({
   effecti,
   effectiConfig,
   effectiAgendamento,
+  nomusAgendamento,
   nomus,
   drivePastas,
   driveConta,
@@ -433,6 +434,7 @@ export function FontesCredenciais({
   effecti: FonteEffectiState;
   effectiConfig: ConfigIngestaoState;
   effectiAgendamento: AgendamentoFonteState;
+  nomusAgendamento: AgendamentoFonteState;
   nomus: FonteCredState;
   drivePastas: DrivePastaState[];
   driveConta: DriveContaState;
@@ -517,6 +519,7 @@ export function FontesCredenciais({
             nome="Nomus"
             onClose={() => toggle(setNomusAberto, nomusRef)}
           />
+          <AgendamentoFonteForm initial={nomusAgendamento} />
           <NomusCfgForm />
         </div>
       )}
