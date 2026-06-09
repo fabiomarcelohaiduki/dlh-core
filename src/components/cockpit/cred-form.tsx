@@ -9,7 +9,7 @@ import { useSalvarCredencial, useTestarConexao } from "@/hooks/use-admin";
 import { ApiError } from "@/lib/api/client";
 import { conexaoDescriptor } from "@/lib/status";
 import { formatDateTime } from "@/lib/format";
-import { StatusPill } from "@/components/cockpit/status-pill";
+import { SourceCardHeader } from "@/components/cockpit/source-card";
 import type { EstadoConexao, FonteCredState, FonteTipo } from "@/lib/api/types";
 
 type CredValues = { token: string };
@@ -189,26 +189,12 @@ export function CredForm({
 
   return (
     <div className="card">
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
-        <div
-          className="avatar"
-          style={{
-            borderRadius: 9,
-            width: 38,
-            height: 38,
-            color: "var(--accent)",
-            background: "var(--accent-soft)",
-            borderColor: "var(--accent-line)",
-          }}
-        >
-          {source.avatar}
-        </div>
-        <div style={{ flex: 1 }}>
-          <b style={{ fontSize: 15 }}>{fonte.nome}</b>
-          <div style={{ color: "var(--muted)", fontSize: 12.5 }}>{source.subtitulo}</div>
-        </div>
-        <StatusPill state={pill.state} label={pill.label} />
-      </div>
+      <SourceCardHeader
+        avatar={source.avatar}
+        nome={fonte.nome}
+        subtitulo={source.subtitulo}
+        pill={pill}
+      />
 
       <dl className="kv">
         <dt>Tipo</dt>

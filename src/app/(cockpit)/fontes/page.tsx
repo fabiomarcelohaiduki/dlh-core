@@ -108,7 +108,7 @@ async function loadFonteNomus(): Promise<FonteCredState> {
 /**
  * Hidratacao server-side (RLS) da config de ingestao vigente da fonte Effecti
  * para o cmp-cfg-form (apenas janela + filtros). Sem config (1o acesso) cai no
- * default (janela 15). Frequencia/horario migraram para o agendamento global.
+ * default (janela 15). Frequencia/horario vivem no agendamento POR FONTE.
  */
 async function loadConfig(): Promise<ConfigIngestaoState> {
   const supabase = await createClient();
