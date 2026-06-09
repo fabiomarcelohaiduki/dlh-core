@@ -17,12 +17,8 @@ name: Extrator de anexos (camada 1)
 # ADAPTADOR da fonte (nomus/effecti), extrai o texto via Tika e empurra de
 # volta ao Edge, que faz dedup global + grava texto + indexa.
 on:
-  # Schedule TEMPORARIO para drenar o backfill da fila (~11k anexos) sem disparo
-  # manual: cada run consome lotes de 500 em loop ate ~5h (budget do orquestrador),
-  # o restante fica para o proximo run. Quando a fila zerar, REMOVER este bloco
-  # (os runs agendados passam a sair em segundos com "Nenhum vinculo pendente").
-  schedule:
-    - cron: "0 */6 * * *"
+  # Disparo MANUAL apenas (schedule temporario de drain removido). Acionar pelo
+  # cockpit ou via `gh workflow run extrair-anexos.yml` quando quiser drenar a fila.
   workflow_dispatch:
     inputs:
       limite:
