@@ -1,20 +1,22 @@
 // =====================================================================
 // Edge Function: ingestao-orquestrar  ->  POST /ingestao/orquestrar
-// Relogio GLOBAL do ciclo de coleta em BLOCOS (US-03/RF-20, decisao 06/06).
+// Relogio POR FONTE do ciclo de coleta em BLOCOS (decisao 09/06: substitui o
+// ciclo GLOBAL). Cada fonte tem seu job pg_cron coleta-<tipo>.
 //
 //   - Disparada pelo pg_cron. Autentica por chamada interna: Bearer
 //     service_role OU segredo de sistema no Vault (header X-Cron-Secret).
-//     NAO usa sessao humana. Corpo vazio.
-//   - SINGLE-FLIGHT: no maximo UMA execucao 'em_andamento' por vez. Quando ha
-//     uma, AVANCA o seu checkpoint (um bloco) e nao inicia outra.
-//   - Retomada automatica: execucoes em 'erro' com checkpoint valido voltam a
-//     'em_andamento' (respeitando single-flight) ate NOMUS_MAX_RETOMADAS;
-//     estouro do teto fica em 'erro' aguardando acao manual.
-//   - Quando ocioso e ha fonte DUE (pela frequencia de config_agendamento),
-//     inicia a proxima por ordem (incrementais antes; backfill por ultimo).
+//     NAO usa sessao humana. Corpo { "fonte": "<tipo>" } escopa a fonte.
+//   - SINGLE-FLIGHT ESCOPADO A FONTE (lock por fonte): no maximo UMA execucao
+//     'em_andamento' POR FONTE. Quando ha uma desta fonte, AVANCA o seu
+//     checkpoint (um bloco) e nao inicia outra; outras fontes nao sao barradas.
+//   - Retomada automatica: execucoes em 'erro' DESTA fonte com checkpoint valido
+//     voltam a 'em_andamento' ate NOMUS_MAX_RETOMADAS; estouro fica aguardando
+//     acao manual.
+//   - Quando ocioso e a fonte esta DUE (pela frequencia da config_ingestao da
+//     fonte), inicia uma nova coleta desta fonte.
 //   - Responde SINCRONO { acao, execucao_id, fonte, recurso } com
-//     acao in avancou|iniciou|ocioso|concluiu. Reusa pg_cron/config_agendamento
-//     (nenhum agendador novo).
+//     acao in avancou|iniciou|ocioso|concluiu. Agendamento mora na
+//     config_ingestao da fonte; pg_cron coleta-<tipo> e o disparador.
 // =====================================================================
 
 import { handleCorsPreflight } from "../_shared/cors.ts";
@@ -397,27 +399,77 @@ async function loadFonte(
   return (data ?? null) as FonteRow | null;
 }
 
+/** Resolve a fonte pelo tipo (effecti|nomus); null quando nao cadastrada. */
+async function loadFonteByTipo(
+  service: ReturnType<typeof createServiceClient>,
+  tipo: string,
+): Promise<FonteRow | null> {
+  const { data } = await service
+    .from("fontes")
+    .select("id, tipo, endpoint_base, ordem")
+    .eq("tipo", tipo)
+    .maybeSingle();
+  return (data ?? null) as FonteRow | null;
+}
+
+/** Agendamento da fonte (config_ingestao): ativo + frequencia (defaults off). */
+async function loadAgendamentoFonte(
+  service: ReturnType<typeof createServiceClient>,
+  fonteId: string,
+): Promise<{ ativo: boolean; frequencia: string }> {
+  const { data } = await service
+    .from("config_ingestao")
+    .select("agendamento_ativo, frequencia")
+    .eq("fonte_id", fonteId)
+    .maybeSingle();
+  const row = (data ?? null) as { agendamento_ativo?: boolean; frequencia?: string } | null;
+  return {
+    ativo: row?.agendamento_ativo === true,
+    frequencia: row?.frequencia ?? "manual",
+  };
+}
+
+/**
+ * Le o tipo da fonte do corpo { "fonte": "<tipo>" } que o job pg_cron
+ * coleta-<tipo> envia. Corpo vazio/invalido => null (chamada sem escopo).
+ */
+async function parseFonteBody(req: Request): Promise<string | null> {
+  let raw: unknown;
+  try {
+    raw = await req.json();
+  } catch {
+    return null;
+  }
+  if (!raw || typeof raw !== "object") return null;
+  const fonte = (raw as { fonte?: unknown }).fonte;
+  return typeof fonte === "string" && fonte.length > 0 ? fonte : null;
+}
+
 // ---------------------------------------------------------------------
-// Tique: orquestra um unico passo do ciclo (single-flight)
+// Tique POR FONTE: orquestra um unico passo do ciclo da fonte (decisao 09/06).
+// Single-flight ESCOPADO a fonte (lock por fonte): cada cron coleta-<tipo>
+// dispara so a sua, sem barrar as demais.
 // ---------------------------------------------------------------------
 
-async function tick(
+async function tickFonte(
   service: ReturnType<typeof createServiceClient>,
+  fonte: FonteRow,
   frequencia: string,
 ): Promise<OrquestrarResponse> {
   const ocioso: OrquestrarResponse = {
     acao: "ocioso",
     execucao_id: null,
-    fonte: null,
+    fonte: fonte.tipo,
     recurso: null,
   };
 
-  // 1. Single-flight: ja ha execucao em_andamento? avanca a dela (Nomus) ou
-  //    deixa o Effecti concluir sozinho (ocioso).
+  // 1. Single-flight escopado: ja ha execucao em_andamento DESTA fonte? avanca
+  //    a dela (Nomus, por blocos) ou deixa o Effecti concluir sozinho (ocioso).
   const { data: ativa, error: ativaErr } = await service
     .from("execucoes")
     .select("id, fonte_id, recurso, status, checkpoint, inicio")
     .eq("status", "em_andamento")
+    .eq("fonte_id", fonte.id)
     .order("inicio", { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -431,17 +483,17 @@ async function tick(
       return await advanceNomus(service, exec, checkpoint);
     }
     // Effecti (sem checkpoint): roda seu pipeline proprio; nada a avancar.
-    return { acao: "ocioso", execucao_id: exec.id, fonte: null, recurso: exec.recurso };
+    return { acao: "ocioso", execucao_id: exec.id, fonte: fonte.tipo, recurso: exec.recurso };
   }
 
-  // 2. Retomada automatica de execucao em 'erro' com checkpoint valido, dentro
-  //    do teto NOMUS_MAX_RETOMADAS (respeita single-flight: ja sabemos que nao
-  //    ha em_andamento).
+  // 2. Retomada automatica de execucao em 'erro' DESTA fonte com checkpoint
+  //    valido, dentro do teto NOMUS_MAX_RETOMADAS.
   const maxRetomadas = nomusMaxRetomadas();
   const { data: comErro, error: erroErr } = await service
     .from("execucoes")
     .select("id, fonte_id, recurso, status, checkpoint, inicio")
     .eq("status", "erro")
+    .eq("fonte_id", fonte.id)
     .not("recurso", "is", null)
     .order("inicio", { ascending: true })
     .limit(20);
@@ -456,29 +508,9 @@ async function tick(
     return await resumeNomus(service, row, checkpoint);
   }
 
-  // 3. Inicia a proxima fonte DUE por ordem. Incrementais antes; backfill por
-  //    ultimo (prioridade menor).
-  const { data: fontes, error: fontesErr } = await service
-    .from("fontes")
-    .select("id, tipo, endpoint_base, ordem")
-    .eq("ativa", true)
-    .order("ordem", { ascending: true });
-  if (fontesErr) {
-    throw new HttpError(500, "fontes_query_failed", "falha ao listar fontes ativas");
-  }
-
-  const incrementais: FonteRow[] = [];
-  const backfills: FonteRow[] = [];
-  for (const fonte of (fontes ?? []) as FonteRow[]) {
-    const config = await loadConfig(service, fonte.id);
-    if (config?.data_inicial) backfills.push(fonte);
-    else incrementais.push(fonte);
-  }
-
-  for (const fonte of [...incrementais, ...backfills]) {
-    if (await isFonteDue(service, fonte.id, frequencia)) {
-      return await startFonte(service, fonte);
-    }
+  // 3. Inicia uma nova coleta se a fonte estiver DUE pela sua frequencia.
+  if (await isFonteDue(service, fonte.id, frequencia)) {
+    return await startFonte(service, fonte);
   }
 
   // 4. Nada a fazer neste tique.
@@ -495,27 +527,29 @@ async function handler(req: Request): Promise<Response> {
 
     const service = createServiceClient();
 
-    // Ciclo desligado no painel => ocioso (sem criar execucoes).
-    const { data: cfg, error: cfgErr } = await service
-      .from("config_agendamento")
-      .select("ativo, frequencia")
-      .limit(1)
-      .maybeSingle();
-    if (cfgErr) {
-      throw new HttpError(500, "agendamento_query_failed", "falha ao ler config_agendamento");
-    }
-    const agendamento = (cfg ?? null) as { ativo?: boolean; frequencia?: string } | null;
-    if (!agendamento || agendamento.ativo !== true) {
-      const body: OrquestrarResponse = {
-        acao: "ocioso",
-        execucao_id: null,
-        fonte: null,
-        recurso: null,
-      };
-      return jsonResponse(body, 200);
+    const ocioso: OrquestrarResponse = {
+      acao: "ocioso",
+      execucao_id: null,
+      fonte: null,
+      recurso: null,
+    };
+
+    // O job pg_cron coleta-<tipo> manda { "fonte": "<tipo>" }. Sem fonte no
+    // corpo (chamada legada/manual sem escopo) => nada a fazer.
+    const tipo = await parseFonteBody(req);
+    if (!tipo) return jsonResponse(ocioso, 200);
+
+    // Fonte inexistente => ocioso (idempotente; cron escreve o tipo certo).
+    const fonte = await loadFonteByTipo(service, tipo);
+    if (!fonte) return jsonResponse(ocioso, 200);
+
+    // Agendamento DESTA fonte desligado no painel => ocioso (sem criar exec).
+    const agendamento = await loadAgendamentoFonte(service, fonte.id);
+    if (!agendamento.ativo) {
+      return jsonResponse({ ...ocioso, fonte: fonte.tipo }, 200);
     }
 
-    const body = await tick(service, agendamento.frequencia ?? "manual");
+    const body = await tickFonte(service, fonte, agendamento.frequencia);
     return jsonResponse(body, 200);
   } catch (err) {
     return await errorResponse(err, { fn: "ingestao-orquestrar" });

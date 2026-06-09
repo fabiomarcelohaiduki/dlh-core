@@ -87,7 +87,7 @@ export function CfgForm({ initial }: { initial: ConfigIngestaoState }) {
   const coleta = useColetaDemanda();
   const execucoes = useExecucoes({ limit: 50 });
 
-  const running = hasRunningExecucao(execucoes.data?.items);
+  const running = hasRunningExecucao(execucoes.data?.items, "effecti");
 
   const [saveFeedback, setSaveFeedback] = useState<Feedback | null>(null);
   const [coletaFeedback, setColetaFeedback] = useState<Feedback | null>(null);
@@ -172,7 +172,7 @@ export function CfgForm({ initial }: { initial: ConfigIngestaoState }) {
           <h3>Configuração da ingestão</h3>
           <p>
             Janela de avisos e quais modalidades e portais esta fonte deve ingerir. A frequência da
-            coleta é definida no Agendamento do ciclo (global).
+            coleta é definida no Agendamento da coleta, acima.
           </p>
         </div>
         <div className="action-col" style={{ alignItems: "flex-end" }}>

@@ -4,15 +4,15 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { CalendarClock, Check, Info, Loader2, TriangleAlert } from "lucide-react";
-import { useSalvarAgendamento } from "@/hooks/use-admin";
+import { CalendarClock, Check, Loader2, TriangleAlert } from "lucide-react";
+import { useSalvarAgendamentoFonte } from "@/hooks/use-admin";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
-import type { AgendamentoState } from "@/lib/api/types";
+import type { AgendamentoFonteState } from "@/lib/api/types";
 
 /**
- * Frequencias recorrentes do ciclo GLOBAL. 'manual' (desligado) e expresso
- * pelo proprio toggle "ativo"; nao aparece como opcao de frequencia.
+ * Frequencias recorrentes da coleta DESTA fonte. 'manual' (desligado) e
+ * expresso pelo proprio toggle "ativo"; nao aparece como opcao de frequencia.
  */
 const FREQUENCIAS = [
   { value: "horaria", label: "A cada hora" },
@@ -33,7 +33,7 @@ const DIAS_SEMANA = [
 ] as const;
 
 /**
- * Schema cliente (espelha agendamentoConfigSchema do backend). horario em
+ * Schema cliente (espelha agendamentoFonteConfigSchema do backend). horario em
  * 'HH:MM' local; diaSemana 0..6; diaMes 1..28. Mantidos sempre com valores
  * validos (defaults) e exibidos conforme a frequencia, evitando refinamentos.
  */
@@ -54,7 +54,7 @@ type AgValues = z.infer<typeof agSchema>;
 
 type Feedback = { kind: "ok" | "err"; message: string };
 
-function toDefaults(initial: AgendamentoState): AgValues {
+function toDefaults(initial: AgendamentoFonteState): AgValues {
   const freq = initial.frequencia === "manual" ? "diaria" : initial.frequencia;
   return {
     ativo: initial.ativo,
@@ -66,15 +66,16 @@ function toDefaults(initial: AgendamentoState): AgValues {
 }
 
 /**
- * cmp-agendamento-form — Agendamento GLOBAL do ciclo de coleta.
+ * cmp-agendamento-fonte-form — Agendamento POR FONTE da coleta.
  *
- * Um unico relogio governa a coleta de TODAS as fontes (orquestrador
- * sequencial: uma fonte por vez, sem sobreposicao). O toggle "ativo" liga/
- * desliga o ciclo; frequencia + horario definem a cadencia. Salvar reescreve
- * o pg_cron no substrato (sem redeploy) via PUT /agendamento/config.
+ * Cada fonte tem seu proprio relogio (job pg_cron coleta-<tipo>); este form
+ * mora dentro do card de configuracao da fonte. O toggle "ativo" liga/desliga
+ * a coleta automatica DESTA fonte; frequencia + horario definem a cadencia.
+ * Salvar reescreve o pg_cron no substrato (sem redeploy) via
+ * PUT /agendamento-fonte-config.
  */
-export function AgendamentoForm({ initial }: { initial: AgendamentoState }) {
-  const salvar = useSalvarAgendamento();
+export function AgendamentoFonteForm({ initial }: { initial: AgendamentoFonteState }) {
+  const salvar = useSalvarAgendamentoFonte();
   const [feedback, setFeedback] = useState<Feedback | null>(null);
 
   const {
@@ -96,6 +97,7 @@ export function AgendamentoForm({ initial }: { initial: AgendamentoState }) {
     setFeedback(null);
     try {
       const res = await salvar.mutateAsync({
+        fonte: initial.fonte,
         ativo: values.ativo,
         frequencia: values.frequencia,
         horarioReferencia: values.horarioReferencia,
@@ -106,8 +108,8 @@ export function AgendamentoForm({ initial }: { initial: AgendamentoState }) {
       setFeedback({
         kind: "ok",
         message: values.ativo
-          ? `Agendamento salvo · ciclo ligado${res.agendamento ? ` (${res.agendamento})` : ""}`
-          : "Agendamento salvo · ciclo desligado",
+          ? `Agendamento salvo · coleta ligada${res.agendamento ? ` (${res.agendamento})` : ""}`
+          : "Agendamento salvo · coleta automática desligada",
       });
     } catch (err) {
       const message =
@@ -119,32 +121,21 @@ export function AgendamentoForm({ initial }: { initial: AgendamentoState }) {
   }
 
   return (
-    <form className="card form-card form-card--wide" onSubmit={handleSubmit(onSubmit)} noValidate>
-      <div className="section-title" style={{ margin: "0 0 6px" }}>
+    <>
+      <div className="section-title" style={{ margin: "6px 0 13px" }}>
         <div className="titles">
-          <h3>Agendamento do ciclo</h3>
+          <h3>Agendamento da coleta</h3>
           <p>
-            Um único relógio governa a coleta das fontes da nuvem (Edge), uma por vez (sem
-            sobreposição). Cada fonte mantém apenas a janela e os filtros.
+            Quando esta fonte coleta automaticamente. Cada fonte tem seu próprio relógio,
+            independente das demais.
           </p>
         </div>
       </div>
 
-      <div className="banner">
-        <Info aria-hidden="true" />
-        <div>
-          <b>Nomus coletado fora deste ciclo</b>
-          <p>
-            Por incompatibilidade de TLS com a coleta na nuvem, o Nomus roda em um coletor
-            externo (GitHub Actions), de hora em hora. Essa cadência não é controlada aqui;
-            acompanhe a última coleta no Dashboard.
-          </p>
-        </div>
-      </div>
-
+      <form className="card form-card" onSubmit={handleSubmit(onSubmit)} noValidate>
       <label
         className={cn("chk", ativo && "on")}
-        style={{ margin: "14px 0 18px", maxWidth: 360 }}
+        style={{ margin: "0 0 18px", maxWidth: 360 }}
       >
         <input
           type="checkbox"
@@ -155,29 +146,29 @@ export function AgendamentoForm({ initial }: { initial: AgendamentoState }) {
           }}
         />
         <div className="t">
-          Ciclo de coleta ligado
+          Coleta automática ligada
           <small>{ativo ? "Coletando automaticamente na cadência abaixo." : "Coleta automática pausada (somente coleta manual)."}</small>
         </div>
       </label>
 
       <div className="grid-fields">
         <div className="field">
-          <label htmlFor="ag-freq">Frequência</label>
-          <select id="ag-freq" {...register("frequencia")}>
+          <label htmlFor="agf-freq">Frequência</label>
+          <select id="agf-freq" {...register("frequencia")}>
             {FREQUENCIAS.map((f) => (
               <option key={f.value} value={f.value}>
                 {f.label}
               </option>
             ))}
           </select>
-          <div className="helper">Com que frequência o ciclo dispara a coleta.</div>
+          <div className="helper">Com que frequência esta fonte dispara a coleta.</div>
         </div>
 
         <div className={cn("field", errors.horarioReferencia && "invalid")}>
-          <label htmlFor="ag-hora">Horário (fuso de Brasília)</label>
+          <label htmlFor="agf-hora">Horário (fuso de Brasília)</label>
           <input
             type="time"
-            id="ag-hora"
+            id="agf-hora"
             aria-invalid={Boolean(errors.horarioReferencia)}
             {...register("horarioReferencia")}
           />
@@ -195,8 +186,8 @@ export function AgendamentoForm({ initial }: { initial: AgendamentoState }) {
 
       {frequencia === "semanal" && (
         <div className="field" style={{ maxWidth: 300 }}>
-          <label htmlFor="ag-dow">Dia da semana</label>
-          <select id="ag-dow" {...register("diaSemana", { valueAsNumber: true })}>
+          <label htmlFor="agf-dow">Dia da semana</label>
+          <select id="agf-dow" {...register("diaSemana", { valueAsNumber: true })}>
             {DIAS_SEMANA.map((d) => (
               <option key={d.value} value={d.value}>
                 {d.label}
@@ -208,11 +199,11 @@ export function AgendamentoForm({ initial }: { initial: AgendamentoState }) {
 
       {frequencia === "mensal" && (
         <div className={cn("field", errors.diaMes && "invalid")} style={{ maxWidth: 300 }}>
-          <label htmlFor="ag-dom">Dia do mês</label>
+          <label htmlFor="agf-dom">Dia do mês</label>
           <div className="input-affix">
             <input
               type="number"
-              id="ag-dom"
+              id="agf-dom"
               min={1}
               max={28}
               aria-invalid={Boolean(errors.diaMes)}
@@ -259,6 +250,7 @@ export function AgendamentoForm({ initial }: { initial: AgendamentoState }) {
           </span>
         )}
       </div>
-    </form>
+      </form>
+    </>
   );
 }

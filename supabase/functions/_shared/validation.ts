@@ -298,6 +298,41 @@ export const agendamentoConfigSchema = z
 export type AgendamentoConfigInput = z.infer<typeof agendamentoConfigSchema>;
 
 // ---------------------------------------------------------------------
+// Schema: agendamento POR FONTE (PUT /agendamento-fonte-config).
+// Substitui o ciclo global: cada fonte tem seu proprio relogio, persistido na
+// config_ingestao da fonte e materializado no pg_cron via
+// aplicar_agendamento_fonte(tipo). `fonte` enum {effecti,nomus} (default
+// effecti). Demais campos espelham o agendamento global.
+// ---------------------------------------------------------------------
+export const agendamentoFonteConfigSchema = z
+  .object({
+    fonte: fonteEnum.default("effecti"),
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }),
+    frequencia: z.enum(FREQUENCIAS, {
+      errorMap: () => ({ message: `frequencia invalida (use: ${FREQUENCIAS.join(", ")})` }),
+    }),
+    horarioReferencia: z
+      .string({ invalid_type_error: "horarioReferencia deve ser string" })
+      .regex(/^([01]?\d|2[0-3]):[0-5]\d$/, "horario invalido (use HH:MM, 00:00 a 23:59)")
+      .nullish(),
+    diaSemana: z
+      .number({ invalid_type_error: "diaSemana deve ser numero" })
+      .int("diaSemana deve ser inteiro")
+      .min(0, "diaSemana deve estar entre 0 (dom) e 6 (sab)")
+      .max(6, "diaSemana deve estar entre 0 (dom) e 6 (sab)")
+      .nullish(),
+    diaMes: z
+      .number({ invalid_type_error: "diaMes deve ser numero" })
+      .int("diaMes deve ser inteiro")
+      .min(1, "diaMes deve estar entre 1 e 28")
+      .max(28, "diaMes deve estar entre 1 e 28")
+      .nullish(),
+  })
+  .strict();
+
+export type AgendamentoFonteConfigInput = z.infer<typeof agendamentoFonteConfigSchema>;
+
+// ---------------------------------------------------------------------
 // Schema: coleta sob demanda / agendada (POST /ingestao/coletar).
 // fonte enum {effecti,nomus} (default effecti, extensivel - RF-11). recurso
 // (allowlist {processos}) so se aplica a fontes multi-recurso (Nomus); para

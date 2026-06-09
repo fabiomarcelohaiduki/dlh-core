@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { Check, HardDrive, Link2, Loader2, Mail, SlidersHorizontal, TriangleAlert, X } from "lucide-react";
 import { CredForm, type CredFormSource } from "@/components/cockpit/cred-form";
 import { CfgForm } from "@/components/cockpit/cfg-form";
+import { AgendamentoFonteForm } from "@/components/cockpit/agendamento-fonte-form";
 import { NomusCfgForm } from "@/components/cockpit/nomus-cfg-form";
 import { DrivePastasForm } from "@/components/cockpit/drive-pastas-form";
 import { GmailConfigForm } from "@/components/cockpit/gmail-config-form";
@@ -12,6 +13,7 @@ import { useConectarDrive } from "@/hooks/use-drive-oauth";
 import { useConectarGmail } from "@/hooks/use-gmail-oauth";
 import { formatDateTime } from "@/lib/format";
 import type {
+  AgendamentoFonteState,
   ConfigIngestaoState,
   DriveContaState,
   DrivePastaState,
@@ -420,6 +422,7 @@ function GmailCard({
 export function FontesCredenciais({
   effecti,
   effectiConfig,
+  effectiAgendamento,
   nomus,
   drivePastas,
   driveConta,
@@ -429,6 +432,7 @@ export function FontesCredenciais({
 }: {
   effecti: FonteEffectiState;
   effectiConfig: ConfigIngestaoState;
+  effectiAgendamento: AgendamentoFonteState;
   nomus: FonteCredState;
   drivePastas: DrivePastaState[];
   driveConta: DriveContaState;
@@ -501,6 +505,7 @@ export function FontesCredenciais({
             nome="Effecti"
             onClose={() => toggle(setEffectiAberto, effectiRef)}
           />
+          <AgendamentoFonteForm initial={effectiAgendamento} />
           <CfgForm initial={effectiConfig} />
         </div>
       )}

@@ -169,18 +169,19 @@ export interface ConfigIngestaoState {
 }
 
 /**
- * Snapshot do agendamento GLOBAL do ciclo (singleton config_agendamento) lido
- * server-side para hidratar o cmp-agendamento-form. Governa a coleta de TODAS
- * as fontes (1 cron, orquestrador sequencial); cada fonte mantem so janela +
- * filtros. `horarioReferencia` e 'HH:MM' local (America/Sao_Paulo, UTC-3).
+ * Snapshot do agendamento POR FONTE (mora na config_ingestao da fonte) lido
+ * server-side para hidratar o cmp-agendamento-fonte-form dentro do card da
+ * fonte. Cada fonte tem seu proprio relogio (job pg_cron coleta-<tipo>);
+ * substitui o ciclo GLOBAL (decisao 09/06). `horarioReferencia` e 'HH:MM'
+ * local (America/Sao_Paulo, UTC-3).
  */
-export interface AgendamentoState {
+export interface AgendamentoFonteState {
+  fonte: FonteTipo;
   ativo: boolean;
   frequencia: Frequencia;
   horarioReferencia: string | null;
   diaSemana: number | null;
   diaMes: number | null;
-  timezone: string;
 }
 
 /** Estrategia de OCR da camada 1 (mapeia no Tika): auto/nunca/sempre. */

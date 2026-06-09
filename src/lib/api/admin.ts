@@ -9,6 +9,16 @@ import type {
   TestarConexaoResponse,
 } from "@/lib/api/types";
 
+/** Payload validado (cliente) do PUT /agendamento-fonte-config (por fonte). */
+export interface SalvarAgendamentoFonteInput {
+  fonte: FonteTipo;
+  ativo: boolean;
+  frequencia: Frequencia;
+  horarioReferencia: string | null;
+  diaSemana: number | null;
+  diaMes: number | null;
+}
+
 /**
  * PUT /fontes-credencial — grava a chave de integracao da fonte no Vault
  * (US-07/US-03). Parametrizado por fonte (effecti|nomus, default effecti). O
@@ -39,11 +49,12 @@ export function testarConexao(fonte: FonteTipo = "effecti"): Promise<TestarConex
 }
 
 /**
- * Payload validado (cliente) do PUT /ingestao/config. Por-fonte ficou apenas
- * com janela + filtros; a frequencia/horario do ciclo viraram GLOBAIS (ver
- * salvarAgendamento). O schema backend ainda exige `frequencia`, por isso
- * salvarConfig injeta 'manual' (coluna config_ingestao.frequencia inerte:
- * nada le essa coluna para agendar; o cron global comanda a coleta).
+ * Payload validado (cliente) do PUT /ingestao/config. A config por-fonte aqui
+ * cobre apenas janela + filtros; a frequencia/horario da coleta moram no
+ * agendamento por fonte (ver salvarAgendamentoFonte). `frequencia` e OPCIONAL
+ * no schema backend e e OWNED pelo agendamento-fonte-config; por isso esta
+ * chamada NAO a envia (enviar 'manual' sobrescrevia a coluna e dessincronizava
+ * o card de Agendamento do pg_cron real).
  */
 export interface SalvarConfigInput {
   janelaDias: number;
@@ -55,33 +66,25 @@ export interface SalvarConfigInput {
  * PUT /ingestao/config — persiste janela/modalidades/portais da fonte.
  * As alteracoes valem na PROXIMA execucao (sem redeploy); nao afetam a
  * coleta em andamento. zod cliente + servidor rejeitam janela fora de
- * [1, 365] e portais vazio.
+ * [1, 365] e portais vazio. Nao toca em frequencia/agendamento.
  */
 export function salvarConfig(input: SalvarConfigInput): Promise<SalvarConfigResponse> {
   return apiFetch<SalvarConfigResponse>("ingestao-config", {
     method: "PUT",
-    body: JSON.stringify({ frequencia: "manual" satisfies Frequencia, ...input }),
+    body: JSON.stringify(input),
   });
 }
 
-/** Payload validado (cliente) do PUT /agendamento/config (ciclo global). */
-export interface SalvarAgendamentoInput {
-  ativo: boolean;
-  frequencia: Frequencia;
-  horarioReferencia: string | null;
-  diaSemana: number | null;
-  diaMes: number | null;
-}
-
 /**
- * PUT /agendamento/config — persiste o agendamento GLOBAL do ciclo (singleton)
- * e reescreve o pg_cron via aplicar_agendamento(). Vale para TODAS as fontes
- * (orquestrador sequencial); a resposta traz o texto do agendamento aplicado.
+ * PUT /agendamento-fonte-config — persiste o agendamento DESTA fonte na sua
+ * config_ingestao e reescreve o pg_cron coleta-<tipo> via
+ * aplicar_agendamento_fonte(). Vale so para a fonte indicada (relogio proprio);
+ * a resposta traz o texto do agendamento aplicado.
  */
-export function salvarAgendamento(
-  input: SalvarAgendamentoInput,
+export function salvarAgendamentoFonte(
+  input: SalvarAgendamentoFonteInput,
 ): Promise<SalvarAgendamentoResponse> {
-  return apiFetch<SalvarAgendamentoResponse>("agendamento-config", {
+  return apiFetch<SalvarAgendamentoResponse>("agendamento-fonte-config", {
     method: "PUT",
     body: JSON.stringify(input),
   });

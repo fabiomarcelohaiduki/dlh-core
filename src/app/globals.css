@@ -1363,7 +1363,7 @@ select {
 .form-card {
   max-width: 640px;
 }
-/* Agendamento do ciclo: ocupa a largura cheia da tela (sem o vazio a direita). */
+/* Parametros de extracao: ocupa a largura cheia da tela (sem o vazio a direita). */
 .form-card--wide {
   max-width: none;
 }

@@ -3,12 +3,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   buscaSemantica,
-  salvarAgendamento,
+  salvarAgendamentoFonte,
   salvarConfig,
   salvarCredencial,
   testarConexao,
   type BuscaSemanticaInput,
-  type SalvarAgendamentoInput,
+  type SalvarAgendamentoFonteInput,
   type SalvarConfigInput,
 } from "@/lib/api/admin";
 import { monitoringKeys } from "@/hooks/use-monitoring";
@@ -55,15 +55,15 @@ export function useSalvarConfig() {
 }
 
 /**
- * useSalvarAgendamento — persiste o agendamento GLOBAL do ciclo (PUT
- * agendamento). Reescreve o pg_cron via aplicar_agendamento(); vale para
- * TODAS as fontes (coleta sequencial). Invalida o monitoramento (a proxima
- * coleta agendada passa a refletir no Dashboard/Execucoes).
+ * useSalvarAgendamentoFonte — persiste o agendamento DESTA fonte (PUT
+ * agendamento-fonte-config). Reescreve o pg_cron coleta-<tipo> via
+ * aplicar_agendamento_fonte(); vale so para a fonte indicada. Invalida o
+ * monitoramento (a proxima coleta agendada passa a refletir no Dashboard).
  */
-export function useSalvarAgendamento() {
+export function useSalvarAgendamentoFonte() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: SalvarAgendamentoInput) => salvarAgendamento(input),
+    mutationFn: (input: SalvarAgendamentoFonteInput) => salvarAgendamentoFonte(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: monitoringKeys.healthcheck });
     },

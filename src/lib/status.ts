@@ -133,9 +133,21 @@ export function indexacaoDescriptor(status: string | null): PillDescriptor {
   }
 }
 
-/** True quando ha uma coleta em andamento (base do anti-duplo-disparo). */
-export function hasRunningExecucao(items: Execucao[] | undefined): boolean {
-  return Boolean(items?.some((e) => e.status === "em_andamento"));
+/**
+ * True quando ha uma coleta em andamento (base do anti-duplo-disparo).
+ * Com `origem`, considera apenas execucoes daquela fonte (lock-por-fonte):
+ * o backfill de outra fonte (ex.: Nomus) nao acende o indicador do Effecti.
+ */
+export function hasRunningExecucao(
+  items: Execucao[] | undefined,
+  origem?: string,
+): boolean {
+  return Boolean(
+    items?.some(
+      (e) =>
+        e.status === "em_andamento" && (origem == null || e.origem === origem),
+    ),
+  );
 }
 
 /**

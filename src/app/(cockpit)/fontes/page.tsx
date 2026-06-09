@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { FontesCredenciais } from "@/components/cockpit/fontes-credenciais";
-import { AgendamentoForm } from "@/components/cockpit/agendamento-form";
 import type {
-  AgendamentoState,
+  AgendamentoFonteState,
   ConfigIngestaoState,
   DriveContaState,
   DrivePastaState,
@@ -43,14 +42,13 @@ interface ConfigRow {
   portais: string[] | null;
 }
 
-/** Linha lida de public.config_agendamento (agendamento GLOBAL do ciclo). */
-interface AgendamentoRow {
-  ativo: boolean | null;
+/** Linha lida de public.config_ingestao (agendamento POR FONTE). */
+interface AgendamentoFonteRow {
+  agendamento_ativo: boolean | null;
   frequencia: string | null;
   horario_referencia: string | null;
   dia_semana: number | null;
   dia_mes: number | null;
-  timezone: string | null;
 }
 
 function normalizeFrequencia(value: string | null): Frequencia {
@@ -141,28 +139,38 @@ async function loadConfig(): Promise<ConfigIngestaoState> {
 }
 
 /**
- * Hidratacao server-side (RLS) do agendamento GLOBAL do ciclo (singleton
- * config_agendamento) para o cmp-agendamento-form. Sem linha (estado inicial)
- * cai no default desligado/manual.
+ * Hidratacao server-side (RLS) do agendamento POR FONTE da Effecti (mora na
+ * config_ingestao da fonte) para o cmp-agendamento-fonte-form dentro do card
+ * do Effecti. Sem config (1o acesso) cai no default desligado/manual.
  */
-async function loadAgendamento(): Promise<AgendamentoState> {
+async function loadAgendamentoEffecti(): Promise<AgendamentoFonteState> {
   const supabase = await createClient();
 
-  const { data: raw } = await supabase
-    .from("config_agendamento")
-    .select("ativo, frequencia, horario_referencia, dia_semana, dia_mes, timezone")
-    .limit(1)
+  const { data: fonteRaw } = await supabase
+    .from("fontes")
+    .select("id")
+    .eq("tipo", "effecti")
     .maybeSingle();
 
-  const data = (raw ?? null) as AgendamentoRow | null;
+  const fonteRef = (fonteRaw ?? null) as { id: string } | null;
+
+  const { data: raw } = fonteRef
+    ? await supabase
+        .from("config_ingestao")
+        .select("agendamento_ativo, frequencia, horario_referencia, dia_semana, dia_mes")
+        .eq("fonte_id", fonteRef.id)
+        .maybeSingle()
+    : { data: null };
+
+  const data = (raw ?? null) as AgendamentoFonteRow | null;
 
   return {
-    ativo: data?.ativo ?? false,
+    fonte: "effecti",
+    ativo: data?.agendamento_ativo ?? false,
     frequencia: normalizeFrequencia(data?.frequencia ?? null),
     horarioReferencia: data?.horario_referencia ?? null,
     diaSemana: data?.dia_semana ?? null,
     diaMes: data?.dia_mes ?? null,
-    timezone: data?.timezone ?? "America/Sao_Paulo",
   };
 }
 
@@ -305,7 +313,7 @@ export default async function FontesPage() {
   const [
     fonte,
     config,
-    agendamento,
+    agendamentoEffecti,
     fonteNomus,
     drivePastas,
     driveConta,
@@ -315,7 +323,7 @@ export default async function FontesPage() {
   ] = await Promise.all([
     loadFonte(),
     loadConfig(),
-    loadAgendamento(),
+    loadAgendamentoEffecti(),
     loadFonteNomus(),
     loadDrivePastas(),
     loadDriveConta(),
@@ -336,11 +344,10 @@ export default async function FontesPage() {
         </div>
       </div>
 
-      <AgendamentoForm initial={agendamento} />
-
       <FontesCredenciais
         effecti={fonte}
         effectiConfig={config}
+        effectiAgendamento={agendamentoEffecti}
         nomus={fonteNomus}
         drivePastas={drivePastas}
         driveConta={driveConta}
