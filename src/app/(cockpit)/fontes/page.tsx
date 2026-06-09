@@ -11,6 +11,9 @@ import type {
   FonteCredState,
   FonteEffectiState,
   Frequencia,
+  GmailConfigState,
+  GmailContaState,
+  GmailLabelState,
 } from "@/lib/api/types";
 
 export const metadata: Metadata = { title: "Fontes e credenciais" };
@@ -220,16 +223,106 @@ async function loadDriveConta(): Promise<DriveContaState> {
   };
 }
 
+/** Linha lida do singleton public.gmail_conta (conta Google do Gmail). */
+interface GmailContaRow {
+  email: string | null;
+  conectado_em: string | null;
+}
+
+/**
+ * Hidratacao server-side (RLS) da conta Google conectada ao Gmail (singleton
+ * gmail_conta) para o cmp-gmail-card. INDEPENDENTE do Drive (refresh_token
+ * proprio no Vault); aqui so o e-mail e quando conectou.
+ */
+async function loadGmailConta(): Promise<GmailContaState> {
+  const supabase = await createClient();
+  const { data: raw } = await supabase
+    .from("gmail_conta")
+    .select("email, conectado_em")
+    .eq("id", true)
+    .maybeSingle();
+
+  const data = (raw ?? null) as GmailContaRow | null;
+  return {
+    conectado: Boolean(data?.email),
+    email: data?.email ?? null,
+    conectadoEm: data?.conectado_em ?? null,
+  };
+}
+
+/** Linha lida do singleton public.gmail_config (data inicial da coleta). */
+interface GmailConfigRow {
+  data_inicial: string | null;
+}
+
+/**
+ * Hidratacao server-side (RLS) da config da coleta Gmail (singleton
+ * gmail_config) para o cmp-gmail-config-form. Sem linha cai em null (—).
+ */
+async function loadGmailConfig(): Promise<GmailConfigState> {
+  const supabase = await createClient();
+  const { data: raw } = await supabase
+    .from("gmail_config")
+    .select("data_inicial")
+    .eq("id", true)
+    .maybeSingle();
+
+  const data = (raw ?? null) as GmailConfigRow | null;
+  return { dataInicial: data?.data_inicial ?? null };
+}
+
+/** Linha lida de public.gmail_labels (blacklist de labels do Gmail). */
+interface GmailLabelRow {
+  id: string;
+  label: string | null;
+  nome: string | null;
+  ativo: boolean | null;
+  updated_at: string | null;
+}
+
+/**
+ * Hidratacao server-side (RLS) das labels da blacklist do Gmail (tabela
+ * gmail_labels) para o cmp-gmail-config-form. As escritas passam pelo Edge
+ * gmail-config (service_role + audit).
+ */
+async function loadGmailLabels(): Promise<GmailLabelState[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("gmail_labels")
+    .select("id, label, nome, ativo, updated_at")
+    .order("created_at", { ascending: true });
+
+  return ((data ?? []) as GmailLabelRow[]).map((r) => ({
+    id: r.id,
+    label: r.label ?? "",
+    nome: r.nome ?? r.label ?? "(sem nome)",
+    ativo: r.ativo ?? false,
+    updatedAt: r.updated_at ?? null,
+  }));
+}
+
 export default async function FontesPage() {
-  const [fonte, config, agendamento, fonteNomus, drivePastas, driveConta] =
-    await Promise.all([
-      loadFonte(),
-      loadConfig(),
-      loadAgendamento(),
-      loadFonteNomus(),
-      loadDrivePastas(),
-      loadDriveConta(),
-    ]);
+  const [
+    fonte,
+    config,
+    agendamento,
+    fonteNomus,
+    drivePastas,
+    driveConta,
+    gmailConta,
+    gmailConfig,
+    gmailLabels,
+  ] = await Promise.all([
+    loadFonte(),
+    loadConfig(),
+    loadAgendamento(),
+    loadFonteNomus(),
+    loadDrivePastas(),
+    loadDriveConta(),
+    loadGmailConta(),
+    loadGmailConfig(),
+    loadGmailLabels(),
+  ]);
 
   return (
     <section className="screen">
@@ -238,7 +331,7 @@ export default async function FontesPage() {
           <h2>Fontes e credenciais</h2>
           <p>
             Gerencie as fontes de ingestão e suas credenciais sem editar código. As fontes ativas
-            são o portal Effecti, o ERP Nomus e o Google Drive.
+            são o portal Effecti, o ERP Nomus, o Google Drive e o Gmail.
           </p>
         </div>
       </div>
@@ -251,6 +344,9 @@ export default async function FontesPage() {
         nomus={fonteNomus}
         drivePastas={drivePastas}
         driveConta={driveConta}
+        gmailConta={gmailConta}
+        gmailConfig={gmailConfig}
+        gmailLabels={gmailLabels}
       />
     </section>
   );

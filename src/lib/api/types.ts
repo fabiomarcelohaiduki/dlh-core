@@ -232,6 +232,41 @@ export interface DriveContaState {
   conectadoEm: string | null;
 }
 
+/**
+ * Conta Google conectada ao Gmail (singleton gmail_conta), lida server-side
+ * para o cmp-gmail-card. INDEPENDENTE do Drive (refresh_token proprio no
+ * Vault). `conectado` deriva da presenca do e-mail.
+ */
+export interface GmailContaState {
+  conectado: boolean;
+  email: string | null;
+  conectadoEm: string | null;
+}
+
+/**
+ * Config da coleta Gmail (singleton gmail_config), lida server-side para o
+ * cmp-gmail-config-form. `dataInicial` ('YYYY-MM-DD') vira after:YYYY/MM/DD na
+ * query; coleta so mensagens a partir dela.
+ */
+export interface GmailConfigState {
+  dataInicial: string | null;
+}
+
+/**
+ * Label da BLACKLIST do Gmail (tabela gmail_labels), lida server-side para o
+ * cmp-gmail-config-form. Decisao Fabio 2026-06-09: cadastram-se labels a
+ * EXCLUIR (vira -label:"nome" na query), nao a incluir. `id` identifica a
+ * linha (remover); `label` e o nome da label no Gmail; `ativo` liga/desliga a
+ * exclusao sem apagar.
+ */
+export interface GmailLabelState {
+  id: string;
+  label: string;
+  nome: string;
+  ativo: boolean;
+  updatedAt: string | null;
+}
+
 /** PUT /fontes/effecti/credencial -> nunca retorna o segredo (RNF-02). */
 export interface SalvarCredencialResponse {
   ok: boolean;
