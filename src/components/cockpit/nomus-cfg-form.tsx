@@ -245,7 +245,7 @@ export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteSt
     return (
       <>
         {header}
-        <form className="card form-card" aria-busy="true">
+        <div className="card form-card" aria-busy="true">
           <div className="chk-grid">
             {RECURSOS.map((r) => (
               <div key={r.key} className="chk disabled" style={{ opacity: 0.6 }}>
@@ -256,7 +256,7 @@ export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteSt
               </div>
             ))}
           </div>
-        </form>
+        </div>
       </>
     );
   }
@@ -280,14 +280,11 @@ export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteSt
   return (
     <>
       {header}
-      <form
-        className="card form-card"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void handleSave();
-        }}
-        noValidate
-      >
+      {/* Container NAO e <form>: este card aninha o AgendamentoFonteForm e o
+          NomusDisparoForm (que sao <form> proprios) dentro do recurso
+          "processos". <form> dentro de <form> e invalido em HTML e quebra a
+          hidratacao do React. O salvar vira um onClick no botao abaixo. */}
+      <div className="card form-card">
       <div style={{ display: "grid", gap: 16 }}>
         {RECURSOS.map((r) => {
           const s = recursos[r.key];
@@ -372,7 +369,8 @@ export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteSt
       <div className="form-foot" style={{ marginTop: 26 }}>
         <button
           className="btn btn-primary"
-          type="submit"
+          type="button"
+          onClick={() => void handleSave()}
           disabled={salvar.isPending}
         >
           {salvar.isPending ? (
@@ -407,7 +405,7 @@ export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteSt
           </span>
         )}
       </div>
-      </form>
+      </div>
     </>
   );
 }
