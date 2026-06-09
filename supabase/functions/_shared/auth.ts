@@ -16,6 +16,30 @@ import { type SupabaseClient, type User } from "@supabase/supabase-js";
 import { createAnonClient, createServiceClient } from "./supabase.ts";
 import { HttpError } from "./http.ts";
 import { logSensitiveAction } from "./audit.ts";
+import { getServiceSecret } from "./vault.ts";
+
+const CRON_SECRET_NAME = "CRON_DISPATCH_SECRET" as const;
+
+/** Comparacao de strings em tempo constante (anti timing-attack). */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * Verifica se a requisicao carrega o cron secret interno (header X-Cron-Secret
+ * == segredo no Vault). Usado por endpoints internos (runner do Actions, que
+ * NAO tem service_role, so o cron secret). Curto-circuita sem header presente
+ * para nao consultar o Vault em chamadas de cockpit/usuario.
+ */
+export async function matchesCronSecret(req: Request): Promise<boolean> {
+  const provided = req.headers.get("X-Cron-Secret")?.trim() ?? "";
+  if (!provided) return false;
+  const expected = (await getServiceSecret(CRON_SECRET_NAME))?.trim() ?? "";
+  return expected.length > 0 && timingSafeEqual(provided, expected);
+}
 
 export interface AuthorizedContext {
   /** Usuario autenticado (Supabase Auth). */

@@ -43,12 +43,10 @@
 import { handleCorsPreflight } from "../_shared/cors.ts";
 import { assertMethod, errorResponse, HttpError, jsonResponse } from "../_shared/http.ts";
 import { getEnv } from "../_shared/env.ts";
-import { extractBearerToken, requireAuthorizedUser } from "../_shared/auth.ts";
+import { extractBearerToken, matchesCronSecret, requireAuthorizedUser } from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
-import { getServiceSecret } from "../_shared/vault.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 
-const CRON_SECRET_NAME = "CRON_DISPATCH_SECRET" as const;
 const MAX_LIMITE_PROCESSOS = 100_000;
 const MAX_ERROS_RESUMO = 200;
 const MAX_ARQUIVOS_DRIVE = 50_000;
@@ -83,13 +81,6 @@ interface CallerContext {
   usuario: string | null;
 }
 
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
-
 /**
  * Resolve o chamador (mesma divisao de documentos-ingerir.assertInternalAuth):
  *   - Bearer == service_role        -> SISTEMA (cron/workflow), 'agendada'.
@@ -104,9 +95,7 @@ async function resolveCaller(req: Request): Promise<CallerContext> {
   if (token && token === env.serviceRoleKey) {
     return { gatilho: "agendada", usuario: null };
   }
-  const provided = req.headers.get("X-Cron-Secret")?.trim() ?? "";
-  const expected = (await getServiceSecret(CRON_SECRET_NAME))?.trim() ?? "";
-  if (expected && provided && timingSafeEqual(provided, expected)) {
+  if (await matchesCronSecret(req)) {
     return { gatilho: "agendada", usuario: null };
   }
   const { email } = await requireAuthorizedUser(req);
