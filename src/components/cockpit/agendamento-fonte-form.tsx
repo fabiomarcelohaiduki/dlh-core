@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { CalendarClock, Check, Loader2, TriangleAlert } from "lucide-react";
 import { useSalvarAgendamentoFonte } from "@/hooks/use-admin";
+import { ConfigSectionHeading } from "@/components/cockpit/source-card";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import type { AgendamentoFonteState } from "@/lib/api/types";
@@ -122,15 +123,11 @@ export function AgendamentoFonteForm({ initial }: { initial: AgendamentoFonteSta
 
   return (
     <>
-      <div className="section-title" style={{ margin: "6px 0 13px" }}>
-        <div className="titles">
-          <h3>Agendamento da coleta</h3>
-          <p>
-            Quando esta fonte coleta automaticamente. Cada fonte tem seu próprio relógio,
-            independente das demais.
-          </p>
-        </div>
-      </div>
+      <ConfigSectionHeading
+        title="Agendamento da coleta"
+        description="Quando esta fonte coleta automaticamente. Cada fonte tem seu próprio relógio, independente das demais."
+        style={{ margin: "6px 0 13px" }}
+      />
 
       <form className="card form-card" onSubmit={handleSubmit(onSubmit)} noValidate>
       <label

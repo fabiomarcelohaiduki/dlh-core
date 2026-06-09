@@ -7,6 +7,7 @@ import { z } from "zod";
 import { Check, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
 import { useSalvarConfig } from "@/hooks/use-admin";
 import { useExecucoes } from "@/hooks/use-monitoring";
+import { ConfigSectionHeading } from "@/components/cockpit/source-card";
 import { hasRunningExecucao } from "@/lib/status";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
@@ -154,15 +155,10 @@ export function CfgForm({
 
   return (
     <>
-      <div className="section-title">
-        <div className="titles">
-          <h3>Configuração da ingestão</h3>
-          <p>
-            Janela de avisos e quais modalidades e portais esta fonte deve ingerir. A frequência da
-            coleta é definida no Agendamento da coleta, acima.
-          </p>
-        </div>
-      </div>
+      <ConfigSectionHeading
+        title="Configuração da ingestão"
+        description="Janela de avisos e quais modalidades e portais esta fonte deve ingerir. A frequência da coleta é definida no Agendamento da coleta, acima."
+      />
 
       {running && (
         <div className="banner">

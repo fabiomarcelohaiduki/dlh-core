@@ -5,12 +5,13 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Check, CalendarClock, Loader2, Power, Tag, TagsIcon, Trash2, TriangleAlert } from "lucide-react";
+import { Check, CalendarClock, Loader2, Power, Tag, Trash2, TriangleAlert } from "lucide-react";
 import {
   useRemoverGmailLabel,
   useSalvarGmailConfig,
   useSalvarGmailLabel,
 } from "@/hooks/use-gmail-config";
+import { ConfigSectionHeading } from "@/components/cockpit/source-card";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import type { GmailConfigState, GmailLabelState } from "@/lib/api/types";
@@ -122,12 +123,11 @@ export function GmailConfigForm({
 
   return (
     <>
-      <p className="helper" style={{ margin: "0 0 14px" }}>
-        Coleta cada e-mail a partir da data inicial: o corpo (texto) e cada anexo viram documentos
-        da camada 1. As labels abaixo são uma <b>blacklist</b> — e-mails com essas labels são
-        excluídos da coleta.
-      </p>
-
+      <ConfigSectionHeading
+        title="Configuração da coleta"
+        description="Coleta cada e-mail a partir da data inicial: o corpo e cada anexo viram documentos da camada 1. As labels abaixo são uma blacklist — e-mails com essas labels são excluídos da coleta."
+      />
+      <div className="card form-card">
       <form
         className="grid-fields"
         style={{ marginTop: 4 }}
@@ -170,19 +170,8 @@ export function GmailConfigForm({
         </div>
       </form>
 
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          margin: "22px 0 16px",
-          paddingTop: 18,
-          borderTop: "1px solid var(--border)",
-          color: "var(--muted)",
-        }}
-      >
-        <TagsIcon aria-hidden="true" style={{ width: 15, height: 15 }} />
-        <b style={{ fontSize: 13.5 }}>Labels excluídas da coleta</b>
+      <div className="section-title" style={{ margin: "24px 0 13px" }}>
+        <h3>Labels excluídas da coleta</h3>
       </div>
 
       {labels.length === 0 ? (
@@ -292,6 +281,7 @@ export function GmailConfigForm({
           )}
         </div>
       </form>
+      </div>
     </>
   );
 }

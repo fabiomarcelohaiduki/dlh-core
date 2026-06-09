@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, TriangleAlert } from "lucide-react";
 import { useIngestaoConfig, useSalvarIngestaoConfig } from "@/hooks/use-fontes";
+import { ConfigSectionHeading } from "@/components/cockpit/source-card";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import type { RecursoConfig } from "@/lib/api/types";
@@ -221,57 +222,61 @@ export function NomusCfgForm() {
     }
   }
 
+  const header = (
+    <ConfigSectionHeading
+      title="Configuração da ingestão"
+      description="Quais recursos (módulos) do Nomus esta fonte deve ingerir, com tipos e janela de partida por recurso. Os módulos futuros entram em fases seguintes."
+    />
+  );
+
   // Skeleton de carregamento (leitura da config).
   if (config.isLoading) {
     return (
-      <form className="card form-card" aria-busy="true">
-        <div className="section-title" style={{ margin: "0 0 16px" }}>
-          <h3>Recursos e tipos</h3>
-        </div>
-        <div className="chk-grid">
-          {RECURSOS.map((r) => (
-            <div key={r.key} className="chk disabled" style={{ opacity: 0.6 }}>
-              <div className="t">
-                Carregando…
-                <small>&nbsp;</small>
+      <>
+        {header}
+        <form className="card form-card" aria-busy="true">
+          <div className="chk-grid">
+            {RECURSOS.map((r) => (
+              <div key={r.key} className="chk disabled" style={{ opacity: 0.6 }}>
+                <div className="t">
+                  Carregando…
+                  <small>&nbsp;</small>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </form>
+            ))}
+          </div>
+        </form>
+      </>
     );
   }
 
   // Erro de leitura da config.
   if (config.isError) {
     return (
-      <div className="banner">
-        <TriangleAlert aria-hidden="true" />
-        <div>
-          <b>Não foi possível carregar a configuração</b>
-          <p>Atualize a página para tentar novamente.</p>
+      <>
+        {header}
+        <div className="banner">
+          <TriangleAlert aria-hidden="true" />
+          <div>
+            <b>Não foi possível carregar a configuração</b>
+            <p>Atualize a página para tentar novamente.</p>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <form
-      className="card form-card"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void handleSave();
-      }}
-      noValidate
-    >
-      <div className="section-title" style={{ margin: "0 0 6px" }}>
-        <h3>Nomus · Recursos</h3>
-      </div>
-      <div className="helper" style={{ margin: "-2px 0 16px" }}>
-        Cada recurso (módulo) tem o próprio liga/desliga, tipos e janela de coleta. Os módulos
-        futuros entram em fases seguintes.
-      </div>
-
+    <>
+      {header}
+      <form
+        className="card form-card"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void handleSave();
+        }}
+        noValidate
+      >
       <div style={{ display: "grid", gap: 16 }}>
         {RECURSOS.map((r) => {
           const s = recursos[r.key];
@@ -395,6 +400,7 @@ export function NomusCfgForm() {
           </span>
         )}
       </div>
-    </form>
+      </form>
+    </>
   );
 }

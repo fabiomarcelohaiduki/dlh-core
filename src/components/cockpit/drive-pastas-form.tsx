@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Check, FolderPlus, HardDrive, Loader2, Power, Trash2, TriangleAlert } from "lucide-react";
 import { useRemoverDrivePasta, useSalvarDrivePasta } from "@/hooks/use-drive-pastas";
+import { ConfigSectionHeading } from "@/components/cockpit/source-card";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import type { DrivePastaState } from "@/lib/api/types";
@@ -90,11 +91,11 @@ export function DrivePastasForm({ initial }: { initial: DrivePastaState[] }) {
 
   return (
     <>
-      <p className="helper" style={{ margin: "0 0 14px" }}>
-        Cadastre as pastas do Drive a serem varridas pela extração (camada 1). Cada pasta ativa é
-        listada recursivamente a cada execução; arquivos alterados são re-extraídos.
-      </p>
-
+      <ConfigSectionHeading
+        title="Pastas do Drive"
+        description="Pastas varridas pela extração (camada 1). Cada pasta ativa é listada recursivamente a cada execução; arquivos alterados são re-extraídos."
+      />
+      <div className="card form-card">
       {initial.length === 0 ? (
         <div className="banner" style={{ marginTop: 8 }}>
           <HardDrive aria-hidden="true" />
@@ -214,6 +215,7 @@ export function DrivePastasForm({ initial }: { initial: DrivePastaState[] }) {
           )}
         </div>
       </form>
+      </div>
     </>
   );
 }

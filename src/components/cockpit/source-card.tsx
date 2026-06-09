@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Check, Link2, Loader2, SlidersHorizontal, TriangleAlert } from "lucide-react";
 import { StatusPill } from "@/components/cockpit/status-pill";
 import { formatDateTime } from "@/lib/format";
@@ -9,6 +9,30 @@ import type { PillState } from "@/lib/status";
 type Pill = { state: PillState; label: string };
 
 type Feedback = { kind: "ok" | "err"; message: string };
+
+/**
+ * Cabecalho de uma secao do painel de configuracao (titulo + descricao no
+ * padrao section-title>titles). Antecede o corpo `card form-card` de cada
+ * bloco — padrao unico para Agendamento, Configuracao e fontes futuras.
+ */
+export function ConfigSectionHeading({
+  title,
+  description,
+  style,
+}: {
+  title: string;
+  description?: string;
+  style?: CSSProperties;
+}) {
+  return (
+    <div className="section-title" style={style}>
+      <div className="titles">
+        <h3>{title}</h3>
+        {description && <p>{description}</p>}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Cabecalho padrao de todo card de fonte: avatar (iniciais ou icone) + nome +
