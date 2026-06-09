@@ -216,7 +216,7 @@ async function fetchPagina(pagina) {
  * execucao com final:true. Sem cursor de retomada ainda: o log de rate limit
  * deste run mede o throttle e decide se 1 run basta ou se sera preciso fatiar.
  */
-async function coletarEEnviarFull(desdePagina = 1) {
+async function coletarEEnviarFull(desdePagina = 1, dataCorte = null) {
   const t0 = Date.now();
   let execucaoId = null;
   const acc = { novos: 0, alterados: 0, ignorados: 0, erros: 0, recebidos: 0 };
@@ -238,6 +238,17 @@ async function coletarEEnviarFull(desdePagina = 1) {
       );
     }
     const isFim = lista.length === 0; // pagina vazia encerra a varredura.
+    // Corte por IDADE (janela deslizante): a listagem vem id DESC = data DESC
+    // (0 inversoes confirmadas). Se a pagina ja contem um processo mais antigo
+    // que o corte, dali p/ baixo e tudo mais antigo => esta e a ULTIMA pagina:
+    // envia (o Edge filtra os < corte) com final:true e encerra. Espelha o
+    // "alcancou a marca" do incremental, mas por data em vez de watermark.
+    const cruzouCorte = !isFim && dataCorte !== null &&
+      lista.some((p) => {
+        const dt = dataCriacaoIso(p);
+        return dt !== null && dt < dataCorte;
+      });
+    const ultima = isFim || cruzouCorte;
 
     const body = {
       gatilho: "agendada",
@@ -245,7 +256,7 @@ async function coletarEEnviarFull(desdePagina = 1) {
       pagina,
       processos: lista,
       ...(execucaoId ? { execucao_id: execucaoId } : {}),
-      ...(isFim ? { final: true } : {}),
+      ...(ultima ? { final: true } : {}),
     };
 
     const tPost0 = Date.now();
@@ -280,6 +291,14 @@ async function coletarEEnviarFull(desdePagina = 1) {
         `post=${(postMs / 1000).toFixed(1)}s t=${Math.round((Date.now() - t0) / 1000)}s`,
     );
 
+    if (cruzouCorte) {
+      console.error(
+        `[pagina ${pagina}] cruzou o corte de idade (${dataCorte}): ultima pagina da ` +
+          `janela deslizante, execucao finalizada.`,
+      );
+      break;
+    }
+
     chamadasNoLote += 1;
     if (chamadasNoLote >= TAMANHO_LOTE) {
       chamadasNoLote = 0;
@@ -294,6 +313,21 @@ async function coletarEEnviarFull(desdePagina = 1) {
 function idNum(p) {
   const n = Number(p?.id);
   return Number.isFinite(n) ? n : NaN;
+}
+
+/**
+ * Data de criacao do processo bruto como 'YYYY-MM-DD'. A listagem do Nomus traz
+ * `dataCriacao` em DD/MM/YYYY (sem hora); tambem aceita ISO por robustez. null
+ * quando ausente/ilegivel (nesse caso o processo NUNCA dispara o corte de idade).
+ */
+function dataCriacaoIso(p) {
+  const s = p?.dataCriacao ?? p?.data_criacao;
+  if (typeof s !== "string") return null;
+  const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (br) return `${br[3]}-${br[2]}-${br[1]}`;
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  return null;
 }
 
 /**
@@ -379,6 +413,21 @@ async function fetchWatermark() {
 }
 
 /**
+ * Le a DATA DE CORTE da janela deslizante no Edge (action: "janela"): hoje -
+ * janela_dias, ja resolvida pela config (cockpit). O full PARA a varredura ao
+ * cruzar este corte. null = sem janela configurada (varre tudo).
+ */
+async function fetchDataCorte() {
+  const r = await postLote({ action: "janela", recurso: RECURSO });
+  if (!r.ok) {
+    console.error(`[janela] falha ao obter o corte (${r.status}); varrendo sem corte de idade.`);
+    return null;
+  }
+  const dc = r.json?.data_corte;
+  return typeof dc === "string" && dc.length >= 10 ? dc.slice(0, 10) : null;
+}
+
+/**
  * Pergunta ao Edge de qual pagina iniciar o backfill (cursor de retomada).
  * O Edge devolve { desde_pagina } e, se houver execucao ORFA (run anterior
  * morto por timeout 6h / cancel), a aborta sozinho e manda continuar da
@@ -459,11 +508,15 @@ const startedAt = Date.now();
 let resumo;
 if (MODO === "full") {
   const desde = await fetchRetomar();
+  const dataCorte = await fetchDataCorte();
   console.log(
-    `Modo FULL (backfill): push por pagina, cursor de retomada (desde pagina ${desde}). ` +
-      `Logs ativos: [rate-limit] (429) e [slow-get] (latencia > ${SLOW_GET_MS / 1000}s).`,
+    `Modo FULL (backfill): push por pagina, cursor de retomada (desde pagina ${desde})` +
+      (dataCorte
+        ? `, corte de idade em ${dataCorte} (para ao cruzar).`
+        : ", sem corte de idade (varre tudo).") +
+      ` Logs ativos: [rate-limit] (429) e [slow-get] (latencia > ${SLOW_GET_MS / 1000}s).`,
   );
-  resumo = await coletarEEnviarFull(desde);
+  resumo = await coletarEEnviarFull(desde, dataCorte);
 } else {
   const watermark = await fetchWatermark();
   if (watermark === null) {

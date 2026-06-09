@@ -230,6 +230,16 @@ const recursoConfigSchema = z
       .regex(/^\d{4}-\d{2}-\d{2}$/, "data_inicial do recurso deve ser YYYY-MM-DD")
       .nullable()
       .optional(),
+    // Janela DESLIZANTE do FULL (retencao): corte = hoje - janela_dias,
+    // recalculado a cada coleta. Limita o full ao historico recente (ex.: 1095
+    // = 3 anos) p/ nao crescer com o tempo. Tem prioridade sobre data_inicial.
+    janela_dias: z
+      .number({ invalid_type_error: "janela_dias deve ser numero" })
+      .int("janela_dias deve ser inteiro")
+      .positive("janela_dias deve ser positivo")
+      .max(3650, "janela_dias deve ser <= 3650 (10 anos)")
+      .nullable()
+      .optional(),
   })
   .strict();
 

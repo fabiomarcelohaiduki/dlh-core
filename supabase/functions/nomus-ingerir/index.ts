@@ -188,6 +188,13 @@ interface RecursoFloor {
   dataInicial: string | null;
 }
 
+/** Data de hoje (UTC) menos N dias, 'YYYY-MM-DD'. Base da janela DESLIZANTE. */
+function isoDateMinusDays(days: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
 /**
  * Janela do cockpit POR RECURSO (config_ingestao.recursos.<recurso>):
  * id_inicial corta por nomus_id e data_inicial por data de criacao. O Nomus
@@ -219,8 +226,18 @@ async function loadFloor(
   const dataRaw = rc?.["data_inicial"];
   const recData = typeof dataRaw === "string" && dataRaw.length >= 10 ? dataRaw.slice(0, 10) : null;
 
-  // Janela do recurso tem prioridade; top-level e fallback legado.
-  return { idInicial, dataInicial: recData ?? topData };
+  // Janela DESLIZANTE (full): janela_dias > 0 => corte = hoje - janela_dias,
+  // recalculado a cada chamada. Limita o full ao historico recente (ex.: 3 anos)
+  // e nao cresce com o tempo. Tem prioridade sobre data_inicial fixo (legado).
+  const janelaRaw = rc?.["janela_dias"];
+  const janelaDias =
+    typeof janelaRaw === "number" && Number.isFinite(janelaRaw) && janelaRaw > 0
+      ? Math.floor(janelaRaw)
+      : null;
+  const slidingData = janelaDias !== null ? isoDateMinusDays(janelaDias) : null;
+
+  // Prioridade: janela deslizante > data_inicial fixo do recurso > top-level legado.
+  return { idInicial, dataInicial: slidingData ?? recData ?? topData };
 }
 
 interface ExecCounters {
@@ -356,6 +373,17 @@ async function handler(req: Request): Promise<Response> {
     }
 
     const fonte = await getFonteByTipo("nomus");
+
+    // -----------------------------------------------------------------
+    // JANELA (read-only): devolve a data de corte deslizante (hoje -
+    // janela_dias) ja resolvida pelo loadFloor. O runner FULL usa para PARAR a
+    // varredura ao cruzar o corte (espelha o "alcancou a marca" do incremental).
+    // null = sem janela configurada (varre tudo).
+    // -----------------------------------------------------------------
+    if (input.action === "janela") {
+      const floor = await loadFloor(service, fonte.id, recurso);
+      return jsonResponse({ data_corte: floor.dataInicial }, 200);
+    }
 
     // -----------------------------------------------------------------
     // ABORT: deixa a execucao em 'erro' (libera o single-flight global).
