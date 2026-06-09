@@ -33,12 +33,18 @@ function toRecursoConfig(raw: unknown): RecursoConfig {
   const etapasTerminais = Array.isArray(o.etapas_terminais)
     ? o.etapas_terminais.filter((v): v is string => typeof v === "string")
     : undefined;
+  const idInicial = typeof o.id_inicial === "number" && Number.isFinite(o.id_inicial)
+    ? Math.floor(o.id_inicial)
+    : null;
+  const dataInicial = typeof o.data_inicial === "string" ? o.data_inicial : null;
   return {
     ativo: typeof o.ativo === "boolean" ? o.ativo : false,
     tiposAtivos,
     usaFiltroDataAlteracao:
       typeof o.usa_filtro_data_alteracao === "boolean" ? o.usa_filtro_data_alteracao : undefined,
     etapasTerminais,
+    idInicial,
+    dataInicial,
   };
 }
 
@@ -71,6 +77,10 @@ export interface RecursoPatch {
   ativo?: boolean;
   tiposAtivos?: string[];
   usaFiltroDataAlteracao?: boolean;
+  /** Janela por recurso: corte por nomus_id. null limpa o corte. */
+  idInicial?: number | null;
+  /** Janela por recurso: corte por data de criacao 'YYYY-MM-DD'. null limpa. */
+  dataInicial?: string | null;
 }
 
 /** Payload (camel) do PUT /ingestao-config para a fonte. */
@@ -104,6 +114,8 @@ export function salvarIngestaoConfig(
       if (patch.usaFiltroDataAlteracao !== undefined) {
         entry.usa_filtro_data_alteracao = patch.usaFiltroDataAlteracao;
       }
+      if (patch.idInicial !== undefined) entry.id_inicial = patch.idInicial;
+      if (patch.dataInicial !== undefined) entry.data_inicial = patch.dataInicial;
       recursos[key] = entry;
     }
     body.recursos = recursos;

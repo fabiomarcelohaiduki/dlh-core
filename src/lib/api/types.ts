@@ -360,13 +360,17 @@ export interface RecursoConfig {
   tiposAtivos: string[];
   usaFiltroDataAlteracao?: boolean;
   etapasTerminais?: string[];
+  /** Janela por recurso: corte por nomus_id (ex.: processos a partir de 25000). */
+  idInicial?: number | null;
+  /** Janela por recurso: corte por data de criacao 'YYYY-MM-DD'. */
+  dataInicial?: string | null;
 }
 
 /** GET ingestao-config?fonte= -> config corrente da fonte (camelCase). */
 export interface IngestaoConfig {
   fonte: FonteTipo;
   janelaDias: number | null;
-  /** Aceita no backend mas NAO exposta na UI nesta entrega. */
+  /** data_inicial GLOBAL (top-level): fallback legado; a janela vive por recurso. */
   dataInicial: string | null;
   recursos: Record<string, RecursoConfig>;
 }

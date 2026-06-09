@@ -180,22 +180,47 @@ async function loadWatermark(service: ServiceClient): Promise<number | null> {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Janela (floor) POR RECURSO: corte de partida independente por modulo. */
+interface RecursoFloor {
+  /** Corte por nomus_id (modulos sequenciais por id, ex.: processos>=25000). */
+  idInicial: number | null;
+  /** Corte por data de criacao 'YYYY-MM-DD' (>= data). */
+  dataInicial: string | null;
+}
+
 /**
- * Janela do cockpit (config_ingestao.data_inicial): ignora processos cuja
- * data de criacao seja anterior a esta data. Retorna 'YYYY-MM-DD' ou null
- * (sem filtro). O Nomus nao filtra por data server-side; este e o corte.
+ * Janela do cockpit POR RECURSO (config_ingestao.recursos.<recurso>):
+ * id_inicial corta por nomus_id e data_inicial por data de criacao. O Nomus
+ * nao filtra server-side; este e o corte na borda. Quando o recurso nao define
+ * janela propria, cai no data_inicial GLOBAL (top-level) por retrocompat.
  */
-async function loadDataInicial(service: ServiceClient, fonteId: string): Promise<string | null> {
+async function loadFloor(
+  service: ServiceClient,
+  fonteId: string,
+  recurso: string,
+): Promise<RecursoFloor> {
   const { data, error } = await service
     .from("config_ingestao")
-    .select("data_inicial")
+    .select("data_inicial, recursos")
     .eq("fonte_id", fonteId)
     .maybeSingle();
   if (error) {
     throw new HttpError(500, "config_query_failed", "falha ao consultar a config de ingestao");
   }
-  const raw = (data as { data_inicial: string | null } | null)?.data_inicial ?? null;
-  return typeof raw === "string" && raw.length >= 10 ? raw.slice(0, 10) : null;
+  const row = data as
+    | { data_inicial: string | null; recursos: Record<string, unknown> | null }
+    | null;
+  const topRaw = row?.data_inicial ?? null;
+  const topData = typeof topRaw === "string" && topRaw.length >= 10 ? topRaw.slice(0, 10) : null;
+
+  const rc = (row?.recursos?.[recurso] ?? null) as Record<string, unknown> | null;
+  const idRaw = rc?.["id_inicial"];
+  const idInicial = typeof idRaw === "number" && Number.isFinite(idRaw) ? Math.floor(idRaw) : null;
+  const dataRaw = rc?.["data_inicial"];
+  const recData = typeof dataRaw === "string" && dataRaw.length >= 10 ? dataRaw.slice(0, 10) : null;
+
+  // Janela do recurso tem prioridade; top-level e fallback legado.
+  return { idInicial, dataInicial: recData ?? topData };
 }
 
 interface ExecCounters {
@@ -429,7 +454,7 @@ async function handler(req: Request): Promise<Response> {
     // Processa o LOTE recebido (trabalho limitado por invocacao).
     // -----------------------------------------------------------------
     const tiposAtivos = await loadTiposAtivos(service, fonte.id, recurso);
-    const dataInicial = await loadDataInicial(service, fonte.id);
+    const floor = await loadFloor(service, fonte.id, recurso);
     const env = getEnv();
     const embeddingProvider = env.embeddingsEndpoint ? createEmbeddingProvider() : undefined;
     const ctx: PersistContext = { execucaoId, recurso, tiposAtivos, embeddingProvider };
@@ -445,12 +470,21 @@ async function handler(req: Request): Promise<Response> {
         ignorados += 1;
         continue;
       }
-      // Janela do cockpit: corta processos criados antes de data_inicial.
-      // Sem data de criacao legivel o registro NAO e descartado (evita perda).
+      // Janela do recurso: corte por id_inicial (nomus_id numerico). Ids
+      // nao-numericos NAO sao descartados (evita perda; dedup resolve).
+      if (floor.idInicial !== null) {
+        const idn = Number(record.nomus_id);
+        if (Number.isFinite(idn) && idn < floor.idInicial) {
+          ignorados += 1;
+          continue;
+        }
+      }
+      // Janela do recurso: corte por data de criacao (>= data_inicial). Sem
+      // data de criacao legivel o registro NAO e descartado (evita perda).
       if (
-        dataInicial &&
+        floor.dataInicial &&
         typeof record.data_criacao === "string" &&
-        record.data_criacao.slice(0, 10) < dataInicial
+        record.data_criacao.slice(0, 10) < floor.dataInicial
       ) {
         ignorados += 1;
         continue;

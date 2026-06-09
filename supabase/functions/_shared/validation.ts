@@ -171,6 +171,12 @@ export type RecursoKey = (typeof RECURSOS_PERMITIDOS)[number];
  * nesta entrega: ativo/tipos_ativos/usa_filtro_data_alteracao. etapas_terminais
  * e aceito (passthrough) para nao ser perdido em toggles; chaves desconhecidas
  * sao rejeitadas (strict).
+ *
+ * JANELA POR RECURSO (floor independente, ex.: "processos a partir do id
+ * 25000"): id_inicial corta por nomus_id (modulos sequenciais por id) e
+ * data_inicial corta por data de criacao. Ambos opcionais; null limpa o corte
+ * (merge raso do Edge sobrepoe). Substituem o data_inicial GLOBAL (top-level),
+ * que vira fallback legado quando o recurso nao define janela propria.
  */
 const recursoConfigSchema = z
   .object({
@@ -185,6 +191,17 @@ const recursoConfigSchema = z
     etapas_terminais: z
       .array(stringItems("etapas_terminais"))
       .transform((items) => Array.from(new Set(items)))
+      .optional(),
+    id_inicial: z
+      .number({ invalid_type_error: "id_inicial deve ser numero" })
+      .int("id_inicial deve ser inteiro")
+      .nonnegative("id_inicial nao pode ser negativo")
+      .nullable()
+      .optional(),
+    data_inicial: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "data_inicial do recurso deve ser YYYY-MM-DD")
+      .nullable()
       .optional(),
   })
   .strict();

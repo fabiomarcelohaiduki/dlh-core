@@ -127,7 +127,12 @@ function peekTempoAteLiberar(text) {
 
 /** Busca UMA pagina com retry/backoff. Retorna o array de processos da pagina. */
 async function fetchPagina(pagina) {
-  const url = `${BASE}/rest/processos?pagina=${pagina}`;
+  // O endpoint deriva do recurso (NOMUS_RECURSO). Com o default "processos" a
+  // URL e identica a de sempre (/rest/processos). Costura para o 2o modulo:
+  // ATENCAO, antes de ligar um novo recurso confirme o path real do Nomus
+  // (assumimos a convencao REST /rest/<recurso>) E adicione o mapper proprio
+  // no Edge (mapRawProcesso so conhece processos).
+  const url = `${BASE}/rest/${encodeURIComponent(RECURSO)}?pagina=${pagina}`;
   let attempt = 0;
 
   while (true) {
