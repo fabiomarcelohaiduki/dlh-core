@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, TriangleAlert } from "lucide-react";
 import { useIngestaoConfig, useSalvarIngestaoConfig } from "@/hooks/use-fontes";
 import { ConfigSectionHeading } from "@/components/cockpit/source-card";
+import { AgendamentoFonteForm } from "@/components/cockpit/agendamento-fonte-form";
+import { NomusDisparoForm } from "@/components/cockpit/nomus-disparo-form";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import type { AgendamentoFonteState, RecursoConfig } from "@/lib/api/types";
@@ -304,6 +306,13 @@ export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteSt
                 disabled={r.futuro}
                 onChange={(on) => toggleRecurso(r.key, on)}
               />
+
+              {r.key === "processos" && agendamento && (
+                <div style={{ marginTop: 16 }}>
+                  <AgendamentoFonteForm initial={agendamento} />
+                  <NomusDisparoForm />
+                </div>
+              )}
 
               {!r.futuro && ativo && tipos.length > 0 && (
                 <div style={{ marginTop: 16 }}>

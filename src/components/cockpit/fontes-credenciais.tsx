@@ -7,7 +7,6 @@ import { CfgForm } from "@/components/cockpit/cfg-form";
 import { EffectiDisparoForm } from "@/components/cockpit/effecti-disparo-form";
 import { AgendamentoFonteForm } from "@/components/cockpit/agendamento-fonte-form";
 import { NomusCfgForm } from "@/components/cockpit/nomus-cfg-form";
-import { NomusDisparoForm } from "@/components/cockpit/nomus-disparo-form";
 import { DrivePastasForm } from "@/components/cockpit/drive-pastas-form";
 import { GmailConfigForm } from "@/components/cockpit/gmail-config-form";
 import { GmailDisparoForm } from "@/components/cockpit/gmail-disparo-form";
@@ -307,8 +306,6 @@ export function FontesCredenciais({
             nome="Nomus"
             onClose={() => toggle(setNomusAberto, nomusRef)}
           />
-          <AgendamentoFonteForm initial={nomusAgendamento} />
-          <NomusDisparoForm />
           <NomusCfgForm agendamento={nomusAgendamento} />
         </div>
       )}
