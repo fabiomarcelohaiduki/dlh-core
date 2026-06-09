@@ -159,6 +159,11 @@ async function loadTiposAtivos(
   const raw = recursos?.[recurso];
   if (!raw || typeof raw !== "object") return [];
   const cfg = raw as NomusRecursoConfig;
+  // Master switch do recurso: ativo===false desliga a coleta do modulo
+  // (lista vazia => o pipeline ignora tudo). Defesa em profundidade — vale
+  // tanto para o disparo manual quanto para qualquer cron que dispare. ativo
+  // ausente/true segue o comportamento legado (coleta pela allowlist de tipos).
+  if (cfg.ativo === false) return [];
   return Array.isArray(cfg.tipos_ativos)
     ? cfg.tipos_ativos.filter((v): v is string => typeof v === "string")
     : [];

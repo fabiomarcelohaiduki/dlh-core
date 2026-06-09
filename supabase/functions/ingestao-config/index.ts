@@ -20,6 +20,7 @@ import { handleCorsPreflight } from "../_shared/cors.ts";
 import { errorResponse, HttpError, jsonResponse } from "../_shared/http.ts";
 import { getEnv } from "../_shared/env.ts";
 import { requireAuthorizedUser } from "../_shared/auth.ts";
+import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 import {
   ingestaoConfigUpsertSchema,
@@ -125,6 +126,27 @@ async function handlePut(req: Request): Promise<Response> {
     const { error: insError } = await db.from("config_ingestao").insert(payload);
     if (insError) {
       throw new HttpError(500, "config_insert_failed", "falha ao criar a config de ingestao");
+    }
+  }
+
+  // Re-sincroniza o pg_cron quando o toggle `ativo` do recurso muda: o ativo
+  // do recurso e o master switch do cron (recurso desligado => sem job, mesmo
+  // com agendamento.ativo=true). So o Nomus tem cron POR RECURSO; Effecti/Gmail
+  // agendam por fonte (colunas top-level) e nao dependem deste re-sync.
+  if (fonteRecord.tipo === "nomus" && input.recursos !== undefined) {
+    const service = createServiceClient();
+    for (const recurso of Object.keys(input.recursos as Record<string, unknown>)) {
+      const { error: rpcErr } = await service.rpc("aplicar_agendamento_recurso", {
+        p_fonte_tipo: fonteRecord.tipo,
+        p_recurso: recurso,
+      });
+      if (rpcErr) {
+        throw new HttpError(
+          500,
+          "cron_apply_failed",
+          "config salva, mas falhou ao reaplicar o agendamento do recurso",
+        );
+      }
     }
   }
 
