@@ -309,7 +309,7 @@ export function FontesCredenciais({
           />
           <AgendamentoFonteForm initial={nomusAgendamento} />
           <NomusDisparoForm />
-          <NomusCfgForm />
+          <NomusCfgForm agendamento={nomusAgendamento} />
         </div>
       )}
 

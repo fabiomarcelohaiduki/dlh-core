@@ -6,7 +6,7 @@ import { useIngestaoConfig, useSalvarIngestaoConfig } from "@/hooks/use-fontes";
 import { ConfigSectionHeading } from "@/components/cockpit/source-card";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
-import type { RecursoConfig } from "@/lib/api/types";
+import type { AgendamentoFonteState, RecursoConfig } from "@/lib/api/types";
 
 /**
  * Recursos da fonte Nomus (config_ingestao.recursos). `processos` e o unico
@@ -35,6 +35,39 @@ const RECURSOS = [
 const TIPOS_POR_RECURSO: Record<string, string[]> = {
   processos: ["Venda Governamental", "Cobrança DARLU"],
 };
+
+/** Nomes dos dias da semana (0 = domingo) para o resumo do agendamento. */
+const DIAS_SEMANA = [
+  "domingo",
+  "segunda",
+  "terça",
+  "quarta",
+  "quinta",
+  "sexta",
+  "sábado",
+] as const;
+
+/**
+ * Resumo em PT-BR de QUANDO o agendamento dispara a varredura. Reflete o que
+ * esta de fato no pg_cron (vem do GET agendamento-fonte-config, lado servidor);
+ * null quando a coleta automatica esta desligada.
+ */
+function resumoAgendamento(ag?: AgendamentoFonteState): string | null {
+  if (!ag || !ag.ativo) return null;
+  const hora = ag.horarioReferencia ?? "07:00";
+  switch (ag.frequencia) {
+    case "horaria":
+      return `a cada hora, no minuto :${hora.slice(3, 5)}`;
+    case "diaria":
+      return `todos os dias às ${hora}`;
+    case "semanal":
+      return `toda ${DIAS_SEMANA[ag.diaSemana ?? 1]} às ${hora}`;
+    case "mensal":
+      return `todo dia ${ag.diaMes ?? 1} às ${hora}`;
+    default:
+      return null;
+  }
+}
 
 interface RecursoFormState {
   ativo: boolean;
@@ -133,9 +166,10 @@ function TipoToggle({
  * para persistir; as alteracoes valem na PROXIMA execucao (sem redeploy).
  * Estados de loading (skeleton) e erro (inline) presentes na leitura e gravacao.
  */
-export function NomusCfgForm() {
+export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteState }) {
   const config = useIngestaoConfig("nomus");
   const salvar = useSalvarIngestaoConfig();
+  const quando = resumoAgendamento(agendamento);
 
   const [recursos, setRecursos] = useState<RecursosState>({});
   const [dirty, setDirty] = useState(false);
@@ -301,9 +335,21 @@ export function NomusCfgForm() {
                       <h3>Janela de coleta</h3>
                     </div>
                     <div className="helper">
-                      Janela deslizante de <b>{janelaDias} dias</b> (configurada no banco). O
-                      regime diário re-varre os registros dos últimos {janelaDias} dias e atualiza
-                      o que mudou. Para recarregar o histórico inteiro, use{" "}
+                      Janela deslizante de <b>{janelaDias} dias</b> (configurada no banco). A
+                      coleta automática re-varre os registros dos últimos {janelaDias} dias e
+                      atualiza o que mudou.{" "}
+                      {quando ? (
+                        <>
+                          A varredura roda <b>{quando}</b> (horário de Brasília), conforme o
+                          Agendamento da coleta acima.
+                        </>
+                      ) : (
+                        <>
+                          A coleta automática está <b>desligada</b>; ligue-a no Agendamento da
+                          coleta acima para a varredura rodar sozinha.
+                        </>
+                      )}{" "}
+                      Para recarregar o histórico inteiro (sem janela), use{" "}
                       <b>Recarregar histórico (full)</b> na coleta manual acima.
                     </div>
                   </div>
