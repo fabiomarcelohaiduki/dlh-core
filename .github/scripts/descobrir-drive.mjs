@@ -56,23 +56,43 @@ async function main() {
     console.log("Nenhum arquivo baixavel encontrado na pasta (vazia ou so Google Docs nativos).");
     return;
   }
-  console.log(`Encontrados ${arquivos.length} arquivo(s) baixavel(is). Enviando ao Edge...`);
+  // Enfileira em LOTES: a funcao descobrir_vinculos_drive faz N inserts numa
+  // transacao, e uma pasta grande (milhares de arquivos) num unico POST estoura
+  // o timeout do gateway do Edge (504). O RPC e idempotente por file_id, entao
+  // fatiar e seguro e re-tentavel. LOTE conservador p/ caber no timeout do Edge.
+  const LOTE = Number(process.env.DRIVE_DESCOBRIR_LOTE) || 500;
+  console.log(
+    `Encontrados ${arquivos.length} arquivo(s) baixavel(is). Enviando ao Edge em lotes de ${LOTE}...`,
+  );
 
-  const res = await fetch(DESCOBRIR_URL, {
-    method: "POST",
-    headers: headers(),
-    body: JSON.stringify({ fonte: "drive", arquivos }),
-  });
-  const text = await res.text();
-  if (!res.ok) fail(`documentos-descobrir falhou (${res.status}): ${text.slice(0, 300)}`, 1);
-
-  let json = null;
-  try {
-    json = JSON.parse(text);
-  } catch (_) {
-    // mantem text cru.
+  let totalInseridos = 0;
+  for (let i = 0; i < arquivos.length; i += LOTE) {
+    const lote = arquivos.slice(i, i + LOTE);
+    const res = await fetch(DESCOBRIR_URL, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ fonte: "drive", arquivos: lote }),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      fail(
+        `documentos-descobrir falhou no lote ${i / LOTE + 1} (${res.status}): ${text.slice(0, 300)}`,
+        1,
+      );
+    }
+    let json = null;
+    try {
+      json = JSON.parse(text);
+    } catch (_) {
+      // mantem text cru.
+    }
+    const n = Number(json?.inseridos);
+    if (Number.isFinite(n)) totalInseridos += n;
+    console.log(
+      `  lote ${i / LOTE + 1}: ${lote.length} arquivo(s) -> novos/reabertos ${json?.inseridos ?? "?"}`,
+    );
   }
-  console.log(`Descoberta Drive concluida. Vinculos novos/reabertos: ${json?.inseridos ?? "?"}.`);
+  console.log(`Descoberta Drive concluida. Total vinculos novos/reabertos: ${totalInseridos}.`);
 }
 
 main().catch((err) => fail(err?.message ?? String(err), 1));

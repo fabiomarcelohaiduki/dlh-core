@@ -1,0 +1,34 @@
+name: Diagnostico Drive (perfil de pasta)
+
+# Somente LEITURA: lista uma pasta do Drive (recursivo) e imprime no log um
+# perfil (total, por extensao, por subpasta de 1o nivel, amostra de nomes).
+# NAO enfileira, NAO extrai, NAO toca no banco. Util para entender por que uma
+# pasta "piloto" trouxe N arquivos inesperados antes de disparar a extracao.
+# TEMPORARIO: remover quando o piloto Drive estiver definido.
+on:
+  workflow_dispatch:
+    inputs:
+      folder_id:
+        description: "Id da pasta do Google Drive a perfilar."
+        type: string
+        required: true
+
+jobs:
+  perfil:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Perfilar pasta do Drive
+        env:
+          DRIVE_FOLDER_ID: ${{ github.event.inputs.folder_id }}
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+        run: node .github/scripts/diag-drive.mjs
