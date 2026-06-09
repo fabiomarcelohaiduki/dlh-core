@@ -1,0 +1,62 @@
+name: Coletor Gmail (nuvem)
+
+# COLETA da fonte Gmail (camada 1), INDEPENDENTE da extracao. Roda no runner
+# Node do GitHub Actions porque a lista de mensagens vive na API do Google e a
+# credencial Gmail so existe aqui (espelha a divisao do Drive/Nomus).
+#
+# O que faz: monta a query (gmail-config: data_inicial + labels a excluir, ou
+# GMAIL_QUERY crua para teste), lista as mensagens e enfileira na fila de
+# documentos um item 'corpo' + N 'anexo' por mensagem (descobrir-gmail.mjs).
+# NAO baixa bytes e NAO usa Tika -> workflow leve e rapido (so produtor da fila).
+#
+# A EXTRACAO (Tika) e um workflow SEPARADO (extrair-anexos.yml) que consome a
+# fila por conta propria. Coleta e extracao sao DESACOPLADAS (produtor/consumidor):
+# concurrency group proprio, entao a coleta do Gmail nao espera nem barra a
+# extracao (e vice-versa).
+#
+# Acionamento: disparo manual pelo cockpit (card Gmail -> "Coletar e-mails
+# agora", via Edge gmail-disparar -> RPC disparar_workflow_gmail -> este
+# workflow) ou workflow_dispatch direto com GMAIL_QUERY para teste pontual.
+on:
+  workflow_dispatch:
+    inputs:
+      gmail_query:
+        description: "OVERRIDE: query Gmail crua (ex: 'from:fulano@x.com newer_than:30d') para validar 1 email pontual. Vazio = monta a query pelo cockpit (gmail-config: data_inicial + labels)."
+        type: string
+        required: false
+      gmail_max:
+        description: "Teto de mensagens varridas no teste (vazio = sem teto). Use 1 para validar um unico email."
+        type: string
+        required: false
+
+# Coleta do Gmail isolada: nao compartilha fila de execucao com a extracao nem
+# com as outras fontes (Nomus/Effecti tem os seus). Duas coletas do Gmail nao
+# rodam em paralelo.
+concurrency:
+  group: coletar-gmail
+  cancel-in-progress: false
+
+jobs:
+  coletar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Instalar deps do runner
+        working-directory: .github/scripts
+        run: npm install --no-audit --no-fund
+
+      - name: Descobrir mensagens do Gmail
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
+          GMAIL_QUERY: ${{ github.event.inputs.gmail_query }}
+          GMAIL_MAX: ${{ github.event.inputs.gmail_max }}
+        run: node .github/scripts/descobrir-gmail.mjs

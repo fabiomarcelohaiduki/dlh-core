@@ -25,24 +25,12 @@ on:
     - cron: "0 */6 * * *"
   workflow_dispatch:
     inputs:
-      fonte:
-        description: "Escopo da DESCOBERTA: 'gmail' descobre so o Gmail (pula o Drive), usado pelo disparo de coleta do Gmail no cockpit. Vazio = comportamento padrao do drain (descobre o Drive; o Gmail so com gmail_query). A EXTRACAO sempre drena a fila inteira (global, sem filtro de fonte)."
-        type: string
-        required: false
       limite:
         description: "Tamanho do fetch por iteracao (vazio = 500, teto do Edge). O run re-busca em loop ate a fila esgotar ou o budget de tempo acabar."
         type: string
         required: false
       folder_id:
         description: "OVERRIDE Drive: descobre SO esta pasta (teste pontual). Vazio = descobre as pastas ATIVAS cadastradas no cockpit (tabela drive_pastas)."
-        type: string
-        required: false
-      gmail_query:
-        description: "OVERRIDE Gmail: query Gmail crua (ex: 'from:fulano@x.com newer_than:30d') para validar 1 email pontual. Vazio = pula a descoberta do Gmail (a montagem pelo cockpit via gmail-config ainda nao esta no fluxo agendado)."
-        type: string
-        required: false
-      gmail_max:
-        description: "Gmail: teto de mensagens varridas no teste (vazio = sem teto). Use 1 para validar um unico email."
         type: string
         required: false
 
@@ -90,40 +78,23 @@ jobs:
           echo "Tika nao respondeu a tempo" >&2
           exit 1
 
-      # Drive: descobre as pastas ATIVAS cadastradas no cockpit (drive_pastas),
+      # Drive (fonte "so extracao": sem registro de coleta, so arquivos em
+      # pastas): descobre as pastas ATIVAS cadastradas no cockpit (drive_pastas),
       # ou SO a pasta de override quando o disparo informa folder_id. Lista cada
       # pasta (recursivo) e enfileira vinculos via Edge documentos-descobrir. O
-      # step de extracao abaixo consome a fila (sem filtro de fonte) e baixa pelo
-      # adaptador 'drive'. Sem pastas ativas e sem override = no-op (sai em paz).
+      # step de extracao abaixo consome a fila e baixa pelo adaptador 'drive'.
+      # Sem pastas ativas e sem override = no-op (sai em paz).
       #
-      # PULADO quando fonte='gmail' (disparo de coleta do Gmail no cockpit): o
-      # disparo do Gmail nao deve varrer o Drive. No drain agendado e no disparo
-      # padrao (fonte vazio) o Drive segue sendo descoberto normalmente.
+      # As outras fontes tem COLETA propria e independente: Nomus (coletar-nomus.yml),
+      # Gmail (coletar-gmail.yml) e Effecti (Edge orquestrador). Elas enfileiram
+      # por conta propria; este workflow so descobre o Drive e DRENA a fila inteira.
       - name: Descobrir anexos do Drive
-        if: ${{ github.event.inputs.fonte != 'gmail' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
           DRIVE_FOLDER_ID: ${{ github.event.inputs.folder_id }}
         run: node .github/scripts/descobrir-drive.mjs
-
-      # Gmail: descoberta acionada por (a) fonte='gmail' — disparo de coleta do
-      # Gmail no cockpit, que monta a query pelo gmail-config (data_inicial +
-      # labels); ou (b) gmail_query — override de query crua para teste pontual.
-      # Lista as mensagens, e para cada uma enfileira um vinculo 'corpo' + N
-      # 'anexo' via Edge documentos-descobrir. O step de extracao abaixo consome
-      # a MESMA fila (sem filtro de fonte) e obtem os bytes pelo adaptador
-      # 'gmail'. No drain agendado (fonte vazio, sem query) o step e pulado.
-      - name: Descobrir mensagens do Gmail
-        if: ${{ github.event.inputs.fonte == 'gmail' || github.event.inputs.gmail_query != '' }}
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
-          GMAIL_QUERY: ${{ github.event.inputs.gmail_query }}
-          GMAIL_MAX: ${{ github.event.inputs.gmail_max }}
-        run: node .github/scripts/descobrir-gmail.mjs
 
       - name: Extrair anexos (orquestrador camada 1)
         env:
