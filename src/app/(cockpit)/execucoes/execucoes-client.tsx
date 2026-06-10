@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useExecucoes } from "@/hooks/use-monitoring";
 import { useExecucoesRealtime } from "@/hooks/use-execucoes-realtime";
-import { useColetar, useFontes } from "@/hooks/use-fontes";
+import { useColetar, useFontes, useIngestaoConfig } from "@/hooks/use-fontes";
 import { RunsTable } from "@/components/cockpit/runs-table";
 import { EffectiDisparoForm } from "@/components/cockpit/effecti-disparo-form";
 import { NomusDisparoForm } from "@/components/cockpit/nomus-disparo-form";
@@ -78,9 +78,13 @@ export function ExecucoesClient() {
   const nomusId = fontes.data?.find((f) => f.tipo === "nomus")?.id ?? null;
   const gmailId = fontes.data?.find((f) => f.tipo === "gmail")?.id ?? null;
 
+  // Janela do recurso processos (mesma origem do card) p/ o rotulo do full.
+  const nomusConfig = useIngestaoConfig("nomus");
+  const nomusJanelaDias = nomusConfig.data?.recursos?.processos?.janelaDias ?? null;
+
   const disparoForm =
     fonteDisparo === "nomus" ? (
-      <NomusDisparoForm fonteId={nomusId} />
+      <NomusDisparoForm fonteId={nomusId} janelaDias={nomusJanelaDias} />
     ) : fonteDisparo === "gmail" ? (
       <GmailDisparoForm fonteId={gmailId} />
     ) : (
