@@ -26,6 +26,11 @@ export default function ApiPage() {
       </div>
       <div className="api-ep">
         <span className="verb post">POST</span>
+        <span className="path">/substrato/avisos/:id/reindexar</span>
+        <span className="desc">Reprocessa um item e reindexa embeddings</span>
+      </div>
+      <div className="api-ep">
+        <span className="verb post">POST</span>
         <span className="path">/substrato/busca-semantica</span>
         <span className="desc">Recupera por relevância via embeddings</span>
       </div>

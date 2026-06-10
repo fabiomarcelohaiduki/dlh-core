@@ -19,8 +19,8 @@ const OCR_ESTRATEGIAS = [
 
 /** Fontes que o extrator sabe processar (adaptadores do runner). */
 const FONTES: ReadonlyArray<{ value: FonteExtracao; label: string }> = [
-  { value: "nomus", label: "Nomus (ERP)" },
-  { value: "effecti", label: "Effecti (portal de licitações)" },
+  { value: "nomus", label: "Nomus" },
+  { value: "effecti", label: "Effecti" },
   { value: "drive", label: "Google Drive" },
   { value: "gmail", label: "Gmail" },
 ];
