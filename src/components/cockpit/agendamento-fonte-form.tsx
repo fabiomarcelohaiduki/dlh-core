@@ -74,7 +74,13 @@ function toDefaults(initial: AgendamentoFonteState): AgValues {
  * Salvar reescreve o pg_cron no substrato (sem redeploy) via
  * PUT /agendamento-fonte-config.
  */
-export function AgendamentoFonteForm({ initial }: { initial: AgendamentoFonteState }) {
+export function AgendamentoFonteForm({
+  initial,
+  nota,
+}: {
+  initial: AgendamentoFonteState;
+  nota?: string;
+}) {
   const salvar = useSalvarAgendamentoFonte();
   const [feedback, setFeedback] = useState<Feedback | null>(null);
 
@@ -124,8 +130,7 @@ export function AgendamentoFonteForm({ initial }: { initial: AgendamentoFonteSta
   }
 
   return (
-    <>
-      <form className="card form-card" onSubmit={handleSubmit(onSubmit)} noValidate>
+    <form className="card form-card" onSubmit={handleSubmit(onSubmit)} noValidate>
       <label
         className={cn("chk", ativo && "on")}
         style={{ margin: "0 0 18px", maxWidth: 360 }}
@@ -145,6 +150,11 @@ export function AgendamentoFonteForm({ initial }: { initial: AgendamentoFonteSta
 
       {ativo && (
         <>
+      {nota && (
+        <div style={{ margin: "-12px 0 14px", fontSize: 12, color: "var(--faint)" }}>
+          {nota}
+        </div>
+      )}
       <div className="grid-fields">
         <div className="field">
           <label htmlFor="agf-freq">Frequência</label>
@@ -246,7 +256,6 @@ export function AgendamentoFonteForm({ initial }: { initial: AgendamentoFonteSta
           </span>
         )}
       </div>
-      </form>
-    </>
+    </form>
   );
 }

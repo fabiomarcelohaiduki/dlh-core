@@ -50,8 +50,7 @@ export function EffectiDisparoForm({ configDirty }: { configDirty: boolean }) {
   }
 
   return (
-    <>
-      <div className="card form-card">
+    <div className="card form-card">
         <div className="form-foot" style={{ marginTop: 0, flexWrap: "wrap" }}>
           <button
             className="btn btn-primary"
@@ -90,6 +89,5 @@ export function EffectiDisparoForm({ configDirty }: { configDirty: boolean }) {
           A coleta usa a janela e os filtros salvos na configuração abaixo.
         </div>
       </div>
-    </>
   );
 }

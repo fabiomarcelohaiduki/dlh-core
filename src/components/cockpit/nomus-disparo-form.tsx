@@ -24,7 +24,16 @@ type Feedback = { kind: "ok" | "err"; message: string };
  * A coleta roda assincrona: o disparo so a ENFILEIRA (202); o andamento
  * aparece no Dashboard/Execucoes quando o runner registra o inicio.
  */
-export function NomusDisparoForm({ recurso = "processos" }: { recurso?: string }) {
+export function NomusDisparoForm({
+  recurso = "processos",
+  janelaDias = null,
+}: {
+  recurso?: string;
+  janelaDias?: number | null;
+}) {
+  const janelaLabel = janelaDias != null ? `${janelaDias} dias` : "full";
+  const janelaFrase =
+    janelaDias != null ? `dos últimos ${janelaDias} dias` : "da janela configurada";
   const disparar = useDispararNomus();
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   // Modo em voo: trava ambos os botoes e mostra o spinner so no acionado.
@@ -45,10 +54,12 @@ export function NomusDisparoForm({ recurso = "processos" }: { recurso?: string }
             : "Coleta disparada · acompanhe em Execuções.",
       });
     } catch (err) {
-      const message =
-        err instanceof ApiError && err.status === 502
-          ? "Não foi possível acionar o coletor na nuvem. Tente novamente."
-          : "Falha ao disparar a coleta. Tente novamente.";
+      let message = "Falha ao disparar a coleta. Tente novamente.";
+      if (err instanceof ApiError && err.status === 409) {
+        message = "Já há uma coleta do Nomus em andamento; aguarde concluir.";
+      } else if (err instanceof ApiError && err.status === 502) {
+        message = "Não foi possível acionar o coletor na nuvem. Tente novamente.";
+      }
       setFeedback({ kind: "err", message });
     } finally {
       setEmVoo(null);
@@ -73,7 +84,7 @@ export function NomusDisparoForm({ recurso = "processos" }: { recurso?: string }
             ) : (
               <Play aria-hidden="true" />
             )}
-            <span>{emVoo === "incremental" ? "Disparando…" : "Coletar agora"}</span>
+            <span>{emVoo === "incremental" ? "Disparando…" : "Coletar novos agora"}</span>
           </button>
 
           {confirmandoFull ? (
@@ -112,7 +123,7 @@ export function NomusDisparoForm({ recurso = "processos" }: { recurso?: string }
               disabled={ocupado}
             >
               <History aria-hidden="true" />
-              <span>Re-varrer janela (full)</span>
+              <span>Re-varrer janela ({janelaLabel})</span>
             </button>
           )}
 
@@ -128,11 +139,11 @@ export function NomusDisparoForm({ recurso = "processos" }: { recurso?: string }
           )}
         </div>
 
-        <div className="helper" style={{ marginTop: 12 }}>
-          {confirmandoFull
-            ? "Re-varre todos os processos da janela configurada e atualiza o que mudou, inclusive edições (operação longa)."
-            : "Traz só os processos novos desde a última coleta; não reprocessa edições (uso normal)."}
-        </div>
+        {confirmandoFull && (
+          <div className="helper" style={{ marginTop: 12 }}>
+            {`Re-varre todos os processos ${janelaFrase} e atualiza o que mudou, inclusive edições (operação longa).`}
+          </div>
+        )}
       </div>
     </>
   );

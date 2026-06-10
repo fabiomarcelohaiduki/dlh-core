@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, TriangleAlert } from "lucide-react";
 import { useIngestaoConfig, useSalvarIngestaoConfig } from "@/hooks/use-fontes";
-import { ConfigSectionHeading } from "@/components/cockpit/source-card";
 import { AgendamentoFonteForm } from "@/components/cockpit/agendamento-fonte-form";
 import { NomusDisparoForm } from "@/components/cockpit/nomus-disparo-form";
 import { ApiError } from "@/lib/api/client";
@@ -37,39 +36,6 @@ const RECURSOS = [
 const TIPOS_POR_RECURSO: Record<string, string[]> = {
   processos: ["Venda Governamental", "Cobrança DARLU"],
 };
-
-/** Nomes dos dias da semana (0 = domingo) para o resumo do agendamento. */
-const DIAS_SEMANA = [
-  "domingo",
-  "segunda",
-  "terça",
-  "quarta",
-  "quinta",
-  "sexta",
-  "sábado",
-] as const;
-
-/**
- * Resumo em PT-BR de QUANDO o agendamento dispara a varredura. Reflete o que
- * esta de fato no pg_cron (vem do GET agendamento-fonte-config, lado servidor);
- * null quando a coleta automatica esta desligada.
- */
-function resumoAgendamento(ag?: AgendamentoFonteState): string | null {
-  if (!ag || !ag.ativo) return null;
-  const hora = ag.horarioReferencia ?? "07:00";
-  switch (ag.frequencia) {
-    case "horaria":
-      return `a cada hora, no minuto :${hora.slice(3, 5)}`;
-    case "diaria":
-      return `todos os dias às ${hora}`;
-    case "semanal":
-      return `toda ${DIAS_SEMANA[ag.diaSemana ?? 1]} às ${hora}`;
-    case "mensal":
-      return `todo dia ${ag.diaMes ?? 1} às ${hora}`;
-    default:
-      return null;
-  }
-}
 
 interface RecursoFormState {
   ativo: boolean;
@@ -171,7 +137,6 @@ function TipoToggle({
 export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteState }) {
   const config = useIngestaoConfig("nomus");
   const salvar = useSalvarIngestaoConfig();
-  const quando = resumoAgendamento(agendamento);
 
   const [recursos, setRecursos] = useState<RecursosState>({});
   const [dirty, setDirty] = useState(false);
@@ -233,18 +198,10 @@ export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteSt
     }
   }
 
-  const header = (
-    <ConfigSectionHeading
-      title="Configuração da ingestão"
-      description="Módulos do Nomus que esta fonte ingere e os tipos de cada um. Desligar um módulo interrompe toda a coleta dele (manual e automática). Módulos futuros entram em fases seguintes."
-    />
-  );
-
   // Skeleton de carregamento (leitura da config).
   if (config.isLoading) {
     return (
       <>
-        {header}
         <div className="card form-card" aria-busy="true">
           <div className="chk-grid">
             {RECURSOS.map((r) => (
@@ -265,7 +222,6 @@ export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteSt
   if (config.isError) {
     return (
       <>
-        {header}
         <div className="banner">
           <TriangleAlert aria-hidden="true" />
           <div>
@@ -279,7 +235,6 @@ export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteSt
 
   return (
     <>
-      {header}
       {/* Container NAO e <form>: este card aninha o AgendamentoFonteForm e o
           NomusDisparoForm (que sao <form> proprios) dentro do recurso
           "processos". <form> dentro de <form> e invalido em HTML e quebra a
@@ -290,6 +245,11 @@ export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteSt
           const s = recursos[r.key];
           const ativo = s?.ativo ?? false;
           const tipos = TIPOS_POR_RECURSO[r.key] ?? [];
+          const janelaDias = config.data?.recursos?.[r.key]?.janelaDias ?? null;
+          const notaFull =
+            janelaDias != null
+              ? `Coleta full: re-varre os últimos ${janelaDias} dias e atualiza o que mudou.`
+              : "Coleta full: re-varre a janela configurada e atualiza o que mudou.";
           return (
             <div
               key={r.key}
@@ -303,13 +263,6 @@ export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteSt
                 disabled={r.futuro}
                 onChange={(on) => toggleRecurso(r.key, on)}
               />
-
-              {r.key === "processos" && ativo && agendamento && (
-                <div style={{ marginTop: 16 }}>
-                  <AgendamentoFonteForm initial={agendamento} />
-                  <NomusDisparoForm recurso={r.key} />
-                </div>
-              )}
 
               {!r.futuro && ativo && tipos.length > 0 && (
                 <div style={{ marginTop: 16 }}>
@@ -332,31 +285,12 @@ export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteSt
                 </div>
               )}
 
-              {!r.futuro && ativo && (() => {
-                const janelaDias = config.data?.recursos?.[r.key]?.janelaDias ?? null;
-                if (janelaDias === null) return null;
-                return (
-                  <div style={{ marginTop: 16 }}>
-                    <div className="section-title" style={{ margin: "0 0 8px" }}>
-                      <h3>Janela de coleta</h3>
-                    </div>
-                    <div className="helper">
-                      Janela deslizante de <b>{janelaDias} dias</b> (definida no banco): re-varre
-                      os últimos {janelaDias} dias e atualiza o que mudou. Tanto a coleta
-                      automática quanto a re-varredura manual (full) respeitam esta janela.{" "}
-                      {quando ? (
-                        <>
-                          Roda <b>{quando}</b> (horário de Brasília), conforme o Agendamento acima.
-                        </>
-                      ) : (
-                        <>
-                          A coleta automática está <b>desligada</b>; ligue-a no Agendamento acima.
-                        </>
-                      )}
-                    </div>
-                  </div>
-                );
-              })()}
+              {r.key === "processos" && ativo && agendamento && (
+                <div style={{ marginTop: 16 }}>
+                  <AgendamentoFonteForm initial={agendamento} nota={notaFull} />
+                  <NomusDisparoForm recurso={r.key} janelaDias={janelaDias} />
+                </div>
+              )}
             </div>
           );
         })}

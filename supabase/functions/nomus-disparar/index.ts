@@ -21,6 +21,7 @@ import { requireAuthorizedUser } from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 import { nomusDispararSchema, parseJsonBody } from "../_shared/validation.ts";
+import { getFonteByTipo } from "../_shared/vault.ts";
 
 async function handler(req: Request): Promise<Response> {
   const preflight = handleCorsPreflight(req);
@@ -37,8 +38,29 @@ async function handler(req: Request): Promise<Response> {
     // Recurso/modulo alvo: default 'processos' (unico coletor vivo hoje).
     const recursoAlvo = recurso ?? "processos";
 
-    // Dispara o workflow via RPC (le GITHUB_DISPATCH_TOKEN do Vault server-side).
     const service = createServiceClient();
+
+    // Guard anti-duplo-disparo: recusa com 409 ANTES de gastar um run do Actions
+    // quando ja ha coleta DESTE recurso em andamento. O lock-por-recurso do
+    // nomus-ingerir tambem barraria, mas so depois do runner subir e falhar
+    // (workflow vermelho, sem feedback no painel). Escopo (fonte_id, recurso)
+    // espelha exatamente aquele lock.
+    const fonte = await getFonteByTipo("nomus");
+    const { data: emAndamento, error: andamentoError } = await service
+      .from("execucoes")
+      .select("id")
+      .eq("status", "em_andamento")
+      .eq("fonte_id", fonte.id)
+      .eq("recurso", recursoAlvo)
+      .limit(1);
+    if (andamentoError) {
+      throw new HttpError(500, "execucao_query_failed", "falha ao verificar execucoes em andamento");
+    }
+    if (emAndamento && emAndamento.length > 0) {
+      throw new HttpError(409, "execucao_em_andamento", "ja ha uma coleta do Nomus em andamento");
+    }
+
+    // Dispara o workflow via RPC (le GITHUB_DISPATCH_TOKEN do Vault server-side).
     const { data: requestId, error } = await service.rpc("disparar_workflow_nomus", {
       p_modo: modo,
       p_recurso: recursoAlvo,
