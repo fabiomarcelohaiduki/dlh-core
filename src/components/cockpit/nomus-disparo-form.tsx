@@ -30,10 +30,13 @@ export function NomusDisparoForm({
   recurso = "processos",
   janelaDias = null,
   fonteId = null,
+  bare = false,
 }: {
   recurso?: string;
   janelaDias?: number | null;
   fonteId?: string | null;
+  /** Renderiza sem o card proprio (para embutir num card externo). */
+  bare?: boolean;
 }) {
   const janelaLabel = janelaDias != null ? `${janelaDias} dias` : "full";
   const janelaFrase =
@@ -78,10 +81,9 @@ export function NomusDisparoForm({
 
   const ocupado = emVoo !== null;
 
-  return (
+  const body = (
     <>
-      <div className="card form-card">
-        <div className="form-foot" style={{ marginTop: 0, flexWrap: "wrap" }}>
+      <div className="form-foot" style={{ marginTop: 0, flexWrap: "wrap" }}>
           <button
             className="btn btn-primary"
             type="button"
@@ -153,12 +155,13 @@ export function NomusDisparoForm({
           ) : null}
         </div>
 
-        {confirmandoFull && (
-          <div className="helper" style={{ marginTop: 12 }}>
-            {`Re-varre todos os processos ${janelaFrase} e atualiza o que mudou, inclusive edições (operação longa).`}
-          </div>
-        )}
-      </div>
+      {confirmandoFull && (
+        <div className="helper" style={{ marginTop: 12 }}>
+          {`Re-varre todos os processos ${janelaFrase} e atualiza o que mudou, inclusive edições (operação longa).`}
+        </div>
+      )}
     </>
   );
+
+  return bare ? body : <div className="card form-card">{body}</div>;
 }

@@ -20,6 +20,8 @@ export function RecursoFiltro({
   value: RecursoFiltroValue;
   onChange: (value: RecursoFiltroValue) => void;
 }) {
+  // Com 0 ou 1 recurso nao ha escolha real: o "Todos" fica redundante -> oculta.
+  if (recursos.length <= 1) return null;
   const options: RecursoFiltroValue[] = ["todos", ...recursos];
   return (
     <div className="filter-group" role="group" aria-label="Filtrar por recurso">
@@ -33,7 +35,7 @@ export function RecursoFiltro({
             aria-pressed={active}
             onClick={() => onChange(opt)}
           >
-            {opt === "todos" ? "Todos" : formatRecurso(opt)}
+            {opt === "todos" ? "Todos os recursos" : formatRecurso(opt)}
           </button>
         );
       })}

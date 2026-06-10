@@ -84,11 +84,11 @@ export function ExecucoesClient() {
 
   const disparoForm =
     fonteDisparo === "nomus" ? (
-      <NomusDisparoForm fonteId={nomusId} janelaDias={nomusJanelaDias} />
+      <NomusDisparoForm fonteId={nomusId} janelaDias={nomusJanelaDias} bare />
     ) : fonteDisparo === "gmail" ? (
-      <GmailDisparoForm fonteId={gmailId} />
+      <GmailDisparoForm fonteId={gmailId} bare />
     ) : (
-      <EffectiDisparoForm fonteId={effectiId} configDirty={false} />
+      <EffectiDisparoForm fonteId={effectiId} configDirty={false} bare />
     );
 
   const allRuns = useMemo(() => execucoes.data?.items ?? [], [execucoes.data]);
@@ -128,29 +128,38 @@ export function ExecucoesClient() {
         <div className="titles">
           <h2>Execuções de sincronização</h2>
         </div>
-        <div className="actions">
-          <div className="filter-group" role="group" aria-label="Fonte da coleta">
-            {FONTE_DISPARO_OPCOES.map((opt) => {
-              const active = fonteDisparo === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  className={cn("btn", "btn-sm", active && "btn-primary")}
-                  aria-pressed={active}
-                  onClick={() => setFonteDisparo(opt.value)}
-                >
-                  {opt.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
       </div>
 
-      {disparoForm}
-
       <div className="section-title" style={{ marginTop: 0 }}>
+        <h3>Disparar coleta</h3>
+      </div>
+
+      <div className="card form-card">
+        <div
+          className="filter-group"
+          role="group"
+          aria-label="Fonte da coleta"
+          style={{ marginBottom: 14 }}
+        >
+          {FONTE_DISPARO_OPCOES.map((opt) => {
+            const active = fonteDisparo === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                className={cn("btn", "btn-sm", active && "btn-primary")}
+                aria-pressed={active}
+                onClick={() => setFonteDisparo(opt.value)}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        {disparoForm}
+      </div>
+
+      <div className="section-title">
         <h3>Histórico de execuções</h3>
         {!execucoes.isLoading && !execucoes.isError && (
           <span className="count">{runs.length}</span>

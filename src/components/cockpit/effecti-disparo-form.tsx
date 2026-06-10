@@ -22,9 +22,12 @@ type Feedback = { kind: "ok" | "err"; message: string };
 export function EffectiDisparoForm({
   fonteId,
   configDirty,
+  bare = false,
 }: {
   fonteId: string | null;
   configDirty: boolean;
+  /** Renderiza sem o card proprio (para embutir num card externo). */
+  bare?: boolean;
 }) {
   const coleta = useColetaDemanda();
   // Poll a cada 5s para o aviso de coleta em andamento refletir o estado real
@@ -56,40 +59,40 @@ export function EffectiDisparoForm({
     }
   }
 
-  return (
-    <div className="card form-card">
-        <div className="form-foot" style={{ marginTop: 0, flexWrap: "wrap" }}>
-          <button
-            className="btn btn-primary"
-            type="button"
-            onClick={handleColeta}
-            disabled={coleta.isPending}
-            aria-disabled={coleta.isPending}
-          >
-            {coleta.isPending ? (
-              <Loader2 className="spin" aria-hidden="true" />
-            ) : (
-              <RefreshCw aria-hidden="true" />
-            )}
-            <span>{coleta.isPending ? "Disparando…" : "Coletar avisos agora"}</span>
-          </button>
+  const body = (
+    <div className="form-foot" style={{ marginTop: 0, flexWrap: "wrap" }}>
+      <button
+        className="btn btn-primary"
+        type="button"
+        onClick={handleColeta}
+        disabled={coleta.isPending}
+        aria-disabled={coleta.isPending}
+      >
+        {coleta.isPending ? (
+          <Loader2 className="spin" aria-hidden="true" />
+        ) : (
+          <RefreshCw aria-hidden="true" />
+        )}
+        <span>{coleta.isPending ? "Disparando…" : "Coletar avisos agora"}</span>
+      </button>
 
-          {running ? (
-            <span className="action-hint">
-              <Loader2 className="spin" aria-hidden="true" />
-              Coleta em andamento; aguarde a conclusão.
-            </span>
-          ) : feedback ? (
-            <span className={cn("save-note", feedback.kind === "err" && "err")}>
-              {feedback.kind === "err" ? (
-                <TriangleAlert aria-hidden="true" />
-              ) : (
-                <Check aria-hidden="true" />
-              )}
-              {feedback.message}
-            </span>
-          ) : null}
-        </div>
-      </div>
+      {running ? (
+        <span className="action-hint">
+          <Loader2 className="spin" aria-hidden="true" />
+          Coleta em andamento; aguarde a conclusão.
+        </span>
+      ) : feedback ? (
+        <span className={cn("save-note", feedback.kind === "err" && "err")}>
+          {feedback.kind === "err" ? (
+            <TriangleAlert aria-hidden="true" />
+          ) : (
+            <Check aria-hidden="true" />
+          )}
+          {feedback.message}
+        </span>
+      ) : null}
+    </div>
   );
+
+  return bare ? body : <div className="card form-card">{body}</div>;
 }

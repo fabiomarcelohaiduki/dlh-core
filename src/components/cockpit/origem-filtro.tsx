@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 export type OrigemFiltroValue = "todas" | OrigemKey;
 
 const OPTIONS: { value: OrigemFiltroValue; label: string }[] = [
-  { value: "todas", label: "Todas" },
+  { value: "todas", label: "Todas as origens" },
   { value: "effecti", label: "Effecti" },
   { value: "nomus", label: "Nomus" },
   { value: "gmail", label: "Gmail" },
