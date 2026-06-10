@@ -67,11 +67,11 @@ export function execucaoDescriptor(execucao: Execucao): PillDescriptor {
 }
 
 /**
- * Origem normalizada das telas multi-origem (filtro Effecti x Nomus).
- *  - execucoes.origem  = tipo da fonte ('effecti' | 'nomus'); null (legado) = Effecti.
- *  - erros.origem      = 'aviso' (Effecti) ou 'processo-*' (Nomus).
+ * Origem normalizada das telas multi-origem (filtro Effecti x Nomus x Gmail).
+ *  - execucoes.origem  = tipo da fonte ('effecti' | 'nomus' | 'gmail'); null (legado) = Effecti.
+ *  - erros.origem      = 'aviso' (Effecti), 'processo-*' (Nomus) ou 'gmail'.
  */
-export type OrigemKey = "effecti" | "nomus";
+export type OrigemKey = "effecti" | "nomus" | "gmail";
 
 /**
  * Teto de retomadas automaticas (NOMUS_MAX_RETOMADAS). Acima dele a retomada
@@ -84,14 +84,22 @@ export const NOMUS_MAX_RETOMADAS = 3;
 export function normalizeOrigem(origem: string | null | undefined): OrigemKey {
   if (!origem) return "effecti";
   const o = origem.toLowerCase();
-  if (o === "effecti" || o === "aviso") return "effecti";
+  if (o === "gmail") return "gmail";
   if (o === "nomus" || o.startsWith("processo")) return "nomus";
+  if (o === "effecti" || o === "aviso") return "effecti";
   return "effecti";
 }
 
 /** Rotulo curto da origem para badges/filtros. */
 export function origemLabel(key: OrigemKey): string {
-  return key === "nomus" ? "Nomus" : "Effecti";
+  switch (key) {
+    case "nomus":
+      return "Nomus";
+    case "gmail":
+      return "Gmail";
+    default:
+      return "Effecti";
+  }
 }
 
 /**

@@ -1585,6 +1585,11 @@ select {
   background: var(--run-bg);
   border-color: rgba(111, 155, 217, 0.24);
 }
+.tag.gmail {
+  color: var(--ok);
+  background: var(--ok-bg);
+  border-color: rgba(92, 191, 134, 0.24);
+}
 
 /* Barra de progresso ao vivo (processados/total + pagina_atual). */
 .prog {

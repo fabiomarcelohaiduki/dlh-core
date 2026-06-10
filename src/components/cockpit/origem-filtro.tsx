@@ -8,10 +8,11 @@ const OPTIONS: { value: OrigemFiltroValue; label: string }[] = [
   { value: "todas", label: "Todas" },
   { value: "effecti", label: "Effecti" },
   { value: "nomus", label: "Nomus" },
+  { value: "gmail", label: "Gmail" },
 ];
 
 /**
- * cmp-origem-filtro — Filtro segmentado por origem (Effecti x Nomus).
+ * cmp-origem-filtro — Filtro segmentado por origem (Effecti x Nomus x Gmail).
  *
  * Reaproveita o padrao de filtro travado das telas (btn / btn-sm / btn-primary).
  * O filtro e aplicado client-side sobre a lista ja carregada (origem-aware).
