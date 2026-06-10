@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { HardDrive, Mail, X } from "lucide-react";
+import { Factory, HardDrive, Mail, X } from "lucide-react";
 import { CredForm, type CredFormSource } from "@/components/cockpit/cred-form";
 import { CfgForm } from "@/components/cockpit/cfg-form";
 import { EffectiDisparoForm } from "@/components/cockpit/effecti-disparo-form";
@@ -72,7 +72,7 @@ function ConfigPanelHeader({
 /** Identidade da fonte Nomus no CredForm (parametrizado por fonte). */
 const NOMUS_SOURCE: CredFormSource = {
   fonteTipo: "nomus",
-  avatar: "No",
+  avatar: <Factory aria-hidden="true" style={{ width: 18, height: 18 }} />,
   tipoLabel: "API REST",
 };
 

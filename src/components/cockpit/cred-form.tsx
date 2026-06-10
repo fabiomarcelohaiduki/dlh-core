@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Check, Loader2, RefreshCw, TriangleAlert, KeyRound, SlidersHorizontal } from "lucide-react";
+import { Check, Gavel, Loader2, RefreshCw, TriangleAlert, KeyRound, SlidersHorizontal } from "lucide-react";
 import { useSalvarCredencial, useTestarConexao } from "@/hooks/use-admin";
 import { ApiError } from "@/lib/api/client";
 import { conexaoDescriptor } from "@/lib/status";
@@ -22,15 +22,15 @@ type Feedback = { kind: "ok" | "err"; message: string };
 export interface CredFormSource {
   /** Tipo da fonte para os hooks (effecti|nomus). */
   fonteTipo: FonteTipo;
-  /** Iniciais do avatar do card (ex.: "Ef", "No"). */
-  avatar: string;
+  /** Avatar do card: icone (como Drive/Gmail) ou iniciais. */
+  avatar: ReactNode;
   /** Rotulo do campo "Tipo" no kv. */
   tipoLabel: string;
 }
 
 const EFFECTI_SOURCE: CredFormSource = {
   fonteTipo: "effecti",
-  avatar: "Ef",
+  avatar: <Gavel aria-hidden="true" style={{ width: 18, height: 18 }} />,
   tipoLabel: "API REST",
 };
 
