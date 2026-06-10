@@ -6,7 +6,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { CalendarClock, Check, Loader2, TriangleAlert } from "lucide-react";
 import { useSalvarAgendamentoExtracao } from "@/hooks/use-admin";
-import { ConfigSectionHeading } from "@/components/cockpit/source-card";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import type { AgendamentoExtracaoState } from "@/lib/api/types";
@@ -120,14 +119,7 @@ export function AgendamentoExtracaoForm({ initial }: { initial: AgendamentoExtra
   }
 
   return (
-    <>
-      <ConfigSectionHeading
-        title="Agendamento da extração"
-        description="Quando o extrator drena a fila de anexos automaticamente. Um run pode levar horas até esgotar a fila; ele continua de onde parou na próxima janela."
-        style={{ margin: "6px 0 13px" }}
-      />
-
-      <form className="card form-card" onSubmit={handleSubmit(onSubmit)} noValidate>
+    <form className="card form-card" onSubmit={handleSubmit(onSubmit)} noValidate>
         <label
           className={cn("chk", ativo && "on")}
           style={{ margin: "0 0 18px", maxWidth: 360 }}
@@ -249,6 +241,5 @@ export function AgendamentoExtracaoForm({ initial }: { initial: AgendamentoExtra
           )}
         </div>
       </form>
-    </>
   );
 }
