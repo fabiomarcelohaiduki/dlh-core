@@ -24,6 +24,7 @@ import { type CollectedAviso, type SourceConnector } from "./effecti-connector.t
 import { EmbeddingError, type EmbeddingProvider, generateAndStoreChunks } from "./embeddings.ts";
 import { extractFileLinks, processAvisoFiles, type TextExtractor } from "./file-processing.ts";
 import { errorMessage, recordIngestErro } from "./ingest-errors.ts";
+import { hashTexto } from "./hash.ts";
 import { maybeNotifyHealthcheckFalha, notifySyncFailure } from "./notify.ts";
 import { captureException } from "./audit.ts";
 
@@ -135,9 +136,11 @@ export async function runPipeline(
     if (params.signal?.aborted) break;
 
     try {
-      const { avisoId, novo } = await persistAvisoBase(db, aviso, params.execucaoId);
-      if (novo) result.novos += 1;
-      else result.alterados += 1;
+      const { avisoId, status } = await persistAvisoBase(db, aviso, params.execucaoId);
+      if (status === "novo") result.novos += 1;
+      else if (status === "alterado") result.alterados += 1;
+      // status === "ignorado" (hash igual) ou legado (hash NULL populado): nao
+      // conta como alterado -> espelha o Nomus, evita inflar ALTERADOS a cada ciclo.
 
       // Tratamento de arquivos (download + extracao verbatim, OCR fallback).
       // Etapa OPCIONAL: so roda quando ha extrator configurado. No v0 ingere-se
@@ -235,14 +238,16 @@ async function collectAll(
 // Persistencia do aviso base (upsert com dedupe por effecti_id)
 // ---------------------------------------------------------------------
 
+type PersistStatus = "novo" | "alterado" | "ignorado";
+
 async function persistAvisoBase(
   db: SupabaseClient,
   aviso: CollectedAviso,
   execucaoId: string,
-): Promise<{ avisoId: string; novo: boolean }> {
+): Promise<{ avisoId: string; status: PersistStatus }> {
   const { data: existing, error: selError } = await db
     .from("avisos")
-    .select("id")
+    .select("id, conteudo_hash")
     .eq("effecti_id", aviso.effectiId)
     .maybeSingle();
 
@@ -250,7 +255,48 @@ async function persistAvisoBase(
     throw new Error(`falha ao consultar aviso existente: ${selError.message}`);
   }
 
-  const row = {
+  // Hash do payload bruto: deteccao de mudanca REAL (espelha o Nomus). So
+  // reescreve/conta 'alterado' quando o conteudo muda; re-coletar um aviso
+  // identico nao infla ALTERADOS nem gera escrita desnecessaria.
+  const hash = hashTexto(JSON.stringify(aviso.payloadBruto));
+
+  if (existing) {
+    const persistido = (existing as { conteudo_hash: string | null }).conteudo_hash ?? null;
+    const avisoId = String((existing as { id: string }).id);
+    // Hash igual: nada mudou -> nao reescreve, nao conta (ignorado).
+    if (persistido === hash) {
+      return { avisoId, status: "ignorado" };
+    }
+    // Legado (hash NULL): 1a coleta apos o deploy popula o hash SEM contar como
+    // alterado (evita falso pico de 'alterados' na estabilizacao).
+    const status: PersistStatus = persistido === null ? "ignorado" : "alterado";
+    const row = buildRow(aviso, execucaoId, hash);
+    const { error: upError } = await db
+      .from("avisos")
+      .update(row)
+      .eq("id", avisoId);
+    if (upError) {
+      throw new Error(`falha ao atualizar aviso: ${upError.message}`);
+    }
+    return { avisoId, status };
+  }
+
+  const row = buildRow(aviso, execucaoId, hash);
+  const { data, error: upError } = await db
+    .from("avisos")
+    .insert(row)
+    .select("id")
+    .single();
+
+  if (upError || !data) {
+    throw new Error(`falha ao persistir aviso: ${upError?.message ?? "sem id"}`);
+  }
+
+  return { avisoId: String((data as { id: string }).id), status: "novo" };
+}
+
+function buildRow(aviso: CollectedAviso, execucaoId: string, hash: string) {
+  return {
     effecti_id: aviso.effectiId,
     modalidade: aviso.modalidade,
     orgao: aviso.orgao,
@@ -258,6 +304,7 @@ async function persistAvisoBase(
     portal: aviso.portal,
     conteudo_verbatim: aviso.conteudoVerbatim,
     payload_bruto: aviso.payloadBruto,
+    conteudo_hash: hash,
     data_captura: aviso.dataCaptura,
     data_publicacao: aviso.dataPublicacao,
     data_inicial: aviso.dataInicial,
@@ -266,18 +313,6 @@ async function persistAvisoBase(
     execucao_origem_id: execucaoId,
     status_indexacao: "pendente" as StatusIndexacao,
   };
-
-  const { data, error: upError } = await db
-    .from("avisos")
-    .upsert(row, { onConflict: "effecti_id", ignoreDuplicates: false })
-    .select("id")
-    .single();
-
-  if (upError || !data) {
-    throw new Error(`falha ao persistir aviso: ${upError?.message ?? "sem id"}`);
-  }
-
-  return { avisoId: String((data as { id: string }).id), novo: !existing };
 }
 
 async function resolveAvisoId(db: SupabaseClient, effectiId: string): Promise<string | null> {
