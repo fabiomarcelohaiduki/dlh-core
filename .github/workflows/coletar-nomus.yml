@@ -24,6 +24,10 @@ on:
         description: "Recurso/modulo do Nomus a coletar"
         type: string
         default: processos
+      gatilho:
+        description: "Origem do disparo (manual|agendada)"
+        type: string
+        default: agendada
 
 # Garante que duas execucoes nao rodem em paralelo (alinhado ao single-flight
 # global do cockpit, que recusaria a 2a com 409).
@@ -49,6 +53,8 @@ jobs:
           # Recurso/modulo: default 'processos' (unico coletor vivo hoje).
           NOMUS_MODO: ${{ github.event.inputs.modo || 'incremental' }}
           NOMUS_RECURSO: ${{ github.event.inputs.recurso || 'processos' }}
+          # Gatilho: disparo manual manda 'manual'; o agendado/cron cai em 'agendada'.
+          NOMUS_GATILHO: ${{ github.event.inputs.gatilho || 'agendada' }}
           NOMUS_API_KEY: ${{ secrets.NOMUS_API_KEY }}
           NOMUS_BASE_URL: ${{ secrets.NOMUS_BASE_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

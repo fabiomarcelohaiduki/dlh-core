@@ -57,6 +57,12 @@ interface IngerirInput {
   abort?: boolean;
   /** Pagina (1-indexed) deste lote no backfill — base do cursor de retomada. */
   pagina?: number;
+  /**
+   * Tempo total decorrido no runner (ms), enviado SO no lote final. Fonte da
+   * `duracao` da execucao: como a execucao nasce no 1o push (lazy), fim-inicio
+   * do banco subconta o tempo que o runner gastou lendo o Nomus antes de empurrar.
+   */
+  duracaoMs?: number;
 }
 
 /**
@@ -121,6 +127,7 @@ async function parseInput(req: Request): Promise<IngerirInput> {
   const abort = o.abort === true;
   const execucaoId = typeof o.execucao_id === "string" ? o.execucao_id : undefined;
   const paginaRaw = typeof o.pagina === "number" ? o.pagina : NaN;
+  const duracaoRaw = typeof o.duracao_ms === "number" ? o.duracao_ms : NaN;
 
   // No abort/action, 'processos' nao e exigido (acoes read-only ou de controle).
   if (!abort && !action && !Array.isArray(o.processos)) {
@@ -135,6 +142,7 @@ async function parseInput(req: Request): Promise<IngerirInput> {
     final: o.final === true,
     abort,
     pagina: Number.isFinite(paginaRaw) && paginaRaw >= 1 ? Math.floor(paginaRaw) : undefined,
+    duracaoMs: Number.isFinite(duracaoRaw) && duracaoRaw >= 0 ? Math.floor(duracaoRaw) : undefined,
   };
 }
 
@@ -568,7 +576,11 @@ async function handler(req: Request): Promise<Response> {
           status: "concluida",
           etapa_atual: null,
           fim: fim.toISOString(),
-          duracao: formatDuration(fim.getTime() - prev.inicioMs),
+          // Duracao real do runner quando enviada (lote final); senao cai no
+          // fim-inicio do banco (subconta, pois a execucao nasce no 1o push).
+          duracao: formatDuration(
+            input.duracaoMs !== undefined ? input.duracaoMs : fim.getTime() - prev.inicioMs,
+          ),
           novos: accNovos,
           alterados: accAlterados,
           total_processar: accTotal,

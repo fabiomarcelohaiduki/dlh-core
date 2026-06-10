@@ -143,6 +143,7 @@ async function handler(req: Request): Promise<Response> {
     const { data: requestId, error } = await service.rpc("disparar_workflow_nomus", {
       p_modo: modo,
       p_recurso: recursoAlvo,
+      p_gatilho: "manual",
     });
     if (error) {
       throw new HttpError(502, "nomus_dispatch_failed", "falha ao acionar o workflow do Nomus");

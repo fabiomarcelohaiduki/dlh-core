@@ -46,6 +46,10 @@ const CRON_SECRET = process.env.CRON_DISPATCH_SECRET;
 const ANON = process.env.SUPABASE_ANON_KEY;
 const RECURSO = process.env.NOMUS_RECURSO ?? "processos";
 const MODO = (process.env.NOMUS_MODO?.trim().toLowerCase() === "full") ? "full" : "incremental";
+// Gatilho da coleta: o disparo manual (card da fonte) manda 'manual'; o agendado
+// (pg_cron) nao passa -> default 'agendada'. Vai no push body p/ a Edge gravar em
+// execucoes.gatilho (a tela de execucoes distingue manual de agendada).
+const GATILHO = (process.env.NOMUS_GATILHO ?? "agendada").trim() === "manual" ? "manual" : "agendada";
 // A JANELA de coleta (data de corte) vive no cockpit (config_ingestao.
 // data_inicial) e e aplicada pela Edge Function nomus-ingerir. Este runner so
 // puxa e empurra; nao filtra por data.
@@ -271,12 +275,15 @@ async function coletarEEnviarFull(desdePagina = 1, dataCorte = null) {
     const ultima = isFim || cruzouCorte;
 
     const body = {
-      gatilho: "agendada",
+      gatilho: GATILHO,
       recurso: RECURSO,
       pagina,
       processos: lista,
       ...(execucaoId ? { execucao_id: execucaoId } : {}),
-      ...(ultima ? { final: true } : {}),
+      // No lote final manda o tempo total do runner (desde o startedAt) p/ a Edge
+      // gravar duracao real: a execucao nasce no 1o push (lazy), entao fim-inicio
+      // do banco subconta o tempo de leitura do Nomus.
+      ...(ultima ? { final: true, duracao_ms: Date.now() - startedAt } : {}),
     };
 
     const tPost0 = Date.now();
@@ -478,7 +485,13 @@ async function abortarExecucao(execucaoId) {
 async function pushEmLotes(processos) {
   if (processos.length === 0) {
     // Sem registros: ainda cria+finaliza uma execucao 'concluida' (recebidos 0).
-    const r = await postLote({ gatilho: "agendada", recurso: RECURSO, processos: [], final: true });
+    const r = await postLote({
+      gatilho: GATILHO,
+      recurso: RECURSO,
+      processos: [],
+      final: true,
+      duracao_ms: Date.now() - startedAt,
+    });
     if (!r.ok) fail(`push (vazio) falhou (${r.status}): ${r.text.slice(0, 500)}`, 1);
     return r;
   }
@@ -490,11 +503,11 @@ async function pushEmLotes(processos) {
     const lote = processos.slice(i, i + PUSH_CHUNK);
     const isFinal = i + PUSH_CHUNK >= processos.length;
     const body = {
-      gatilho: "agendada",
+      gatilho: GATILHO,
       recurso: RECURSO,
       processos: lote,
       ...(execucaoId ? { execucao_id: execucaoId } : {}),
-      ...(isFinal ? { final: true } : {}),
+      ...(isFinal ? { final: true, duracao_ms: Date.now() - startedAt } : {}),
     };
 
     const r = await postLote(body);
