@@ -19,6 +19,13 @@
 //             { execucao_id, ja_em_andamento }.
 //   'fechar'  Fecha a execucao (status concluida|erro, fim=now, contagens).
 //             Body: { execucao_id, status, total?, sucesso?, erro? }.
+//   'fechar-orfa'  Fecha como 'erro' QUALQUER execucao em_andamento da fonte
+//             gmail (auto-cura). Chamado num step de cleanup if:always() do
+//             workflow: quando o run e CANCELADO o Node morre por sinal e o
+//             try/catch do script nao roda, deixando a execucao pendurada. O
+//             concurrency 'coletar-gmail' garante 1 run por vez, entao toda
+//             em_andamento aqui e desta run (ou orfa anterior) -> seguro fechar.
+//             No fim normal a execucao ja esta 'concluida' -> no-op.
 // =====================================================================
 
 import { handleCorsPreflight } from "../_shared/cors.ts";
@@ -87,6 +94,25 @@ async function abrir(service: ServiceClient, gatilho: string): Promise<Response>
   return jsonResponse({ execucao_id: String((execucao as { id: string }).id), ja_em_andamento: false }, 201);
 }
 
+/**
+ * Fecha como 'erro' todas as execucoes em_andamento da fonte gmail (auto-cura
+ * de orfa apos cancelamento do run). Idempotente: se nao houver orfa, no-op.
+ */
+async function fecharOrfa(service: ServiceClient): Promise<Response> {
+  const fonteId = await loadGmailFonteId(service);
+  const { data, error } = await service
+    .from("execucoes")
+    .update({ status: "erro", fim: new Date().toISOString(), etapa_atual: null })
+    .eq("fonte_id", fonteId)
+    .eq("status", "em_andamento")
+    .select("id");
+  if (error) {
+    throw new HttpError(500, "execucao_update_failed", "falha ao fechar execucoes orfas");
+  }
+  const fechadas = Array.isArray(data) ? data.length : 0;
+  return jsonResponse({ ok: true, fechadas }, 200);
+}
+
 /** Fecha a execucao (status final + contagens). */
 async function fechar(
   service: ServiceClient,
@@ -140,6 +166,10 @@ async function handler(req: Request): Promise<Response> {
       return await abrir(service, String(input.gatilho ?? "agendada"));
     }
 
+    if (action === "fechar-orfa") {
+      return await fecharOrfa(service);
+    }
+
     if (action === "fechar") {
       const execucaoId = String(input.execucao_id ?? "").trim();
       if (!execucaoId) {
@@ -160,7 +190,7 @@ async function handler(req: Request): Promise<Response> {
       );
     }
 
-    throw new HttpError(400, "acao_invalida", "action deve ser 'abrir' ou 'fechar'");
+    throw new HttpError(400, "acao_invalida", "action deve ser 'abrir', 'fechar' ou 'fechar-orfa'");
   } catch (err) {
     return await errorResponse(err, { fn: "gmail-execucao" });
   }

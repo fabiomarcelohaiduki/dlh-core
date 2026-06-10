@@ -60,3 +60,14 @@ jobs:
           GMAIL_QUERY: ${{ github.event.inputs.gmail_query }}
           GMAIL_MAX: ${{ github.event.inputs.gmail_max }}
         run: node .github/scripts/descobrir-gmail.mjs
+
+      # Cleanup: se o run for CANCELADO no meio, o Node acima morre por sinal e
+      # nao fecha a execucao -> orfa. Este step (if:always()) auto-cura fechando
+      # qualquer execucao em_andamento da gmail. No fim normal e no-op.
+      - name: Fechar execucao orfa (cancelamento)
+        if: ${{ always() }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
+        run: node .github/scripts/fechar-orfa-gmail.mjs
