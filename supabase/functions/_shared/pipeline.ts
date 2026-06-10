@@ -255,10 +255,12 @@ async function persistAvisoBase(
     throw new Error(`falha ao consultar aviso existente: ${selError.message}`);
   }
 
-  // Hash do payload bruto: deteccao de mudanca REAL (espelha o Nomus). So
-  // reescreve/conta 'alterado' quando o conteudo muda; re-coletar um aviso
-  // identico nao infla ALTERADOS nem gera escrita desnecessaria.
-  const hash = hashTexto(JSON.stringify(aviso.payloadBruto));
+  // Hash dos campos de negocio NORMALIZADOS (espelha o Nomus). NUNCA do
+  // payload bruto: ele carrega campos volateis por fetch (dataCaptura,
+  // favorito, naLixeira, rankingCapag) + chaves reordenadas pelo Postgres ->
+  // o hash nunca baterea e tudo viraria 'alterado'. So conta 'alterado'
+  // quando um campo de negocio muda de verdade.
+  const hash = hashAvisoCanonico(aviso);
 
   if (existing) {
     const persistido = (existing as { conteudo_hash: string | null }).conteudo_hash ?? null;
@@ -293,6 +295,28 @@ async function persistAvisoBase(
   }
 
   return { avisoId: String((data as { id: string }).id), status: "novo" };
+}
+
+// Separador estavel entre campos (ASCII Unit Separator), igual ao hash.ts.
+const CANONICO_SEP = "\u001f";
+
+/**
+ * Hash canonico do aviso a partir dos campos de negocio JA normalizados pelo
+ * conector (ordem fixa). Exclui dataCaptura e o payload bruto (volateis) para
+ * que re-coletar um aviso inalterado produza o MESMO hash.
+ */
+function hashAvisoCanonico(aviso: CollectedAviso): string {
+  const canonical = [
+    aviso.modalidade ?? "",
+    aviso.orgao ?? "",
+    aviso.objeto ?? "",
+    aviso.portal ?? "",
+    aviso.conteudoVerbatim ?? "",
+    aviso.dataPublicacao ?? "",
+    aviso.dataInicial ?? "",
+    aviso.dataFinal ?? "",
+  ].join(CANONICO_SEP);
+  return hashTexto(canonical);
 }
 
 function buildRow(aviso: CollectedAviso, execucaoId: string, hash: string) {
