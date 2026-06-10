@@ -151,6 +151,14 @@ async function avancarMarcas(service: ServiceClient): Promise<void> {
   }
 }
 
+/** Formata milissegundos em duracao legivel (ex.: "1m 23s"), igual Effecti/Nomus. */
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
 /** Fecha a execucao (status final + contagens). */
 async function fechar(
   service: ServiceClient,
@@ -161,11 +169,22 @@ async function fechar(
   erro: number,
   novos: number,
 ): Promise<Response> {
+  // Le `inicio` p/ derivar a duracao no mesmo formato das outras fontes (a
+  // coluna `duracao` e denormalizada: Effecti/Nomus ja gravam no fechar).
+  const { data: row } = await service
+    .from("execucoes")
+    .select("inicio")
+    .eq("id", execucaoId)
+    .single();
+  const fim = new Date();
+  const inicioMs = row?.inicio ? new Date(row.inicio as string).getTime() : null;
+  const duracao = inicioMs !== null ? formatDuration(fim.getTime() - inicioMs) : null;
+
   const { error: updError } = await service
     .from("execucoes")
     .update({
       status,
-      fim: new Date().toISOString(),
+      fim: fim.toISOString(),
       etapa_atual: null,
       total_processar: total,
       processados_sucesso: sucesso,
@@ -174,6 +193,7 @@ async function fechar(
       // Gmail nao ingere documentos, entao `alterados` segue 0; sem este campo
       // a execucao caia sempre em "sem novos" mesmo tendo enfileirado itens.
       novos,
+      duracao,
       pendentes: 0,
     })
     .eq("id", execucaoId);
