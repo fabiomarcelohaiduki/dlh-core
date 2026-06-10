@@ -121,7 +121,7 @@ function DriveCard({
       callbackOk="Conta do Google conectada · pronto para varrer as pastas."
       callbackErr="Não foi possível conectar a conta do Google. Tente novamente."
       ajudaDesconectada="Conecte uma conta Google para varrer as pastas. Trocar de conta limpa as pastas cadastradas."
-      configurarLabel="Configurar pastas"
+      configurarLabel="Configurar"
       configAberto={configAberto}
       onConfigurar={onConfigurar}
       configPanelId={configPanelId}
@@ -176,7 +176,7 @@ function GmailCard({
       callbackOk="Conta do Gmail conectada · pronto para coletar os e-mails."
       callbackErr="Não foi possível conectar a conta do Gmail. Tente novamente."
       ajudaDesconectada="Conecte uma conta Google para coletar os e-mails. Trocar de conta limpa as labels cadastradas."
-      configurarLabel="Configurar coleta"
+      configurarLabel="Configurar"
       configAberto={configAberto}
       onConfigurar={onConfigurar}
       configPanelId={configPanelId}
