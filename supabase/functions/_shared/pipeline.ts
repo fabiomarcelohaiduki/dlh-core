@@ -220,7 +220,11 @@ async function collectAll(
   connector: SourceConnector,
   params: PipelineParams,
 ): Promise<CollectedAviso[]> {
-  const items: CollectedAviso[] = [];
+  // Dedupe por effecti_id: a paginacao do Effecti as vezes repete um registro
+  // entre paginas. Sem dedupe, a mesma ocorrencia conta 2x em novos/alterados
+  // (so 1 linha persiste por effecti_id). Map mantem a ULTIMA ocorrencia ->
+  // contador 100% fiel as linhas distintas.
+  const porId = new Map<string, CollectedAviso>();
   for await (
     const aviso of connector.collect({
       sinceDate: params.sinceDate,
@@ -229,9 +233,9 @@ async function collectAll(
       signal: params.signal,
     })
   ) {
-    items.push(aviso);
+    porId.set(aviso.effectiId, aviso);
   }
-  return items;
+  return [...porId.values()];
 }
 
 // ---------------------------------------------------------------------
