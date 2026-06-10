@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useExecucoes } from "@/hooks/use-monitoring";
 import { useExecucoesRealtime } from "@/hooks/use-execucoes-realtime";
-import { useColetar } from "@/hooks/use-fontes";
+import { useColetar, useFontes } from "@/hooks/use-fontes";
 import { RunsTable } from "@/components/cockpit/runs-table";
-import { ColetaButton } from "@/components/cockpit/coleta-button";
+import { EffectiDisparoForm } from "@/components/cockpit/effecti-disparo-form";
+import { NomusDisparoForm } from "@/components/cockpit/nomus-disparo-form";
+import { GmailDisparoForm } from "@/components/cockpit/gmail-disparo-form";
 import { WidgetError } from "@/components/cockpit/widget-error";
 import {
   OrigemFiltro,
@@ -27,6 +29,13 @@ const FALLBACK_POLL_MS = 5000;
 /** Poll rapido enquanto ha coleta em andamento (independe do Realtime). */
 const RUNNING_POLL_MS = 3000;
 
+/** Fontes disponiveis para disparo manual nesta tela (seletor segmentado). */
+const FONTE_DISPARO_OPCOES: { value: FonteTipo; label: string }[] = [
+  { value: "effecti", label: "Effecti" },
+  { value: "nomus", label: "Nomus" },
+  { value: "gmail", label: "Gmail" },
+];
+
 /** Recursos distintos presentes na lista (origem-aware) para o RecursoFiltro. */
 function recursosDisponiveis(items: Execucao[]): string[] {
   const set = new Set<string>();
@@ -42,6 +51,8 @@ export function ExecucoesClient() {
   const [origem, setOrigem] = useState<OrigemFiltroValue>("todas");
   const [recurso, setRecurso] = useState<RecursoFiltroValue>("todos");
   const [retomandoId, setRetomandoId] = useState<string | null>(null);
+  // Fonte selecionada para o disparo manual (mesmos forms dos cards de Fontes).
+  const [fonteDisparo, setFonteDisparo] = useState<FonteTipo>("effecti");
 
   // Realtime primeiro: define se o fallback de refetch fica ativo.
   const { connected } = useExecucoesRealtime();
@@ -60,6 +71,22 @@ export function ExecucoesClient() {
 
   const coletar = useColetar();
 
+  // fonteId por tipo (mesma derivacao do dashboard) para alimentar os forms
+  // de disparo reutilizados dos cards de Fontes.
+  const fontes = useFontes();
+  const effectiId = fontes.data?.find((f) => f.tipo === "effecti")?.id ?? null;
+  const nomusId = fontes.data?.find((f) => f.tipo === "nomus")?.id ?? null;
+  const gmailId = fontes.data?.find((f) => f.tipo === "gmail")?.id ?? null;
+
+  const disparoForm =
+    fonteDisparo === "nomus" ? (
+      <NomusDisparoForm fonteId={nomusId} />
+    ) : fonteDisparo === "gmail" ? (
+      <GmailDisparoForm fonteId={gmailId} />
+    ) : (
+      <EffectiDisparoForm fonteId={effectiId} configDirty={false} />
+    );
+
   const allRuns = useMemo(() => execucoes.data?.items ?? [], [execucoes.data]);
   const recursos = useMemo(() => recursosDisponiveis(allRuns), [allRuns]);
 
@@ -74,7 +101,6 @@ export function ExecucoesClient() {
     [allRuns, origem, recurso],
   );
 
-  const running = allRuns.some((r) => r.status === "em_andamento");
   const canLoadMore = !execucoes.isLoading && allRuns.length >= limit;
 
   async function handleRetomar(execucao: Execucao) {
@@ -97,15 +123,28 @@ export function ExecucoesClient() {
       <div className="page-head">
         <div className="titles">
           <h2>Execuções de sincronização</h2>
-          <p>
-            Histórico das coletas agendadas e sob demanda. A sincronização é incremental:
-            traz apenas registros novos ou alterados desde a última execução.
-          </p>
         </div>
         <div className="actions">
-          <ColetaButton blocked={running} label="Coleta sob demanda" />
+          <div className="filter-group" role="group" aria-label="Fonte da coleta">
+            {FONTE_DISPARO_OPCOES.map((opt) => {
+              const active = fonteDisparo === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className={cn("btn", "btn-sm", active && "btn-primary")}
+                  aria-pressed={active}
+                  onClick={() => setFonteDisparo(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
+
+      {disparoForm}
 
       <div className="section-title" style={{ marginTop: 0 }}>
         <h3>Histórico de execuções</h3>
@@ -154,9 +193,8 @@ export function ExecucoesClient() {
           emptyDescription={
             origem !== "todas" || recurso !== "todos"
               ? "Ajuste os filtros de origem e recurso para ver outras execuções."
-              : "Ainda não há coletas registradas. Dispare uma coleta sob demanda para começar."
+              : "Ainda não há coletas registradas. Use o disparo de coleta acima para começar."
           }
-          emptyAction={<ColetaButton blocked={running} label="Coleta sob demanda" />}
           onErroClick={() => router.push("/erros")}
           onRetomar={handleRetomar}
           retomandoId={retomandoId}
