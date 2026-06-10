@@ -1250,6 +1250,8 @@ input[type="text"],
 input[type="number"],
 input[type="password"],
 input[type="email"],
+input[type="time"],
+input[type="date"],
 select,
 textarea {
   width: 100%;
@@ -1263,6 +1265,20 @@ textarea {
   font-size: 13.5px;
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+input[type="time"],
+input[type="date"] {
+  color-scheme: dark;
+}
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.6;
+  filter: invert(0.7);
+}
+input[type="time"]::-webkit-calendar-picker-indicator:hover,
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
 }
 textarea {
   height: auto;
@@ -1371,6 +1387,12 @@ select {
    (margin auto), indiferente se foi aberto pelo card da esquerda ou da direita. */
 .cfg-panel {
   margin-inline: auto;
+}
+/* Espaco entre cards empilhados dentro do painel (agendamento, coleta manual,
+   configuracao) — antes vinha dos titulos de secao, agora removidos. Usa
+   .form-card para nao afetar os cards de recurso do Nomus (so .card). */
+.cfg-panel .form-card + .form-card {
+  margin-top: 16px;
 }
 /* Cabecalho de identidade do painel (avatar + nome da fonte + fechar) para
    deixar claro a qual card ele pertence. */

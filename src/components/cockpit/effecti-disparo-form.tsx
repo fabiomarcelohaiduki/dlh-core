@@ -51,16 +51,6 @@ export function EffectiDisparoForm({ configDirty }: { configDirty: boolean }) {
 
   return (
     <>
-      <div className="section-title" style={{ margin: "6px 0 13px" }}>
-        <div className="titles">
-          <h3>Coleta manual</h3>
-          <p>
-            Dispara a coleta do Effecti agora, sob demanda. A coleta roda no orquestrador e o
-            andamento aparece em Execuções.
-          </p>
-        </div>
-      </div>
-
       <div className="card form-card">
         <div className="form-foot" style={{ marginTop: 0, flexWrap: "wrap" }}>
           <button
@@ -97,8 +87,7 @@ export function EffectiDisparoForm({ configDirty }: { configDirty: boolean }) {
         </div>
 
         <div className="helper" style={{ marginTop: 12 }}>
-          A coleta usa a janela e os filtros salvos na configuração abaixo. Alterações não salvas só
-          valem na próxima execução.
+          A coleta usa a janela e os filtros salvos na configuração abaixo.
         </div>
       </div>
     </>

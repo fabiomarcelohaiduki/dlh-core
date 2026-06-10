@@ -6,7 +6,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { CalendarClock, Check, Loader2, TriangleAlert } from "lucide-react";
 import { useSalvarAgendamentoFonte } from "@/hooks/use-admin";
-import { ConfigSectionHeading } from "@/components/cockpit/source-card";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import type { AgendamentoFonteState } from "@/lib/api/types";
@@ -126,12 +125,6 @@ export function AgendamentoFonteForm({ initial }: { initial: AgendamentoFonteSta
 
   return (
     <>
-      <ConfigSectionHeading
-        title="Agendamento da coleta"
-        description="Quando esta fonte coleta automaticamente. Cada fonte tem seu próprio relógio, independente das demais."
-        style={{ margin: "6px 0 13px" }}
-      />
-
       <form className="card form-card" onSubmit={handleSubmit(onSubmit)} noValidate>
       <label
         className={cn("chk", ativo && "on")}
@@ -147,10 +140,11 @@ export function AgendamentoFonteForm({ initial }: { initial: AgendamentoFonteSta
         />
         <div className="t">
           Coleta automática ligada
-          <small>{ativo ? "Coletando automaticamente na cadência abaixo." : "Coleta automática pausada (somente coleta manual)."}</small>
         </div>
       </label>
 
+      {ativo && (
+        <>
       <div className="grid-fields">
         <div className="field">
           <label htmlFor="agf-freq">Frequência</label>
@@ -165,7 +159,7 @@ export function AgendamentoFonteForm({ initial }: { initial: AgendamentoFonteSta
         </div>
 
         <div className={cn("field", errors.horarioReferencia && "invalid")}>
-          <label htmlFor="agf-hora">Horário (fuso de Brasília)</label>
+          <label htmlFor="agf-hora">Horário</label>
           <input
             type="time"
             id="agf-hora"
@@ -179,7 +173,7 @@ export function AgendamentoFonteForm({ initial }: { initial: AgendamentoFonteSta
           <div className="helper">
             {frequencia === "horaria"
               ? "Na frequência horária, apenas os minutos são usados."
-              : "Horário local (America/São_Paulo); o substrato converte para UTC."}
+              : "Horário local (America/São_Paulo)."}
           </div>
         </div>
       </div>
@@ -217,6 +211,8 @@ export function AgendamentoFonteForm({ initial }: { initial: AgendamentoFonteSta
           </div>
           <div className="helper">De 1 a 28 (evita meses sem o dia 29/30/31).</div>
         </div>
+      )}
+        </>
       )}
 
       <div className="form-foot" style={{ marginTop: 22 }}>

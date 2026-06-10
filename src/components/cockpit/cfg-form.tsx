@@ -7,7 +7,6 @@ import { z } from "zod";
 import { Check, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
 import { useSalvarConfig } from "@/hooks/use-admin";
 import { useExecucoes } from "@/hooks/use-monitoring";
-import { ConfigSectionHeading } from "@/components/cockpit/source-card";
 import { hasRunningExecucao } from "@/lib/status";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
@@ -23,11 +22,8 @@ const MAX_JANELA = 365;
  */
 const MODALIDADES = [
   "Pregão Eletrônico",
-  "Pregão Presencial",
   "Dispensa",
-  "Concorrência",
   "Cotação Eletrônica",
-  "Outros",
 ].map((value) => ({ value, label: value }));
 
 /**
@@ -155,11 +151,6 @@ export function CfgForm({
 
   return (
     <>
-      <ConfigSectionHeading
-        title="Configuração da ingestão"
-        description="Janela de avisos e quais modalidades e portais esta fonte deve ingerir. A frequência da coleta é definida no Agendamento da coleta, acima."
-      />
-
       {running && (
         <div className="banner">
           <RefreshCw aria-hidden="true" />
@@ -178,13 +169,13 @@ export function CfgForm({
           <h3>Janela de avisos</h3>
         </div>
         <div className={cn("field", errors.janelaDias && "invalid")} style={{ maxWidth: 300 }}>
-          <label htmlFor="cfg-janela">Janela de dias dos avisos</label>
           <div className="input-affix">
             <input
               type="number"
               id="cfg-janela"
               min={MIN_JANELA}
               max={MAX_JANELA}
+              aria-label="Janela de dias dos avisos"
               aria-invalid={Boolean(errors.janelaDias)}
               {...register("janelaDias", { valueAsNumber: true })}
             />
@@ -201,9 +192,6 @@ export function CfgForm({
 
         <div className="section-title" style={{ margin: "24px 0 13px" }}>
           <h3>Modalidades a ingerir</h3>
-        </div>
-        <div className="helper" style={{ margin: "-6px 0 12px" }}>
-          Marque as modalidades a coletar. Deixe em branco para ingerir todas.
         </div>
         <div className="chk-grid">
           {MODALIDADES.map((m) => {

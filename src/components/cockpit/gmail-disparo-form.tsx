@@ -42,16 +42,6 @@ export function GmailDisparoForm() {
 
   return (
     <>
-      <div className="section-title" style={{ margin: "6px 0 13px" }}>
-        <div className="titles">
-          <h3>Coleta manual</h3>
-          <p>
-            Dispara a coleta do Gmail agora, sob demanda. A coleta roda na nuvem (runner) e o
-            andamento aparece em Execuções.
-          </p>
-        </div>
-      </div>
-
       <div className="card form-card">
         <div className="form-foot" style={{ marginTop: 0, flexWrap: "wrap" }}>
           <button className="btn btn-primary" type="button" onClick={executar} disabled={ocupado}>
