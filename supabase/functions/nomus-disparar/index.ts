@@ -23,6 +23,11 @@ import { logSensitiveAction } from "../_shared/audit.ts";
 import { nomusDispararSchema, parseJsonBody } from "../_shared/validation.ts";
 import { getFonteByTipo } from "../_shared/vault.ts";
 
+// Idade maxima do checkpoint.runner_ts para considerar um run VIVO. Acima dela a
+// execucao em_andamento e ORFA (run morto por timeout 6h / cancel). Espelha o
+// mesmo teto do nomus-ingerir (action "retomar"), unica fonte da regra de stale.
+const RUNNER_STALE_MS = 15 * 60_000;
+
 async function handler(req: Request): Promise<Response> {
   const preflight = handleCorsPreflight(req);
   if (preflight) return preflight;
@@ -40,24 +45,54 @@ async function handler(req: Request): Promise<Response> {
 
     const service = createServiceClient();
 
-    // Guard anti-duplo-disparo: recusa com 409 ANTES de gastar um run do Actions
-    // quando ja ha coleta DESTE recurso em andamento. O lock-por-recurso do
+    // Guard anti-duplo-disparo STALE-AWARE: recusa com 409 ANTES de gastar um run
+    // do Actions quando ja ha coleta VIVA DESTE recurso. O lock-por-recurso do
     // nomus-ingerir tambem barraria, mas so depois do runner subir e falhar
     // (workflow vermelho, sem feedback no painel). Escopo (fonte_id, recurso)
     // espelha exatamente aquele lock.
+    //
+    // Diferente do guard ingenuo: uma execucao em_andamento ORFA (run morto por
+    // timeout 6h / cancel) NAO pode prender o botao para sempre. Aplica a mesma
+    // regra de stale do nomus-ingerir (action "retomar"): runner_ts FRESCO = run
+    // vivo (409); runner_ts velho/ausente = orfa, auto-cura conforme o modo.
     const fonte = await getFonteByTipo("nomus");
     const { data: emAndamento, error: andamentoError } = await service
       .from("execucoes")
-      .select("id")
+      .select("id, checkpoint")
       .eq("status", "em_andamento")
       .eq("fonte_id", fonte.id)
       .eq("recurso", recursoAlvo)
+      .order("inicio", { ascending: false })
       .limit(1);
     if (andamentoError) {
       throw new HttpError(500, "execucao_query_failed", "falha ao verificar execucoes em andamento");
     }
     if (emAndamento && emAndamento.length > 0) {
-      throw new HttpError(409, "execucao_em_andamento", "ja ha uma coleta do Nomus em andamento");
+      const row = emAndamento[0] as { id: string; checkpoint: unknown };
+      const cp = row.checkpoint && typeof row.checkpoint === "object"
+        ? row.checkpoint as Record<string, unknown>
+        : {};
+      const runnerTs = typeof cp.runner_ts === "string" ? Date.parse(cp.runner_ts) : NaN;
+      const idadeMs = Number.isFinite(runnerTs) ? Date.now() - runnerTs : Infinity;
+      if (idadeMs < RUNNER_STALE_MS) {
+        // Run ATIVO de verdade: nao pisar.
+        throw new HttpError(409, "execucao_em_andamento", "ja ha uma coleta do Nomus em andamento");
+      }
+      // ORFA: o lock travou num run morto. Auto-cura para liberar o botao,
+      // PRESERVANDO o cursor de backfill quando faz sentido:
+      //   - full: NAO fecha a orfa aqui. O fetchRetomar do runner le o
+      //     runner_pagina dela e retoma o backfill da proxima pagina; fechar
+      //     agora perderia o cursor (recomecaria da pagina 1).
+      //   - incremental: nao tem cursor (varre por watermark). Fecha a orfa
+      //     (status 'erro') para o 1o push do runner nao bater no lock-por-
+      //     recurso do nomus-ingerir (409 -> workflow vermelho).
+      if (modo === "incremental") {
+        await service
+          .from("execucoes")
+          .update({ status: "erro", etapa_atual: null, fim: new Date().toISOString() })
+          .eq("id", row.id)
+          .eq("status", "em_andamento");
+      }
     }
 
     // Dispara o workflow via RPC (le GITHUB_DISPATCH_TOKEN do Vault server-side).
