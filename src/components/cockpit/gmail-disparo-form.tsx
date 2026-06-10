@@ -14,10 +14,10 @@ type Feedback = { kind: "ok" | "err"; message: string };
  * cmp-gmail-disparo-form — Disparo MANUAL da coleta do Gmail.
  *
  * O Gmail coleta num runner Node do GitHub Actions (a credencial Gmail e a API
- * do Google so existem la). Este botao aciona o workflow extrair-anexos.yml com
- * fonte=gmail: o runner monta a query pela config do cockpit (data inicial +
- * labels), descobre as mensagens e enfileira corpo + anexos. O Drive nao e
- * varrido nesse disparo.
+ * do Google so existem la). Este botao aciona o workflow proprio coletar-gmail.yml:
+ * o runner monta a query pela config do cockpit (data inicial + categorias +
+ * labels excluidas), descobre as mensagens e enfileira corpo + anexos. O Drive
+ * tem workflow proprio e nao e varrido nesse disparo.
  *
  * A coleta roda assincrona: o disparo so a ENFILEIRA (202); o andamento
  * aparece em Execuções quando o runner registra o inicio.

@@ -62,10 +62,11 @@ function dataParaGmail(d: string): string {
 // Categorias do Gmail (as guias "Promoções", "Social" etc.) NAO sao labels
 // comuns: o operador -label:"Promoções" nao as exclui. O correto e
 // -category:<slug>, com o slug FIXO em ingles. Mapeia os nomes PT/EN conhecidos
-// para o slug; o que nao casa segue como label normal.
+// para o slug; o que nao casa segue como label normal. Restrito as 4 guias
+// EXCLUIVEIS (mesmas de CATEGORIAS_VALIDAS / da UI): 'primary' NAO entra de
+// proposito — uma label "Principal" digitada nao pode virar -category:primary
+// e excluir a caixa de entrada inteira da coleta em silencio.
 const CATEGORIAS_GMAIL: Record<string, string> = {
-  principal: "primary",
-  primary: "primary",
   social: "social",
   promocoes: "promotions",
   promotions: "promotions",
@@ -73,10 +74,6 @@ const CATEGORIAS_GMAIL: Record<string, string> = {
   updates: "updates",
   foruns: "forums",
   forums: "forums",
-  reservas: "reservations",
-  reservations: "reservations",
-  compras: "purchases",
-  purchases: "purchases",
 };
 
 /** Normaliza um nome para casar com as categorias (sem acento, minusculo). */
