@@ -633,6 +633,12 @@ button {
   align-items: center;
   gap: 10px;
 }
+.conns {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
 .conn {
   display: flex;
   align-items: center;
@@ -644,8 +650,28 @@ button {
   width: 7px;
   height: 7px;
   border-radius: 50%;
+  background: var(--idle);
+  box-shadow: 0 0 0 3px var(--idle-bg);
+}
+.conn.ok .dot {
   background: var(--ok);
   box-shadow: 0 0 0 3px var(--ok-bg);
+}
+.conn.warn .dot {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px var(--warn-bg);
+}
+.conn.run .dot {
+  background: var(--run);
+  box-shadow: 0 0 0 3px var(--run-bg);
+}
+.conn.err .dot {
+  background: var(--err);
+  box-shadow: 0 0 0 3px var(--err-bg);
+}
+.conn.idle .dot {
+  background: var(--idle);
+  box-shadow: 0 0 0 3px var(--idle-bg);
 }
 
 .screen {
