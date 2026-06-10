@@ -44,6 +44,15 @@ export function hashConteudoCanonico(input: ConteudoCanonico): string {
   return fnv1a64Hex(canonical);
 }
 
+/**
+ * Hash deterministico de um texto arbitrario (FNV-1a 64, hex 16 digitos).
+ * Mesma funcao do hashConteudoCanonico, exposta para conteudos que ja chegam
+ * canonizados pelo caller (ex.: Effecti hasheia JSON.stringify(payload_bruto)).
+ */
+export function hashTexto(texto: string): string {
+  return fnv1a64Hex(texto);
+}
+
 // ---------------------------------------------------------------------
 // FNV-1a 64 bits sobre os bytes UTF-8 da entrada. Deterministico e estavel
 // entre execucoes; saida em hexadecimal de 16 digitos (zero-padded).

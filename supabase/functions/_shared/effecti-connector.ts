@@ -21,6 +21,7 @@
 import { type SupabaseClient } from "@supabase/supabase-js";
 import { type CollectedRecord } from "./collected.ts";
 import { NomusConnector, type NomusConnectorConfig } from "./nomus-connector.ts";
+import { hashTexto } from "./hash.ts";
 
 // ---------------------------------------------------------------------
 // Tipos publicos do conector
@@ -462,6 +463,7 @@ interface AvisoUpsertRow {
   data_final: string | null;
   origem: string | null;
   execucao_origem_id: string | null;
+  conteudo_hash: string;
 }
 
 /**
@@ -504,7 +506,13 @@ export async function runIncrementalSync(
 
 /**
  * Upsert de um lote com dedupe por effecti_id. Determina novos vs alterados
- * consultando os effecti_id ja existentes antes da escrita.
+ * comparando o HASH do conteudo (FNV-1a do payload_bruto) com o persistido,
+ * espelhando o Nomus. So escreve/conta 'alterado' quando o conteudo mudou:
+ *  - inexistente            -> novo (escreve)
+ *  - hash persistido = null -> legado: popula o hash, conta como IGNORADO
+ *                              (evita falso pico de 'alterados' pos-deploy)
+ *  - hash igual             -> ignorado (NAO reescreve)
+ *  - hash diferente         -> alterado (escreve)
  */
 async function upsertBatch(
   db: SupabaseClient,
@@ -519,42 +527,69 @@ async function upsertBatch(
 
   const { data: existing, error: selError } = await db
     .from("avisos")
-    .select("effecti_id")
+    .select("effecti_id, conteudo_hash")
     .in("effecti_id", ids);
 
   if (selError) {
     throw new Error(`falha ao consultar avisos existentes: ${selError.message}`);
   }
-  const existingSet = new Set<string>((existing ?? []).map((r) => String(r.effecti_id)));
-
-  const rows: AvisoUpsertRow[] = unique.map((i) => ({
-    effecti_id: i.effectiId,
-    modalidade: i.modalidade,
-    orgao: i.orgao,
-    objeto: i.objeto,
-    portal: i.portal,
-    conteudo_verbatim: i.conteudoVerbatim,
-    payload_bruto: i.payloadBruto,
-    data_captura: i.dataCaptura,
-    data_publicacao: i.dataPublicacao,
-    data_inicial: i.dataInicial,
-    data_final: i.dataFinal,
-    origem: i.origem,
-    execucao_origem_id: execucaoId,
-  }));
-
-  const { error: upError } = await db
-    .from("avisos")
-    .upsert(rows, { onConflict: "effecti_id", ignoreDuplicates: false });
-
-  if (upError) {
-    throw new Error(`falha ao fazer upsert de avisos: ${upError.message}`);
+  // effecti_id -> hash persistido (null = legado sem hash).
+  const hashExistente = new Map<string, string | null>();
+  for (const r of (existing ?? []) as { effecti_id: unknown; conteudo_hash: unknown }[]) {
+    hashExistente.set(String(r.effecti_id), r.conteudo_hash == null ? null : String(r.conteudo_hash));
   }
 
-  const alterados = unique.filter((i) => existingSet.has(i.effectiId)).length;
+  let novos = 0;
+  let alterados = 0;
+  // Hash sempre derivado do raw da API (payload_bruto) -> deterministico entre
+  // coletas. NUNCA recalcular do jsonb persistido (o Postgres reordena chaves).
+  const rows: AvisoUpsertRow[] = [];
+  for (const i of unique) {
+    const hash = hashTexto(JSON.stringify(i.payloadBruto));
+    const existe = hashExistente.has(i.effectiId);
+    const persistido = existe ? hashExistente.get(i.effectiId) ?? null : null;
+
+    if (existe && persistido === hash) {
+      continue; // ignorado: conteudo identico, nao reescreve.
+    }
+    if (!existe) {
+      novos += 1;
+    } else if (persistido !== null) {
+      alterados += 1; // hash mudou de verdade.
+    }
+    // persistido === null (legado): escreve para popular o hash, sem contar.
+
+    rows.push({
+      effecti_id: i.effectiId,
+      modalidade: i.modalidade,
+      orgao: i.orgao,
+      objeto: i.objeto,
+      portal: i.portal,
+      conteudo_verbatim: i.conteudoVerbatim,
+      payload_bruto: i.payloadBruto,
+      data_captura: i.dataCaptura,
+      data_publicacao: i.dataPublicacao,
+      data_inicial: i.dataInicial,
+      data_final: i.dataFinal,
+      origem: i.origem,
+      execucao_origem_id: execucaoId,
+      conteudo_hash: hash,
+    });
+  }
+
+  if (rows.length > 0) {
+    const { error: upError } = await db
+      .from("avisos")
+      .upsert(rows, { onConflict: "effecti_id", ignoreDuplicates: false });
+
+    if (upError) {
+      throw new Error(`falha ao fazer upsert de avisos: ${upError.message}`);
+    }
+  }
+
   return {
     total: unique.length,
-    novos: unique.length - alterados,
+    novos,
     alterados,
   };
 }
