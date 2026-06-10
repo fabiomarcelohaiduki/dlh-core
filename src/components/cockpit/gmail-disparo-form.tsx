@@ -37,10 +37,12 @@ export function GmailDisparoForm({ fonteId }: { fonteId: string | null }) {
       await disparar.mutateAsync();
       setFeedback({ kind: "ok", message: "Coleta disparada · acompanhe em Execuções." });
     } catch (err) {
-      const message =
-        err instanceof ApiError && err.status === 502
-          ? "Não foi possível acionar o coletor na nuvem. Tente novamente."
-          : "Falha ao disparar a coleta. Tente novamente.";
+      let message = "Falha ao disparar a coleta. Tente novamente.";
+      if (err instanceof ApiError && err.status === 409) {
+        message = "Já há uma coleta do Gmail em andamento; aguarde a conclusão.";
+      } else if (err instanceof ApiError && err.status === 502) {
+        message = "Não foi possível acionar o coletor na nuvem. Tente novamente.";
+      }
       setFeedback({ kind: "err", message });
     }
   }

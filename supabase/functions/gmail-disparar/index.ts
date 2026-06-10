@@ -21,6 +21,7 @@ import { getEnv } from "../_shared/env.ts";
 import { requireAuthorizedUser } from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
+import { getFonteByTipo } from "../_shared/vault.ts";
 
 async function handler(req: Request): Promise<Response> {
   const preflight = handleCorsPreflight(req);
@@ -32,8 +33,27 @@ async function handler(req: Request): Promise<Response> {
     // Autorizacao primeiro (SEC-02). Sem corpo: a janela vem do gmail-config.
     const { email } = await requireAuthorizedUser(req);
 
-    // Dispara o workflow via RPC (le GITHUB_DISPATCH_TOKEN do Vault server-side).
     const service = createServiceClient();
+
+    // Guard anti-duplo-disparo POR FONTE (espelha Nomus/Effecti): recusa com 409
+    // ANTES de gastar um run do Actions quando ja ha coleta do Gmail em
+    // andamento. O lock-por-fonte do gmail-execucao tambem barraria, mas so
+    // depois do runner subir (sem feedback no painel).
+    const fonte = await getFonteByTipo("gmail");
+    const { data: emAndamento, error: andamentoError } = await service
+      .from("execucoes")
+      .select("id")
+      .eq("status", "em_andamento")
+      .eq("fonte_id", fonte.id)
+      .limit(1);
+    if (andamentoError) {
+      throw new HttpError(500, "execucao_query_failed", "falha ao verificar execucoes em andamento");
+    }
+    if (emAndamento && emAndamento.length > 0) {
+      throw new HttpError(409, "execucao_em_andamento", "ja ha uma coleta do Gmail em andamento");
+    }
+
+    // Dispara o workflow via RPC (le GITHUB_DISPATCH_TOKEN do Vault server-side).
     const { data: requestId, error } = await service.rpc("disparar_workflow_gmail");
     if (error) {
       throw new HttpError(502, "gmail_dispatch_failed", "falha ao acionar a coleta do Gmail");
