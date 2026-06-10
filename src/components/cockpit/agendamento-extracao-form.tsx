@@ -142,14 +142,11 @@ export function AgendamentoExtracaoForm({ initial }: { initial: AgendamentoExtra
           />
           <div className="t">
             Extração automática ligada
-            <small>
-              {ativo
-                ? "Drenando a fila automaticamente na cadência abaixo."
-                : "Extração automática pausada (somente disparo manual)."}
-            </small>
           </div>
         </label>
 
+        {ativo && (
+          <>
         <div className="grid-fields">
           <div className="field">
             <label htmlFor="age-freq">Frequência</label>
@@ -164,7 +161,7 @@ export function AgendamentoExtracaoForm({ initial }: { initial: AgendamentoExtra
           </div>
 
           <div className={cn("field", errors.horarioReferencia && "invalid")}>
-            <label htmlFor="age-hora">Horário (fuso de Brasília)</label>
+            <label htmlFor="age-hora">Horário</label>
             <input
               type="time"
               id="age-hora"
@@ -178,7 +175,7 @@ export function AgendamentoExtracaoForm({ initial }: { initial: AgendamentoExtra
             <div className="helper">
               {frequencia === "horaria"
                 ? "Na frequência horária, apenas os minutos são usados."
-                : "Horário local (America/São_Paulo); o substrato converte para UTC."}
+                : "Horário local (America/São_Paulo)."}
             </div>
           </div>
         </div>
@@ -216,6 +213,8 @@ export function AgendamentoExtracaoForm({ initial }: { initial: AgendamentoExtra
             </div>
             <div className="helper">De 1 a 28 (evita meses sem o dia 29/30/31).</div>
           </div>
+        )}
+          </>
         )}
 
         <div className="form-foot" style={{ marginTop: 22 }}>
