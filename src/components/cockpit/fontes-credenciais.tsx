@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type RefObject } from "react";
+import { useRef, useState } from "react";
 import { HardDrive, Mail, X } from "lucide-react";
 import { CredForm, type CredFormSource } from "@/components/cockpit/cred-form";
 import { CfgForm } from "@/components/cockpit/cfg-form";
@@ -75,6 +75,9 @@ const NOMUS_SOURCE: CredFormSource = {
   avatar: "No",
   tipoLabel: "API REST",
 };
+
+/** Qual painel de fonte esta aberto (accordion: um por vez ou nenhum). */
+type PainelFonte = "effecti" | "nomus" | "drive" | "gmail" | null;
 
 const EFFECTI_PANEL = "painel-config-fonte";
 const NOMUS_PANEL = "painel-config-fonte-nomus";
@@ -223,55 +226,53 @@ export function FontesCredenciais({
   gmailLabels: GmailLabelState[];
   gmailFonteId: string | null;
 }) {
-  const [effectiAberto, setEffectiAberto] = useState(false);
-  const [nomusAberto, setNomusAberto] = useState(false);
+  // Accordion: um unico painel aberto por vez. Abrir um card fecha o anterior,
+  // evitando varios paineis empilhados abaixo da grade.
+  const [aberto, setAberto] = useState<PainelFonte>(null);
   // Estado "alteracoes nao salvas" do CfgForm, subido para o bloco de coleta
   // manual do Effecti avisar antes de disparar com config pendente.
   const [effectiCfgDirty, setEffectiCfgDirty] = useState(false);
-  const [driveAberto, setDriveAberto] = useState(false);
-  const [gmailAberto, setGmailAberto] = useState(false);
-  const effectiRef = useRef<HTMLDivElement | null>(null);
-  const nomusRef = useRef<HTMLDivElement | null>(null);
-  const driveRef = useRef<HTMLDivElement | null>(null);
-  const gmailRef = useRef<HTMLDivElement | null>(null);
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
-  function toggle(
-    setter: React.Dispatch<React.SetStateAction<boolean>>,
-    ref: RefObject<HTMLDivElement | null>,
-  ) {
-    setter((v) => {
-      const next = !v;
-      if (next) {
-        // aguarda a montagem do painel antes de rolar ate ele
+  function toggle(painel: NonNullable<PainelFonte>) {
+    setAberto((atual) => {
+      if (atual === painel) {
+        // fechar: volta a rolagem para a grade de cards
         setTimeout(() => {
-          ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          gridRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 0);
+        return null;
       }
-      return next;
+      // abrir (ou trocar): aguarda a montagem do painel antes de rolar ate ele
+      setTimeout(() => {
+        panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 0);
+      return painel;
     });
   }
 
   return (
     <>
-      <div className="grid-dlh g2" style={{ gap: 24, marginTop: 24 }}>
+      <div ref={gridRef} className="grid-dlh g2" style={{ gap: 24, marginTop: 24 }}>
         <CredForm
           fonte={effecti}
-          configAberto={effectiAberto}
-          onConfigurar={() => toggle(setEffectiAberto, effectiRef)}
+          configAberto={aberto === "effecti"}
+          onConfigurar={() => toggle("effecti")}
           configPanelId={EFFECTI_PANEL}
         />
         <CredForm
           fonte={nomus}
           source={NOMUS_SOURCE}
-          configAberto={nomusAberto}
-          onConfigurar={() => toggle(setNomusAberto, nomusRef)}
+          configAberto={aberto === "nomus"}
+          onConfigurar={() => toggle("nomus")}
           configPanelId={NOMUS_PANEL}
         />
         <DriveCard
           pastas={drivePastas}
           conta={driveConta}
-          configAberto={driveAberto}
-          onConfigurar={() => toggle(setDriveAberto, driveRef)}
+          configAberto={aberto === "drive"}
+          onConfigurar={() => toggle("drive")}
           configPanelId={DRIVE_PANEL}
         />
         <GmailCard
@@ -279,19 +280,15 @@ export function FontesCredenciais({
           config={gmailConfig}
           labels={gmailLabels}
           agendamento={gmailAgendamento}
-          configAberto={gmailAberto}
-          onConfigurar={() => toggle(setGmailAberto, gmailRef)}
+          configAberto={aberto === "gmail"}
+          onConfigurar={() => toggle("gmail")}
           configPanelId={GMAIL_PANEL}
         />
       </div>
 
-      {effectiAberto && (
-        <div id={EFFECTI_PANEL} className="form-card cfg-panel" ref={effectiRef}>
-          <ConfigPanelHeader
-            avatar="Ef"
-            nome="Effecti"
-            onClose={() => toggle(setEffectiAberto, effectiRef)}
-          />
+      {aberto === "effecti" && (
+        <div id={EFFECTI_PANEL} className="form-card cfg-panel" ref={panelRef}>
+          <ConfigPanelHeader avatar="Ef" nome="Effecti" onClose={() => toggle("effecti")} />
           <AgendamentoFonteForm initial={effectiAgendamento} />
           <EffectiDisparoForm fonteId={effecti.id} configDirty={effectiCfgDirty} />
           <CfgForm
@@ -302,36 +299,28 @@ export function FontesCredenciais({
         </div>
       )}
 
-      {nomusAberto && (
-        <div id={NOMUS_PANEL} className="form-card cfg-panel" ref={nomusRef}>
-          <ConfigPanelHeader
-            avatar="No"
-            nome="Nomus"
-            onClose={() => toggle(setNomusAberto, nomusRef)}
-          />
+      {aberto === "nomus" && (
+        <div id={NOMUS_PANEL} className="form-card cfg-panel" ref={panelRef}>
+          <ConfigPanelHeader avatar="No" nome="Nomus" onClose={() => toggle("nomus")} />
           <NomusCfgForm agendamento={nomusAgendamento} fonteId={nomus.id} />
         </div>
       )}
 
-      {driveAberto && (
-        <div id={DRIVE_PANEL} className="form-card cfg-panel" ref={driveRef}>
+      {aberto === "drive" && (
+        <div id={DRIVE_PANEL} className="form-card cfg-panel" ref={panelRef}>
           <ConfigPanelHeader
             avatar="Dr"
             nome="Google Drive"
             subtitle="Pastas administradas para extração de documentos."
-            onClose={() => toggle(setDriveAberto, driveRef)}
+            onClose={() => toggle("drive")}
           />
           <DrivePastasForm initial={drivePastas} />
         </div>
       )}
 
-      {gmailAberto && (
-        <div id={GMAIL_PANEL} className="form-card cfg-panel" ref={gmailRef}>
-          <ConfigPanelHeader
-            avatar="Gm"
-            nome="Gmail"
-            onClose={() => toggle(setGmailAberto, gmailRef)}
-          />
+      {aberto === "gmail" && (
+        <div id={GMAIL_PANEL} className="form-card cfg-panel" ref={panelRef}>
+          <ConfigPanelHeader avatar="Gm" nome="Gmail" onClose={() => toggle("gmail")} />
           <AgendamentoFonteForm initial={gmailAgendamento} />
           <GmailDisparoForm fonteId={gmailFonteId} />
           <GmailConfigForm config={gmailConfig} labels={gmailLabels} />

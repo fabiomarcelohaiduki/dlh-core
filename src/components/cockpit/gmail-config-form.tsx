@@ -89,6 +89,10 @@ export function GmailConfigForm({
   const [labelFeedback, setLabelFeedback] = useState<Feedback | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  const salvas = config.categoriasExcluidas ?? [];
+  const catDirty =
+    categorias.length !== salvas.length || categorias.some((c) => !salvas.includes(c));
+
   const dataForm = useForm<DataValues>({
     resolver: zodResolver(dataSchema),
     defaultValues: { dataInicial: config.dataInicial ?? "" },
@@ -110,19 +114,20 @@ export function GmailConfigForm({
     }
   }
 
-  async function onToggleCategoria(slug: CategoriaGmail) {
-    const next = categorias.includes(slug)
-      ? categorias.filter((c) => c !== slug)
-      : [...categorias, slug];
-    const anterior = categorias;
-    setCategorias(next);
+  function onToggleCategoria(slug: CategoriaGmail) {
+    setCatFeedback(null);
+    setCategorias((prev) =>
+      prev.includes(slug) ? prev.filter((c) => c !== slug) : [...prev, slug],
+    );
+  }
+
+  async function onSalvarCategorias() {
     setCatFeedback(null);
     try {
-      await salvarCategorias.mutateAsync(next);
+      await salvarCategorias.mutateAsync(categorias);
       setCatFeedback({ kind: "ok", message: "Categorias salvas · valem na próxima coleta." });
       router.refresh();
     } catch (err) {
-      setCategorias(anterior);
       setCatFeedback({ kind: "err", message: mensagemErro(err) });
     }
   }
@@ -153,6 +158,10 @@ export function GmailConfigForm({
   }
 
   async function onRemoveLabel(l: GmailLabelState) {
+    const ok = window.confirm(
+      `Remover a label "${l.nome}" da blacklist? Os e-mails com essa label voltam a ser coletados.`,
+    );
+    if (!ok) return;
     setLabelFeedback(null);
     setBusyId(l.id);
     try {
@@ -221,11 +230,22 @@ export function GmailConfigForm({
           );
         })}
       </div>
-      {catFeedback && (
-        <div className="form-foot" style={{ marginTop: 10 }}>
-          <SaveNote feedback={catFeedback} />
-        </div>
-      )}
+      <div className="form-foot" style={{ marginTop: 13 }}>
+        <button
+          className="btn btn-primary"
+          type="button"
+          onClick={onSalvarCategorias}
+          disabled={salvarCategorias.isPending || !catDirty}
+        >
+          {salvarCategorias.isPending ? (
+            <Loader2 className="spin" aria-hidden="true" />
+          ) : (
+            <Check aria-hidden="true" />
+          )}
+          <span>{salvarCategorias.isPending ? "Salvando…" : "Salvar categorias"}</span>
+        </button>
+        {catFeedback && <SaveNote feedback={catFeedback} />}
+      </div>
 
       <div className="section-title" style={{ margin: "24px 0 13px" }}>
         <h3>Labels excluídas da coleta</h3>

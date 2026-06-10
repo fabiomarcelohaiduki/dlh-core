@@ -77,6 +77,10 @@ export function DrivePastasForm({ initial }: { initial: DrivePastaState[] }) {
   }
 
   async function onRemove(pasta: DrivePastaState) {
+    const ok = window.confirm(
+      `Remover a pasta "${pasta.nome}" do cadastro? Ela deixa de ser varrida nas próximas extrações.`,
+    );
+    if (!ok) return;
     setFeedback(null);
     setBusyId(pasta.id);
     try {

@@ -71,7 +71,7 @@ export function EffectiDisparoForm({
             ) : (
               <RefreshCw aria-hidden="true" />
             )}
-            <span>{coleta.isPending ? "Disparando…" : "Executar coleta agora"}</span>
+            <span>{coleta.isPending ? "Disparando…" : "Coletar avisos agora"}</span>
           </button>
 
           {running ? (
