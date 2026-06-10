@@ -13,6 +13,14 @@
 // sessao autorizada (requireAuthorizedUser) + audit. A chamada a GitHub API
 // roda server-side via RPC disparar_workflow_gmail (le o GITHUB_DISPATCH_TOKEN
 // do Vault). Responde 202 (aceito; o workflow roda async).
+//
+// ANTI-DUPLO-DISPARO em DUAS camadas (a coleta nasce no runner do Actions, nao
+// no banco -> a execucao so existe ~60s depois do dispatch):
+//   (1) tabela execucoes em_andamento (pega quando o runner ja abriu a coleta);
+//   (2) GitHub API por runs ativos do coletar-gmail.yml (pega a JANELA de setup
+//       do runner — o run aparece como queued no instante do dispatch). Fecha o
+//       buraco em que um 2o clique enfileirava um run redundante. Degrada
+//       gracioso: se a API/token falhar, segue so com a camada (1).
 // =====================================================================
 
 import { handleCorsPreflight } from "../_shared/cors.ts";
@@ -22,6 +30,36 @@ import { requireAuthorizedUser } from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 import { getFonteByTipo } from "../_shared/vault.ts";
+
+const GMAIL_RUNS_URL =
+  "https://api.github.com/repos/fabiomarcelohaiduki/dlh-core/actions/workflows/coletar-gmail.yml/runs?per_page=10";
+
+/**
+ * True quando ha um run do coletar-gmail.yml ainda ATIVO (status != completed:
+ * queued|in_progress|waiting|...). Cobre a janela em que o runner ainda nao
+ * registrou a execucao no banco. Best-effort: qualquer falha (token ausente,
+ * GitHub fora, parse) retorna false -> nao bloqueia (cai na camada de execucoes).
+ */
+async function gmailRunAtivo(service: ReturnType<typeof createServiceClient>): Promise<boolean> {
+  try {
+    const { data: token, error } = await service.rpc("github_dispatch_token");
+    if (error || typeof token !== "string" || !token) return false;
+    const res = await fetch(GMAIL_RUNS_URL, {
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "dlh-core",
+      },
+    });
+    if (!res.ok) return false;
+    const json = await res.json();
+    const runs = Array.isArray(json?.workflow_runs) ? json.workflow_runs : [];
+    return runs.some((r: { status?: string }) => typeof r?.status === "string" && r.status !== "completed");
+  } catch (_) {
+    return false;
+  }
+}
 
 async function handler(req: Request): Promise<Response> {
   const preflight = handleCorsPreflight(req);
@@ -35,10 +73,7 @@ async function handler(req: Request): Promise<Response> {
 
     const service = createServiceClient();
 
-    // Guard anti-duplo-disparo POR FONTE (espelha Nomus/Effecti): recusa com 409
-    // ANTES de gastar um run do Actions quando ja ha coleta do Gmail em
-    // andamento. O lock-por-fonte do gmail-execucao tambem barraria, mas so
-    // depois do runner subir (sem feedback no painel).
+    // Camada (1): execucao em_andamento no banco (runner ja registrou a coleta).
     const fonte = await getFonteByTipo("gmail");
     const { data: emAndamento, error: andamentoError } = await service
       .from("execucoes")
@@ -50,6 +85,12 @@ async function handler(req: Request): Promise<Response> {
       throw new HttpError(500, "execucao_query_failed", "falha ao verificar execucoes em andamento");
     }
     if (emAndamento && emAndamento.length > 0) {
+      throw new HttpError(409, "execucao_em_andamento", "ja ha uma coleta do Gmail em andamento");
+    }
+
+    // Camada (2): run do Actions ainda ativo (janela de setup do runner, antes
+    // de a execucao nascer no banco). Fecha o duplo-disparo por clique rapido.
+    if (await gmailRunAtivo(service)) {
       throw new HttpError(409, "execucao_em_andamento", "ja ha uma coleta do Gmail em andamento");
     }
 
