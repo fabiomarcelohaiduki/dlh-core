@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Check, History, Loader2, Play, TriangleAlert } from "lucide-react";
 import { useDispararNomus } from "@/hooks/use-admin";
+import { useExecucoes } from "@/hooks/use-monitoring";
+import { hasRunningExecucao } from "@/lib/status";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import type { NomusModo } from "@/lib/api/types";
@@ -35,6 +37,11 @@ export function NomusDisparoForm({
   const janelaFrase =
     janelaDias != null ? `dos últimos ${janelaDias} dias` : "da janela configurada";
   const disparar = useDispararNomus();
+  const execucoes = useExecucoes({ limit: 50 });
+  // Trava os botoes enquanto ja ha coleta do Nomus rodando (evita queimar um
+  // run do Actions que so falharia com 409 no primeiro push). Alinha o Nomus
+  // ao comportamento do Effecti; o 409 do Edge segue como rede de seguranca.
+  const running = hasRunningExecucao(execucoes.data?.items, "nomus");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   // Modo em voo: trava ambos os botoes e mostra o spinner so no acionado.
   const [emVoo, setEmVoo] = useState<NomusModo | null>(null);
@@ -67,7 +74,7 @@ export function NomusDisparoForm({
     }
   }
 
-  const ocupado = emVoo !== null;
+  const ocupado = emVoo !== null || running;
 
   return (
     <>
@@ -127,7 +134,12 @@ export function NomusDisparoForm({
             </button>
           )}
 
-          {feedback && (
+          {running ? (
+            <span className="action-hint">
+              <Loader2 className="spin" aria-hidden="true" />
+              Coleta em andamento; aguarde a conclusão.
+            </span>
+          ) : feedback ? (
             <span className={cn("save-note", feedback.kind === "err" && "err")}>
               {feedback.kind === "err" ? (
                 <TriangleAlert aria-hidden="true" />
@@ -136,7 +148,7 @@ export function NomusDisparoForm({
               )}
               {feedback.message}
             </span>
-          )}
+          ) : null}
         </div>
 
         {confirmandoFull && (

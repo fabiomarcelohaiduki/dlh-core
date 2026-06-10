@@ -142,10 +142,15 @@ export function hasRunningExecucao(
   items: Execucao[] | undefined,
   origem?: string,
 ): boolean {
+  // Compara pela origem NORMALIZADA: a coleta do Effecti grava origem=null
+  // (legado), entao `e.origem === "effecti"` cru nunca casaria e o botao nao
+  // travava. normalizeOrigem mapeia null/'aviso' -> effecti e 'processo-*' -> nomus.
+  const alvo = origem == null ? null : normalizeOrigem(origem);
   return Boolean(
     items?.some(
       (e) =>
-        e.status === "em_andamento" && (origem == null || e.origem === origem),
+        e.status === "em_andamento" &&
+        (alvo == null || normalizeOrigem(e.origem) === alvo),
     ),
   );
 }
