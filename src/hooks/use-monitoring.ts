@@ -4,6 +4,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type Query,
   type QueryKey,
 } from "@tanstack/react-query";
 import {
@@ -12,6 +13,17 @@ import {
   fetchExecucoes,
   fetchHealthcheck,
 } from "@/lib/api/monitoring";
+import type { ExecucoesResponse } from "@/lib/api/types";
+
+/**
+ * refetchInterval da lista de execucoes: aceita numero fixo, false ou a forma
+ * de funcao do TanStack — esta ultima recebe a query e devolve o intervalo a
+ * partir do estado ja carregado (ex: poll so enquanto houver coleta ativa).
+ */
+type ExecucoesRefetch =
+  | number
+  | false
+  | ((query: Query<ExecucoesResponse>) => number | false);
 
 /** Chaves de cache centralizadas (compartilhadas com o Realtime). */
 export const monitoringKeys = {
@@ -34,7 +46,7 @@ export function useHealthcheck(options?: { refetchInterval?: number | false }) {
 /** useExecucoes — historico de execucoes (GET /ingestao/execucoes?limit). */
 export function useExecucoes(options?: {
   limit?: number;
-  refetchInterval?: number | false;
+  refetchInterval?: ExecucoesRefetch;
 }) {
   const limit = options?.limit ?? 50;
   return useQuery({

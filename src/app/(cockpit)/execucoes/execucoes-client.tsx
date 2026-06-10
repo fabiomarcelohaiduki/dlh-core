@@ -24,6 +24,8 @@ import { cn } from "@/lib/utils";
 const PAGE_SIZE = 25;
 /** Intervalo de fallback (refetch) quando o Realtime esta indisponivel. */
 const FALLBACK_POLL_MS = 5000;
+/** Poll rapido enquanto ha coleta em andamento (independe do Realtime). */
+const RUNNING_POLL_MS = 3000;
 
 /** Recursos distintos presentes na lista (origem-aware) para o RecursoFiltro. */
 function recursosDisponiveis(items: Execucao[]): string[] {
@@ -46,8 +48,14 @@ export function ExecucoesClient() {
 
   const execucoes = useExecucoes({
     limit,
-    // Sem Realtime -> poll periodico, preservando o estado processing do banco.
-    refetchInterval: connected ? false : FALLBACK_POLL_MS,
+    // Rede de seguranca: enquanto houver coleta em andamento, faz poll rapido
+    // INDEPENDENTE do Realtime (a subscription pode chegar stale ou perder
+    // eventos). Parado, so faz poll lento quando o Realtime nao esta conectado.
+    refetchInterval: (query) => {
+      const items = query.state.data?.items ?? [];
+      if (items.some((r) => r.status === "em_andamento")) return RUNNING_POLL_MS;
+      return connected ? false : FALLBACK_POLL_MS;
+    },
   });
 
   const coletar = useColetar();
@@ -108,7 +116,7 @@ export function ExecucoesClient() {
           <OrigemFiltro value={origem} onChange={setOrigem} />
           <RecursoFiltro recursos={recursos} value={recurso} onChange={setRecurso} />
           <div
-            className={cn("conn", !connected && "reconnecting")}
+            className={cn("conn", connected ? "ok" : "reconnecting")}
             role="status"
             aria-live="polite"
           >
