@@ -191,6 +191,8 @@ interface RecursoFloor {
   idInicial: number | null;
   /** Corte por data de criacao 'YYYY-MM-DD' (>= data). */
   dataInicial: string | null;
+  /** Janela deslizante em dias (full): registrada na execucao p/ a coluna JANELA. */
+  janelaDias: number | null;
 }
 
 /** Data de hoje (UTC) menos N dias, 'YYYY-MM-DD'. Base da janela DESLIZANTE. */
@@ -242,7 +244,7 @@ async function loadFloor(
   const slidingData = janelaDias !== null ? isoDateMinusDays(janelaDias) : null;
 
   // Prioridade: janela deslizante > data_inicial fixo do recurso > top-level legado.
-  return { idInicial, dataInicial: slidingData ?? recData ?? topData };
+  return { idInicial, dataInicial: slidingData ?? recData ?? topData, janelaDias };
 }
 
 interface ExecCounters {
@@ -415,6 +417,10 @@ async function handler(req: Request): Promise<Response> {
       return jsonResponse(body, 200);
     }
 
+    // Janela do recurso (corte + janela deslizante). Carregada aqui para que a
+    // criacao da execucao registre `janela_dias` (coluna JANELA das telas).
+    const floor = await loadFloor(service, fonte.id, recurso);
+
     // -----------------------------------------------------------------
     // Resolve a execucao: continua a existente ou cria uma nova (1o lote).
     // -----------------------------------------------------------------
@@ -474,6 +480,9 @@ async function handler(req: Request): Promise<Response> {
           alterados: 0,
           status: "em_andamento",
           etapa_atual: "coleta",
+          // FULL grava a janela deslizante (full envia `pagina`); incremental
+          // (watermark, sem `pagina`) fica null -> coluna JANELA exibe '—'.
+          janela_dias: input.pagina !== undefined ? floor.janelaDias : null,
           total_processar: 0,
           processados_sucesso: 0,
           processados_erro: 0,
@@ -492,7 +501,6 @@ async function handler(req: Request): Promise<Response> {
     // Processa o LOTE recebido (trabalho limitado por invocacao).
     // -----------------------------------------------------------------
     const tiposAtivos = await loadTiposAtivos(service, fonte.id, recurso);
-    const floor = await loadFloor(service, fonte.id, recurso);
     const env = getEnv();
     const embeddingProvider = env.embeddingsEndpoint ? createEmbeddingProvider() : undefined;
     const ctx: PersistContext = { execucaoId, recurso, tiposAtivos, embeddingProvider };
