@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { ExtracaoConfigForm } from "@/components/cockpit/extracao-config-form";
 import { AgendamentoExtracaoForm } from "@/components/cockpit/agendamento-extracao-form";
+import { ExtracaoDisparoForm } from "@/components/cockpit/extracao-disparo-form";
 import type {
   AgendamentoExtracaoState,
   ConfigExtracaoState,
@@ -118,6 +119,8 @@ export default async function ExtracaoConfigPage() {
       </div>
 
       <AgendamentoExtracaoForm initial={agendamentoExtracao} />
+
+      <ExtracaoDisparoForm />
 
       <ExtracaoConfigForm initial={configExtracao} />
     </section>
