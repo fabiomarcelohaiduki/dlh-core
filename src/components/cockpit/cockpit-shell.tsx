@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { Sidebar } from "@/components/cockpit/sidebar";
 import { Topbar } from "@/components/cockpit/topbar";
+import type { FonteConexao } from "@/lib/status";
 
 const COLLAPSE_KEY = "dlh-sidebar-collapsed";
 
@@ -15,10 +16,12 @@ const COLLAPSE_KEY = "dlh-sidebar-collapsed";
 export function CockpitShell({
   user,
   badges,
+  conexoes,
   children,
 }: {
   user: { email: string };
   badges?: Partial<Record<"erros", number>>;
+  conexoes?: FonteConexao[];
   children: ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -53,7 +56,7 @@ export function CockpitShell({
         onToggleCollapse={toggleCollapse}
       />
       <main className="main">
-        <Topbar onMenu={() => setMenuOpen((v) => !v)} />
+        <Topbar onMenu={() => setMenuOpen((v) => !v)} conexoes={conexoes} />
         {children}
       </main>
     </div>

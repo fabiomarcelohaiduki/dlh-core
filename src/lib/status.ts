@@ -166,3 +166,22 @@ export function conexaoDescriptor(estado: EstadoConexao): PillDescriptor {
       return { state: "idle", label: "Não configurada" };
   }
 }
+
+/** Estado de conexao por fonte para o indicador global do topbar. */
+export interface FonteConexao {
+  tipo: "effecti" | "nomus" | "drive" | "gmail";
+  label: string;
+  state: PillState;
+}
+
+/**
+ * Cor da conexao no topbar. 'erro' explicito vence (vermelho); fonte conectada
+ * — credencial presente (Effecti/Nomus) ou conta OAuth ligada (Drive/Gmail) —
+ * fica verde; sem configuracao cai em cinza. Espelha a semantica do antigo
+ * "Effecti · conectado" (configurada = conectada).
+ */
+export function conexaoFonteState(estado: string | null, conectado: boolean): PillState {
+  if (estado === "erro") return "err";
+  if (conectado) return "ok";
+  return "idle";
+}

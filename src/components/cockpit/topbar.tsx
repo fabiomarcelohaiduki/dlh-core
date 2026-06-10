@@ -3,8 +3,8 @@
 import { usePathname } from "next/navigation";
 import { Menu, ChevronRight } from "lucide-react";
 import { SCREEN_TITLES } from "@/lib/nav";
-import { useConexoesFontes } from "@/hooks/use-fontes";
 import { cn } from "@/lib/utils";
+import type { FonteConexao } from "@/lib/status";
 
 /** Rotulo acessivel do estado de conexao por cor. */
 const ESTADO_LABEL: Record<string, string> = {
@@ -24,10 +24,15 @@ function currentTitle(pathname: string | null): string {
   return match ? SCREEN_TITLES[match] : "Cockpit";
 }
 
-export function Topbar({ onMenu }: { onMenu: () => void }) {
+export function Topbar({
+  onMenu,
+  conexoes = [],
+}: {
+  onMenu: () => void;
+  conexoes?: FonteConexao[];
+}) {
   const pathname = usePathname();
   const title = currentTitle(pathname);
-  const conexoes = useConexoesFontes();
 
   return (
     <header className="topbar">
@@ -41,7 +46,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
       </div>
       <div className="right">
         <div className="conns">
-          {(conexoes.data ?? []).map((c) => (
+          {conexoes.map((c) => (
             <div
               key={c.tipo}
               className={cn("conn", c.state)}
