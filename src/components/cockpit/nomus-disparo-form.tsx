@@ -39,7 +39,10 @@ export function NomusDisparoForm({
   const janelaFrase =
     janelaDias != null ? `dos últimos ${janelaDias} dias` : "da janela configurada";
   const disparar = useDispararNomus();
-  const execucoes = useExecucoes({ limit: 50 });
+  // Poll a cada 5s enquanto o painel esta aberto: a coleta roda assincrona no
+  // runner (e pode iniciar pelo agendamento), entao o bloqueio precisa detectar
+  // o estado em tempo (quase) real, nao so no 1o fetch.
+  const execucoes = useExecucoes({ limit: 50, refetchInterval: 5000 });
   // Trava os botoes enquanto ja ha coleta desta fonte rodando (evita queimar um
   // run do Actions que so falharia com 409 no primeiro push). Alinha o Nomus
   // ao comportamento do Effecti; o 409 do Edge segue como rede de seguranca.

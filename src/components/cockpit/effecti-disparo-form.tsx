@@ -27,7 +27,10 @@ export function EffectiDisparoForm({
   configDirty: boolean;
 }) {
   const coleta = useColetaDemanda();
-  const execucoes = useExecucoes({ limit: 50 });
+  // Poll a cada 5s enquanto o painel esta aberto: a coleta pode iniciar pelo
+  // agendamento/runner (sem passar por este botao), entao o bloqueio precisa
+  // detectar o estado em tempo (quase) real, nao so no 1o fetch.
+  const execucoes = useExecucoes({ limit: 50, refetchInterval: 5000 });
   const running = hasRunningExecucao(execucoes.data?.items, fonteId);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
 

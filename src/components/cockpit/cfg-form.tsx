@@ -90,7 +90,9 @@ export function CfgForm({
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const salvar = useSalvarConfig();
-  const execucoes = useExecucoes({ limit: 50 });
+  // Poll a cada 5s enquanto o painel esta aberto para refletir coleta iniciada
+  // por agendamento/runner; o Salvar trava enquanto a coleta desta fonte roda.
+  const execucoes = useExecucoes({ limit: 50, refetchInterval: 5000 });
 
   const running = hasRunningExecucao(execucoes.data?.items, fonteId);
 

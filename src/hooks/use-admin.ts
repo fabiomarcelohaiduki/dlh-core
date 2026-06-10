@@ -99,6 +99,9 @@ export function useDispararNomus() {
       dispararNomus(modo, recurso),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: monitoringKeys.healthcheck });
+      // Revalida as execucoes para o botao travar assim que o runner registra
+      // a coleta em andamento (o anti-duplo-disparo depende dessa lista).
+      queryClient.invalidateQueries({ queryKey: monitoringKeys.execucoesRoot });
     },
   });
 }
