@@ -47,8 +47,9 @@ export function healthMeta(status: StatusIngestao): { tone: "up" | "warn" | "err
 }
 
 /**
- * Execucao: deriva o pill a partir de `status` (e contagens). Concluida sem
- * novos vira warn ("sem novos"), preservando a semantica do artifact.
+ * Execucao: deriva o pill a partir de `status`. Toda execucao concluida e
+ * sucesso -> verde, mesmo sem novos/alterados (re-coletar e nao achar novidade
+ * e o caso normal, nao um aviso).
  */
 export function execucaoDescriptor(execucao: Execucao): PillDescriptor {
   switch (execucao.status) {
@@ -57,15 +58,6 @@ export function execucaoDescriptor(execucao: Execucao): PillDescriptor {
     case "erro":
       return { state: "err", label: "Com erro" };
     case "concluida":
-      // Drive e so descoberta de vinculos (sem 'alterados'); re-descobrir
-      // arquivos ja vistos (novos=0) e o caso normal, nao um aviso -> verde.
-      if (
-        normalizeOrigem(execucao.origem) !== "drive" &&
-        execucao.novos === 0 &&
-        execucao.alterados === 0
-      ) {
-        return { state: "warn", label: "Concluída · sem novos" };
-      }
       return { state: "ok", label: "Concluída" };
     default:
       return { state: "idle", label: execucao.status || "—" };
