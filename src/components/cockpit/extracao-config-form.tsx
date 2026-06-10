@@ -164,7 +164,7 @@ export function ExtracaoConfigForm({ initial }: { initial: ConfigExtracaoState }
           <p>
             Documentos nativos (PDF/Office com texto) são lidos sem OCR. O OCR só entra em
             escaneados; PDFs grandes escaneados podem estourar o timeout e ficar como erro
-            (acompanhe na tela de Extração, em Monitoramento).
+            (acompanhe na tela de Extração).
           </p>
         </div>
       </div>
