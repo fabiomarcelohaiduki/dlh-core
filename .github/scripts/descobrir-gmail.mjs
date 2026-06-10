@@ -139,13 +139,13 @@ async function abrirExecucao() {
 }
 
 /** Fecha a execucao (status final + contagens). Best-effort: nao derruba o run. */
-async function fecharExecucao(execId, status, total, sucesso, erro) {
+async function fecharExecucao(execId, status, total, sucesso, erro, novos = 0) {
   if (!execId) return;
   try {
     const res = await fetch(EXECUCAO_URL, {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ action: "fechar", execucao_id: execId, status, total, sucesso, erro }),
+      body: JSON.stringify({ action: "fechar", execucao_id: execId, status, total, sucesso, erro, novos }),
     });
     if (!res.ok) {
       console.error(`AVISO: gmail-execucao (fechar) falhou (${res.status}): ${(await res.text()).slice(0, 200)}`);
@@ -255,7 +255,9 @@ async function main() {
     console.log(
       `Descoberta Gmail concluida. Mensagens=${processadas}, itens=${itens.length}, novos=${inseridos}.`,
     );
-    await fecharExecucao(execId, "concluida", itens.length, inseridos, 0);
+    // Todos os itens foram varridos/enfileirados -> processados = total (barra
+    // 100% na conclusao). `novos` = itens ineditos apos dedup da fila.
+    await fecharExecucao(execId, "concluida", itens.length, itens.length, 0, inseridos);
   } catch (err) {
     // Fecha a execucao como 'erro' antes de propagar (libera o lock-por-fonte).
     await fecharExecucao(execId, "erro", 0, 0, 0);

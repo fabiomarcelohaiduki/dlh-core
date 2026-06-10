@@ -159,6 +159,7 @@ async function fechar(
   total: number,
   sucesso: number,
   erro: number,
+  novos: number,
 ): Promise<Response> {
   const { error: updError } = await service
     .from("execucoes")
@@ -169,6 +170,10 @@ async function fechar(
       total_processar: total,
       processados_sucesso: sucesso,
       processados_erro: erro,
+      // `novos` = itens ineditos enfileirados (apos dedup da fila). A descoberta
+      // Gmail nao ingere documentos, entao `alterados` segue 0; sem este campo
+      // a execucao caia sempre em "sem novos" mesmo tendo enfileirado itens.
+      novos,
       pendentes: 0,
     })
     .eq("id", execucaoId);
@@ -231,6 +236,7 @@ async function handler(req: Request): Promise<Response> {
         toInt(input.total),
         toInt(input.sucesso),
         toInt(input.erro),
+        toInt(input.novos),
       );
     }
 

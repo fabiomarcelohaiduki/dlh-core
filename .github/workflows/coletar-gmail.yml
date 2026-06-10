@@ -28,6 +28,10 @@ on:
         description: "Teto de mensagens varridas no teste (vazio = sem teto). Use 1 para validar um unico email."
         type: string
         required: false
+      gatilho:
+        description: "Origem do disparo (manual|agendada). A RPC disparar_workflow_gmail manda 'manual' no clique do card; o agendamento omite -> default 'agendada'."
+        type: string
+        required: false
 
 # Coleta do Gmail isolada: nao compartilha fila de execucao com a extracao nem
 # com as outras fontes (Nomus/Effecti tem os seus). Duas coletas do Gmail nao
@@ -59,6 +63,7 @@ jobs:
           CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
           GMAIL_QUERY: ${{ github.event.inputs.gmail_query }}
           GMAIL_MAX: ${{ github.event.inputs.gmail_max }}
+          GMAIL_GATILHO: ${{ github.event.inputs.gatilho }}
         run: node .github/scripts/descobrir-gmail.mjs
 
       # Cleanup: se o run for CANCELADO no meio, o Node acima morre por sinal e

@@ -95,7 +95,10 @@ async function handler(req: Request): Promise<Response> {
     }
 
     // Dispara o workflow via RPC (le GITHUB_DISPATCH_TOKEN do Vault server-side).
-    const { data: requestId, error } = await service.rpc("disparar_workflow_gmail");
+    // Disparo do card => gatilho 'manual' (a tela de execucoes distingue do cron).
+    const { data: requestId, error } = await service.rpc("disparar_workflow_gmail", {
+      p_gatilho: "manual",
+    });
     if (error) {
       throw new HttpError(502, "gmail_dispatch_failed", "falha ao acionar a coleta do Gmail");
     }
