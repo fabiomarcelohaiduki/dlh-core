@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   buscaSemantica,
+  dispararExtracao,
   dispararGmail,
   dispararNomus,
   salvarAgendamentoExtracao,
@@ -122,6 +123,23 @@ export function useDispararGmail() {
       // Revalida as execucoes para o aviso de coleta em andamento aparecer assim
       // que o runner registrar o inicio.
       queryClient.invalidateQueries({ queryKey: monitoringKeys.execucoesRoot });
+    },
+  });
+}
+
+/**
+ * useDispararExtracao — dispara MANUALMENTE a extracao/Drive (POST
+ * extracao-disparar). Aciona o workflow extrair-anexos.yml: descobre as pastas
+ * Drive ativas e drena a fila de documentos (Tika), assincrono no runner. Sem
+ * invalidacao de execucoes (a extracao nao grava linha em execucoes); o resumo
+ * de extracao reflete o progresso quando o runner avanca.
+ */
+export function useDispararExtracao() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => dispararExtracao(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: monitoringKeys.healthcheck });
     },
   });
 }

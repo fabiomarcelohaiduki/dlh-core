@@ -5,11 +5,13 @@ import {
   Check,
   FileText,
   Loader2,
+  Play,
   RefreshCw,
   Search,
   TriangleAlert,
 } from "lucide-react";
 import { useDescobrir, useExtracaoResumo } from "@/hooks/use-documentos";
+import { useDispararExtracao, useDispararGmail } from "@/hooks/use-admin";
 import type { FonteDescoberta } from "@/lib/api/documentos";
 import { ApiError } from "@/lib/api/client";
 import { formatDateTime, formatNumber } from "@/lib/format";
@@ -17,10 +19,29 @@ import { cn } from "@/lib/utils";
 
 type Feedback = { kind: "ok" | "err"; message: string };
 
-/** Rotulo amigavel por fonte (usado em textos da UI). */
-const FONTE_LABEL: Record<FonteDescoberta, string> = {
+/**
+ * As 4 fontes do painel, com o modo de acao de cada uma:
+ *  - 'descobrir' (Nomus/Effecti): descoberta SQL direta no Edge — enfileira e
+ *    devolve a contagem na hora.
+ *  - 'disparo' (Gmail/Drive): a lista de arquivos vive na API do Google, so o
+ *    runner consegue descobrir. O botao dispara o workflow de coleta/extracao
+ *    correspondente (assincrono na nuvem).
+ */
+type FontePainel = "nomus" | "effecti" | "gmail" | "drive";
+type ModoAcao = "descobrir" | "disparo";
+
+const FONTES: { value: FontePainel; label: string; modo: ModoAcao }[] = [
+  { value: "nomus", label: "Nomus", modo: "descobrir" },
+  { value: "effecti", label: "Effecti", modo: "descobrir" },
+  { value: "gmail", label: "Gmail", modo: "disparo" },
+  { value: "drive", label: "Drive", modo: "disparo" },
+];
+
+const FONTE_LABEL: Record<FontePainel, string> = {
   nomus: "Nomus",
   effecti: "Effecti",
+  gmail: "Gmail",
+  drive: "Drive",
 };
 
 /**
@@ -44,11 +65,14 @@ export function ExtracaoPanel({
 }) {
   const resumo = useExtracaoResumo();
   const descobrir = useDescobrir();
-  const [fonte, setFonte] = useState<FonteDescoberta>("nomus");
+  const dispararGmail = useDispararGmail();
+  const dispararExtracao = useDispararExtracao();
+  const [fonte, setFonte] = useState<FontePainel>("nomus");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
 
-  const pending = descobrir.isPending;
-  // So Nomus depende de credencial; Effecti descobre direto dos avisos do banco.
+  const modo: ModoAcao = FONTES.find((f) => f.value === fonte)?.modo ?? "descobrir";
+  const pending = descobrir.isPending || dispararGmail.isPending || dispararExtracao.isPending;
+  // So Nomus depende de credencial; as demais nao tem esse gate aqui.
   const blocked = fonte === "nomus" && !nomusConfigurado;
   const blockedReason =
     "Cadastre e salve a chave do Nomus (em Fontes e credenciais) antes de descobrir anexos.";
@@ -56,23 +80,46 @@ export function ExtracaoPanel({
   const contagens = resumo.data?.contagens;
   const erros = resumo.data?.erros ?? [];
 
-  async function handleDescobrir() {
+  const actionLabel =
+    modo === "descobrir"
+      ? `Descobrir anexos pendentes · ${FONTE_LABEL[fonte]}`
+      : fonte === "gmail"
+        ? "Coletar Gmail agora"
+        : "Disparar extração · Drive";
+
+  async function handleAcao() {
     if (disabled) return;
     setFeedback(null);
     try {
-      const r = await descobrir.mutateAsync({ fonte });
-      setFeedback({
-        kind: "ok",
-        message:
-          r.inseridos > 0
-            ? `${formatNumber(r.inseridos)} anexo(s) enfileirado(s) para extração.`
-            : "Nenhum anexo novo: a fila já está completa.",
-      });
+      if (fonte === "nomus" || fonte === "effecti") {
+        // Descoberta SQL direta no Edge: enfileira e devolve a contagem na hora.
+        const r = await descobrir.mutateAsync({ fonte: fonte as FonteDescoberta });
+        setFeedback({
+          kind: "ok",
+          message:
+            r.inseridos > 0
+              ? `${formatNumber(r.inseridos)} anexo(s) enfileirado(s) para extração.`
+              : "Nenhum anexo novo: a fila já está completa.",
+        });
+      } else if (fonte === "gmail") {
+        // Gmail: a descoberta acontece na coleta (runner). Dispara o workflow.
+        await dispararGmail.mutateAsync();
+        setFeedback({ kind: "ok", message: "Coleta do Gmail disparada · acompanhe em Execuções." });
+      } else {
+        // Drive: a descoberta acontece dentro da extracao (runner). Dispara o
+        // extrair-anexos, que descobre o Drive e drena a fila.
+        await dispararExtracao.mutateAsync();
+        setFeedback({ kind: "ok", message: "Extração disparada · descobre o Drive e processa a fila." });
+      }
     } catch (err) {
-      const message =
-        err instanceof ApiError && err.status === 422
-          ? "Descoberta indisponível para esta fonte."
-          : "Não foi possível descobrir anexos. Tente novamente.";
+      let message = "Não foi possível executar a ação. Tente novamente.";
+      if (err instanceof ApiError && err.status === 409) {
+        message = "Já há uma coleta/extração em andamento; aguarde a conclusão.";
+      } else if (err instanceof ApiError && err.status === 422 && modo === "descobrir") {
+        message = "Descoberta indisponível para esta fonte.";
+      } else if (err instanceof ApiError && err.status === 502) {
+        message = "Não foi possível acionar o coletor na nuvem. Tente novamente.";
+      }
       setFeedback({ kind: "err", message });
     }
   }
@@ -95,10 +142,6 @@ export function ExtracaoPanel({
         </div>
         <div style={{ flex: 1 }}>
           <b style={{ fontSize: 14.5 }}>Extração de anexos</b>
-          <div style={{ color: "var(--muted)", fontSize: 12 }}>
-            Camada 1: enfileira os anexos e extrai o texto. Nomus e Effecti caem na mesma fila; o
-            conteúdo é processado em segundo plano pelo runner de nuvem.
-          </div>
         </div>
       </div>
 
@@ -111,33 +154,40 @@ export function ExtracaoPanel({
         <StatusChip label="Total" value={contagens?.total} tone="default" loading={resumo.isLoading} />
       </div>
 
-      {/* Acao de descoberta */}
+      {/* Acao de descoberta / disparo por fonte */}
       <div className="action-col">
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
           <select
             value={fonte}
             onChange={(e) => {
-              setFonte(e.target.value as FonteDescoberta);
+              setFonte(e.target.value as FontePainel);
               setFeedback(null);
             }}
             disabled={pending}
             aria-label="Fonte dos anexos a descobrir"
           >
-            <option value="nomus">{FONTE_LABEL.nomus}</option>
-            <option value="effecti">{FONTE_LABEL.effecti}</option>
+            {FONTES.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
           </select>
           <button
             type="button"
             className="btn"
-            onClick={handleDescobrir}
+            onClick={handleAcao}
             disabled={disabled}
             aria-disabled={disabled}
             title={blocked ? blockedReason : undefined}
           >
-            {pending ? <Loader2 className="spin" aria-hidden="true" /> : <Search aria-hidden="true" />}
-            <span>
-              {pending ? "Descobrindo…" : `Descobrir anexos pendentes · ${FONTE_LABEL[fonte]}`}
-            </span>
+            {pending ? (
+              <Loader2 className="spin" aria-hidden="true" />
+            ) : modo === "descobrir" ? (
+              <Search aria-hidden="true" />
+            ) : (
+              <Play aria-hidden="true" />
+            )}
+            <span>{pending ? (modo === "descobrir" ? "Descobrindo…" : "Disparando…") : actionLabel}</span>
           </button>
         </div>
 
@@ -161,8 +211,9 @@ export function ExtracaoPanel({
         ) : null}
 
         <div className="helper">
-          Drive e Gmail são descobertos automaticamente durante a coleta; aqui você enfileira
-          manualmente apenas Nomus e Effecti.
+          As 4 fontes já descobrem sozinhas na coleta. Aqui é o disparo manual: Nomus e Effecti
+          enfileiram na hora (descoberta instantânea); Gmail e Drive disparam a coleta/extração na
+          nuvem (a descoberta deles depende do runner).
         </div>
       </div>
 

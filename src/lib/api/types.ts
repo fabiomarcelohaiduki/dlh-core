@@ -446,3 +446,14 @@ export interface DispararGmailResponse {
   ok: boolean;
   requestId: number | null;
 }
+
+/**
+ * POST extracao-disparar -> aciona o workflow extrair-anexos.yml no GitHub
+ * Actions (202). Descobre os anexos das pastas Drive ativas e drena a fila de
+ * documentos (Tika), assincrono no runner. `requestId` e o id da requisicao
+ * pg_net (telemetria).
+ */
+export interface DispararExtracaoResponse {
+  ok: boolean;
+  requestId: number | null;
+}

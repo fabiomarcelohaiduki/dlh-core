@@ -1,6 +1,7 @@
 import { apiFetch } from "@/lib/api/client";
 import type {
   BuscaSemanticaResponse,
+  DispararExtracaoResponse,
   DispararGmailResponse,
   DispararNomusResponse,
   FonteTipo,
@@ -144,6 +145,19 @@ export function dispararNomus(
  */
 export function dispararGmail(): Promise<DispararGmailResponse> {
   return apiFetch<DispararGmailResponse>("gmail-disparar", {
+    method: "POST",
+  });
+}
+
+/**
+ * POST /extracao-disparar — aciona MANUALMENTE a EXTRACAO/Drive pelo painel de
+ * Extracao. O Drive so e descoberto dentro do workflow extrair-anexos.yml (a
+ * lista vive na API do Google), que tambem drena a fila inteira via Tika; por
+ * isso "descobrir Drive" = disparar a extracao. Sem corpo. Responde 202
+ * (aceito); roda assincrona no runner do GitHub Actions.
+ */
+export function dispararExtracao(): Promise<DispararExtracaoResponse> {
+  return apiFetch<DispararExtracaoResponse>("extracao-disparar", {
     method: "POST",
   });
 }

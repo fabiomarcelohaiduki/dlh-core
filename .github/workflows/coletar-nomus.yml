@@ -61,3 +61,22 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
         run: node .github/scripts/coletar-nomus.mjs
+
+      # Descoberta da camada 1 apos a coleta: enfileira os vinculos pendentes dos
+      # processos recem-persistidos (Edge documentos-descobrir -> SQL puro sobre
+      # nomus_processos, idempotente). Espelha o Gmail/Drive, que ja descobrem na
+      # coleta. continue-on-error: a descoberta e best-effort (visivel no log),
+      # nao marca o run em vermelho se falhar — a coleta ja gravou os dados.
+      - name: Descobrir anexos do Nomus (camada 1)
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
+        run: |
+          curl -fsS -X POST "$SUPABASE_URL/functions/v1/documentos-descobrir" \
+            -H "Content-Type: application/json" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            -H "X-Cron-Secret: $CRON_DISPATCH_SECRET" \
+            -d '{"fonte":"nomus"}'

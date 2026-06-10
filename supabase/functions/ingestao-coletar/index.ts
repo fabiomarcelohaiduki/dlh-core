@@ -179,12 +179,30 @@ async function handleEffecti(
   const pipelinePromise = runPipeline(
     { db: service, connector, embeddingProvider, textExtractor },
     { execucaoId, sinceDate, modalidades, portais },
-  ).catch((err) => {
-    console.error("[ingestao-coletar] pipeline falhou", {
-      execucaoId,
-      err: err instanceof Error ? err.message : String(err),
+  )
+    .then(async () => {
+      // Descoberta automatica da camada 1 apos a coleta: enfileira os vinculos
+      // pendentes dos avisos recem-persistidos (descobrir_vinculos_effecti, SQL
+      // puro + idempotente). Espelha o Gmail/Drive, que descobrem na coleta.
+      // Best-effort: a falha aqui nao reverte a coleta (a descoberta manual
+      // segue no painel de Extracao).
+      const { error: descErr } = await service.rpc("descobrir_vinculos_effecti", {
+        p_extensoes: null,
+        p_limite_avisos: null,
+      });
+      if (descErr) {
+        console.error("[ingestao-coletar] descoberta effecti pos-coleta falhou", {
+          execucaoId,
+          err: descErr.message,
+        });
+      }
+    })
+    .catch((err) => {
+      console.error("[ingestao-coletar] pipeline falhou", {
+        execucaoId,
+        err: err instanceof Error ? err.message : String(err),
+      });
     });
-  });
 
   if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
     EdgeRuntime.waitUntil(pipelinePromise);
