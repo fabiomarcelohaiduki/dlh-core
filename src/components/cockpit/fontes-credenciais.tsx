@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { Factory, HardDrive, Mail, X } from "lucide-react";
+import { useRef, useState, type ReactNode } from "react";
+import { Factory, Gavel, HardDrive, Mail, X } from "lucide-react";
 import { CredForm, type CredFormSource } from "@/components/cockpit/cred-form";
 import { CfgForm } from "@/components/cockpit/cfg-form";
 import { EffectiDisparoForm } from "@/components/cockpit/effecti-disparo-form";
@@ -37,7 +37,7 @@ function ConfigPanelHeader({
   onClose,
   subtitle = "Parâmetros aplicados na próxima coleta desta fonte.",
 }: {
-  avatar: string;
+  avatar: ReactNode;
   nome: string;
   onClose: () => void;
   subtitle?: string;
@@ -288,7 +288,11 @@ export function FontesCredenciais({
 
       {aberto === "effecti" && (
         <div id={EFFECTI_PANEL} className="form-card cfg-panel" ref={panelRef}>
-          <ConfigPanelHeader avatar="Ef" nome="Effecti" onClose={() => toggle("effecti")} />
+          <ConfigPanelHeader
+            avatar={<Gavel aria-hidden="true" style={{ width: 17, height: 17 }} />}
+            nome="Effecti"
+            onClose={() => toggle("effecti")}
+          />
           <AgendamentoFonteForm initial={effectiAgendamento} />
           <EffectiDisparoForm fonteId={effecti.id} configDirty={effectiCfgDirty} />
           <CfgForm
@@ -301,7 +305,11 @@ export function FontesCredenciais({
 
       {aberto === "nomus" && (
         <div id={NOMUS_PANEL} className="form-card cfg-panel" ref={panelRef}>
-          <ConfigPanelHeader avatar="No" nome="Nomus" onClose={() => toggle("nomus")} />
+          <ConfigPanelHeader
+            avatar={<Factory aria-hidden="true" style={{ width: 17, height: 17 }} />}
+            nome="Nomus"
+            onClose={() => toggle("nomus")}
+          />
           <NomusCfgForm agendamento={nomusAgendamento} fonteId={nomus.id} />
         </div>
       )}
@@ -309,7 +317,7 @@ export function FontesCredenciais({
       {aberto === "drive" && (
         <div id={DRIVE_PANEL} className="form-card cfg-panel" ref={panelRef}>
           <ConfigPanelHeader
-            avatar="Dr"
+            avatar={<HardDrive aria-hidden="true" style={{ width: 17, height: 17 }} />}
             nome="Google Drive"
             subtitle="Pastas administradas para extração de documentos."
             onClose={() => toggle("drive")}
@@ -320,7 +328,11 @@ export function FontesCredenciais({
 
       {aberto === "gmail" && (
         <div id={GMAIL_PANEL} className="form-card cfg-panel" ref={panelRef}>
-          <ConfigPanelHeader avatar="Gm" nome="Gmail" onClose={() => toggle("gmail")} />
+          <ConfigPanelHeader
+            avatar={<Mail aria-hidden="true" style={{ width: 17, height: 17 }} />}
+            nome="Gmail"
+            onClose={() => toggle("gmail")}
+          />
           <AgendamentoFonteForm initial={gmailAgendamento} />
           <GmailDisparoForm fonteId={gmailFonteId} />
           <GmailConfigForm config={gmailConfig} labels={gmailLabels} />
