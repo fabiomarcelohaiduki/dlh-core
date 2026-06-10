@@ -27,17 +27,15 @@ export function EffectiDisparoForm({
   configDirty: boolean;
 }) {
   const coleta = useColetaDemanda();
-  // Poll a cada 5s enquanto o painel esta aberto: a coleta pode iniciar pelo
-  // agendamento/runner (sem passar por este botao), entao o bloqueio precisa
-  // detectar o estado em tempo (quase) real, nao so no 1o fetch.
+  // Poll a cada 5s para o aviso de coleta em andamento refletir o estado real
+  // (a coleta pode iniciar pelo agendamento/runner, sem passar por este botao).
+  // O botao NAO trava: o 409 do Edge e a defesa contra duplo-disparo.
   const execucoes = useExecucoes({ limit: 50, refetchInterval: 5000 });
   const running = hasRunningExecucao(execucoes.data?.items, fonteId);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
 
-  const disabled = running || coleta.isPending;
-
   async function handleColeta() {
-    if (disabled) return;
+    if (coleta.isPending) return;
     if (configDirty) {
       const ok = window.confirm(
         "Há alterações não salvas na configuração. Elas NÃO valem para esta coleta " +
@@ -65,9 +63,8 @@ export function EffectiDisparoForm({
             className="btn btn-primary"
             type="button"
             onClick={handleColeta}
-            disabled={disabled}
-            aria-disabled={disabled}
-            title={running ? "Coleta em andamento" : undefined}
+            disabled={coleta.isPending}
+            aria-disabled={coleta.isPending}
           >
             {coleta.isPending ? (
               <Loader2 className="spin" aria-hidden="true" />
@@ -92,10 +89,6 @@ export function EffectiDisparoForm({
               {feedback.message}
             </span>
           ) : null}
-        </div>
-
-        <div className="helper" style={{ marginTop: 12 }}>
-          A coleta usa a janela e os filtros salvos na configuração abaixo.
         </div>
       </div>
   );

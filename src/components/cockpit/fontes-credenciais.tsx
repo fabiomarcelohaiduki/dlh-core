@@ -208,6 +208,7 @@ export function FontesCredenciais({
   gmailConta,
   gmailConfig,
   gmailLabels,
+  gmailFonteId,
 }: {
   effecti: FonteEffectiState;
   effectiConfig: ConfigIngestaoState;
@@ -220,6 +221,7 @@ export function FontesCredenciais({
   gmailConta: GmailContaState;
   gmailConfig: GmailConfigState;
   gmailLabels: GmailLabelState[];
+  gmailFonteId: string | null;
 }) {
   const [effectiAberto, setEffectiAberto] = useState(false);
   const [nomusAberto, setNomusAberto] = useState(false);
@@ -331,7 +333,7 @@ export function FontesCredenciais({
             onClose={() => toggle(setGmailAberto, gmailRef)}
           />
           <AgendamentoFonteForm initial={gmailAgendamento} />
-          <GmailDisparoForm />
+          <GmailDisparoForm fonteId={gmailFonteId} />
           <GmailConfigForm config={gmailConfig} labels={gmailLabels} />
         </div>
       )}

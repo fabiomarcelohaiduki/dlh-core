@@ -119,6 +119,22 @@ async function loadFonteNomus(): Promise<FonteCredState> {
 }
 
 /**
+ * Id da fonte Gmail (public.fontes tipo=gmail) para o cmp-gmail-disparo-form
+ * detectar coleta em andamento desta fonte (mesmo filtro por fonte_id de
+ * Effecti/Nomus). Sem linha cai em null e o aviso simplesmente nao aparece.
+ */
+async function loadFonteGmailId(): Promise<string | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("fontes")
+    .select("id")
+    .eq("tipo", "gmail")
+    .maybeSingle();
+
+  return (data?.id as string | undefined) ?? null;
+}
+
+/**
  * Hidratacao server-side (RLS) da config de ingestao vigente da fonte Effecti
  * para o cmp-cfg-form (apenas janela + filtros). Sem config (1o acesso) cai no
  * default (janela 15). Frequencia/horario vivem no agendamento POR FONTE.
@@ -371,6 +387,7 @@ export default async function FontesPage() {
     gmailConta,
     gmailConfig,
     gmailLabels,
+    gmailFonteId,
   ] = await Promise.all([
     loadFonte(),
     loadConfig(),
@@ -383,6 +400,7 @@ export default async function FontesPage() {
     loadGmailConta(),
     loadGmailConfig(),
     loadGmailLabels(),
+    loadFonteGmailId(),
   ]);
 
   return (
@@ -405,6 +423,7 @@ export default async function FontesPage() {
         gmailConta={gmailConta}
         gmailConfig={gmailConfig}
         gmailLabels={gmailLabels}
+        gmailFonteId={gmailFonteId}
       />
     </section>
   );

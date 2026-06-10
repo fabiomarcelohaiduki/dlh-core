@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Check, Loader2, Play, TriangleAlert } from "lucide-react";
 import { useDispararGmail } from "@/hooks/use-admin";
+import { useExecucoes } from "@/hooks/use-monitoring";
+import { hasRunningExecucao } from "@/lib/status";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 
@@ -20,8 +22,13 @@ type Feedback = { kind: "ok" | "err"; message: string };
  * A coleta roda assincrona: o disparo so a ENFILEIRA (202); o andamento
  * aparece em Execuções quando o runner registra o inicio.
  */
-export function GmailDisparoForm() {
+export function GmailDisparoForm({ fonteId }: { fonteId: string | null }) {
   const disparar = useDispararGmail();
+  // Poll a cada 5s para o aviso de coleta em andamento refletir o estado real
+  // (a coleta pode iniciar pelo agendamento/runner, sem passar por este botao).
+  // O botao NAO trava: o 409 do Edge e a defesa contra duplo-disparo.
+  const execucoes = useExecucoes({ limit: 50, refetchInterval: 5000 });
+  const running = hasRunningExecucao(execucoes.data?.items, fonteId);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
 
   async function executar() {
@@ -53,7 +60,12 @@ export function GmailDisparoForm() {
             <span>{ocupado ? "Disparando…" : "Coletar e-mails agora"}</span>
           </button>
 
-          {feedback && (
+          {running ? (
+            <span className="action-hint">
+              <Loader2 className="spin" aria-hidden="true" />
+              Coleta em andamento; aguarde a conclusão.
+            </span>
+          ) : feedback ? (
             <span className={cn("save-note", feedback.kind === "err" && "err")}>
               {feedback.kind === "err" ? (
                 <TriangleAlert aria-hidden="true" />
@@ -62,12 +74,7 @@ export function GmailDisparoForm() {
               )}
               {feedback.message}
             </span>
-          )}
-        </div>
-
-        <div className="helper" style={{ marginTop: 12 }}>
-          Coleta os e-mails da janela definida na configuração (data inicial + labels). Os anexos
-          entram na fila de extração junto com o corpo das mensagens.
+          ) : null}
         </div>
       </div>
     </>

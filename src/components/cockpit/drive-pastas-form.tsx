@@ -91,10 +91,7 @@ export function DrivePastasForm({ initial }: { initial: DrivePastaState[] }) {
 
   return (
     <>
-      <ConfigSectionHeading
-        title="Pastas do Drive"
-        description="Pastas varridas pela extração (camada 1). Cada pasta ativa é listada recursivamente a cada execução; arquivos alterados são re-extraídos."
-      />
+      <ConfigSectionHeading title="Pastas do Drive" />
       <div className="card form-card">
       {initial.length === 0 ? (
         <div className="banner" style={{ marginTop: 8 }}>

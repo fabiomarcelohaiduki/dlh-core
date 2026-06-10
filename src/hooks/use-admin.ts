@@ -119,6 +119,9 @@ export function useDispararGmail() {
     mutationFn: () => dispararGmail(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: monitoringKeys.healthcheck });
+      // Revalida as execucoes para o aviso de coleta em andamento aparecer assim
+      // que o runner registrar o inicio.
+      queryClient.invalidateQueries({ queryKey: monitoringKeys.execucoesRoot });
     },
   });
 }

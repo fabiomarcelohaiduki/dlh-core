@@ -55,6 +55,9 @@ if (!CRON_SECRET) fail("env CRON_DISPATCH_SECRET ausente.");
 
 const DESCOBRIR_URL = `${SUPABASE_URL}/functions/v1/documentos-descobrir`;
 const CONFIG_URL = `${SUPABASE_URL}/functions/v1/gmail-config`;
+const EXECUCAO_URL = `${SUPABASE_URL}/functions/v1/gmail-execucao`;
+// 'manual' (disparo pelo card) ou 'agendada' (cron->GitHub API). Default agendada.
+const GATILHO = (process.env.GMAIL_GATILHO ?? "agendada").trim() === "manual" ? "manual" : "agendada";
 
 function headers() {
   const h = { "Content-Type": "application/json", "X-Cron-Secret": CRON_SECRET };
@@ -94,6 +97,52 @@ async function resolverQuery() {
   if (!query) fail("gmail-config nao devolveu uma query.", 1);
   console.log(`Query montada pelo cockpit: "${query}".`);
   return query;
+}
+
+/**
+ * Abre a execucao da coleta no banco (via Edge gmail-execucao). Devolve o
+ * execucao_id, ou null se a fonte ja estiver coletando (lock-por-fonte) — caso
+ * em que o runner aborta sem rodar coleta duplicada.
+ */
+async function abrirExecucao() {
+  const res = await fetch(EXECUCAO_URL, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ action: "abrir", gatilho: GATILHO }),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    fail(`gmail-execucao (abrir) falhou (${res.status}): ${text.slice(0, 300)}`, 1);
+  }
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch (_) {
+    fail("resposta nao-JSON de gmail-execucao (abrir).", 1);
+  }
+  if (json?.ja_em_andamento) {
+    console.log(`Ja ha uma coleta do Gmail em andamento (execucao ${json.execucao_id}). Abortando.`);
+    return null;
+  }
+  console.log(`Execucao aberta: ${json?.execucao_id}.`);
+  return json?.execucao_id ?? null;
+}
+
+/** Fecha a execucao (status final + contagens). Best-effort: nao derruba o run. */
+async function fecharExecucao(execId, status, total, sucesso, erro) {
+  if (!execId) return;
+  try {
+    const res = await fetch(EXECUCAO_URL, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ action: "fechar", execucao_id: execId, status, total, sucesso, erro }),
+    });
+    if (!res.ok) {
+      console.error(`AVISO: gmail-execucao (fechar) falhou (${res.status}): ${(await res.text()).slice(0, 200)}`);
+    }
+  } catch (err) {
+    console.error(`AVISO: falha ao fechar a execucao: ${err?.message ?? err}`);
+  }
 }
 
 /** Itens (corpo + anexos) de uma mensagem ja carregada. */
@@ -151,31 +200,44 @@ async function enfileirar(itens) {
 }
 
 async function main() {
-  const query = await resolverQuery();
-  const mensagens = await listarMensagens(query, { max: MAX });
-  if (mensagens.length === 0) {
-    console.log("Nenhuma mensagem casou a query. Nada a descobrir.");
-    return;
-  }
-  console.log(`${mensagens.length} mensagem(ns) a processar.`);
+  // Registra a execucao ANTES da coleta (lock-por-fonte no Edge). Se a fonte ja
+  // coleta, execId vem null e o run aborta sem duplicar.
+  const execId = await abrirExecucao();
+  if (execId === null) return;
 
-  // Monta os itens varrendo cada mensagem (corpo + anexos). Acumula e enfileira
-  // em lotes — a fila e idempotente por (fonte, message_id, nome), entao
-  // re-rodar nao duplica (email e imutavel).
-  const itens = [];
-  let processadas = 0;
-  for (const { id } of mensagens) {
-    const msg = await obterMensagem(id);
-    const novos = itensDaMensagem(msg);
-    itens.push(...novos);
-    processadas += 1;
-    console.error(`[mensagem ${processadas}/${mensagens.length}] ${id}: ${novos.length} item(ns)`);
-  }
+  try {
+    const query = await resolverQuery();
+    const mensagens = await listarMensagens(query, { max: MAX });
+    if (mensagens.length === 0) {
+      console.log("Nenhuma mensagem casou a query. Nada a descobrir.");
+      await fecharExecucao(execId, "concluida", 0, 0, 0);
+      return;
+    }
+    console.log(`${mensagens.length} mensagem(ns) a processar.`);
 
-  const inseridos = await enfileirar(itens);
-  console.log(
-    `Descoberta Gmail concluida. Mensagens=${processadas}, itens=${itens.length}, novos=${inseridos}.`,
-  );
+    // Monta os itens varrendo cada mensagem (corpo + anexos). Acumula e enfileira
+    // em lotes — a fila e idempotente por (fonte, message_id, nome), entao
+    // re-rodar nao duplica (email e imutavel).
+    const itens = [];
+    let processadas = 0;
+    for (const { id } of mensagens) {
+      const msg = await obterMensagem(id);
+      const novos = itensDaMensagem(msg);
+      itens.push(...novos);
+      processadas += 1;
+      console.error(`[mensagem ${processadas}/${mensagens.length}] ${id}: ${novos.length} item(ns)`);
+    }
+
+    const inseridos = await enfileirar(itens);
+    console.log(
+      `Descoberta Gmail concluida. Mensagens=${processadas}, itens=${itens.length}, novos=${inseridos}.`,
+    );
+    await fecharExecucao(execId, "concluida", itens.length, inseridos, 0);
+  } catch (err) {
+    // Fecha a execucao como 'erro' antes de propagar (libera o lock-por-fonte).
+    await fecharExecucao(execId, "erro", 0, 0, 0);
+    throw err;
+  }
 }
 
 main().catch((err) => fail(err?.message ?? String(err), 1));

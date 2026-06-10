@@ -167,10 +167,7 @@ export function GmailConfigForm({
 
   return (
     <>
-      <ConfigSectionHeading
-        title="Configuração da coleta"
-        description="Coleta cada e-mail a partir da data inicial: o corpo e cada anexo viram documentos da camada 1. As labels abaixo são uma blacklist — e-mails com essas labels são excluídos da coleta."
-      />
+      <ConfigSectionHeading title="Configuração da coleta" />
       <div className="card form-card">
       <form
         className="grid-fields"
@@ -208,10 +205,6 @@ export function GmailConfigForm({
       <div className="section-title" style={{ margin: "24px 0 13px" }}>
         <h3>Categorias excluídas da coleta</h3>
       </div>
-      <p className="muted" style={{ margin: "0 0 12px", fontSize: 13 }}>
-        As guias do Gmail (Promoções, Social…) não são labels comuns. Marque as
-        que <b>não</b> quer coletar — viram <code>-category:</code> na query.
-      </p>
       <div className="chk-grid" role="group" aria-label="Categorias a excluir">
         {CATEGORIAS_GMAIL.map((c) => {
           const on = categorias.includes(c.slug);
