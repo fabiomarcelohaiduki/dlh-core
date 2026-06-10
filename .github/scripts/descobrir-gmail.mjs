@@ -68,11 +68,15 @@ function headers() {
   return h;
 }
 
-/** Resolve a query: override do workflow OU a montada pelo Edge (cockpit). */
-async function resolverQuery() {
+/**
+ * Resolve a(s) query(s): override do workflow OU as montadas pelo Edge (cockpit).
+ * A janela incremental de dois lados pode devolver 1-2 queries (NOVOS + ANTIGOS);
+ * devolve sempre um array (override = 1 query crua).
+ */
+async function resolverQueries() {
   if (QUERY_OVERRIDE) {
     console.log(`Override GMAIL_QUERY: usando query crua "${QUERY_OVERRIDE}".`);
-    return QUERY_OVERRIDE;
+    return [QUERY_OVERRIDE];
   }
   const res = await fetch(CONFIG_URL, {
     method: "POST",
@@ -93,10 +97,16 @@ async function resolverQuery() {
   } catch (_) {
     fail("resposta nao-JSON de gmail-config.", 1);
   }
-  const query = typeof json?.query === "string" ? json.query.trim() : "";
-  if (!query) fail("gmail-config nao devolveu uma query.", 1);
-  console.log(`Query montada pelo cockpit: "${query}".`);
-  return query;
+  // 'queries' (janela incremental); cai p/ 'query' unica em versoes antigas do Edge.
+  let queries = Array.isArray(json?.queries)
+    ? json.queries.filter((q) => typeof q === "string" && q.trim()).map((q) => q.trim())
+    : [];
+  if (queries.length === 0 && typeof json?.query === "string" && json.query.trim()) {
+    queries = [json.query.trim()];
+  }
+  if (queries.length === 0) fail("gmail-config nao devolveu nenhuma query.", 1);
+  queries.forEach((q, i) => console.log(`Query ${i + 1}/${queries.length} do cockpit: "${q}".`));
+  return queries;
 }
 
 /**
@@ -206,14 +216,27 @@ async function main() {
   if (execId === null) return;
 
   try {
-    const query = await resolverQuery();
-    const mensagens = await listarMensagens(query, { max: MAX });
+    const queries = await resolverQueries();
+    // Varre cada query da janela (NOVOS + ANTIGOS) deduplicando por message id —
+    // a borda de overlap faz NOVOS/ANTIGOS retornarem mensagens em comum.
+    const vistos = new Set();
+    const mensagens = [];
+    for (const q of queries) {
+      const lote = await listarMensagens(q, { max: MAX });
+      for (const m of lote) {
+        if (vistos.has(m.id)) continue;
+        vistos.add(m.id);
+        mensagens.push(m);
+        if (mensagens.length >= MAX) break;
+      }
+      if (mensagens.length >= MAX) break;
+    }
     if (mensagens.length === 0) {
-      console.log("Nenhuma mensagem casou a query. Nada a descobrir.");
+      console.log("Nenhuma mensagem casou a(s) query(s). Nada a descobrir.");
       await fecharExecucao(execId, "concluida", 0, 0, 0);
       return;
     }
-    console.log(`${mensagens.length} mensagem(ns) a processar.`);
+    console.log(`${mensagens.length} mensagem(ns) unica(s) a processar.`);
 
     // Monta os itens varrendo cada mensagem (corpo + anexos). Acumula e enfileira
     // em lotes — a fila e idempotente por (fonte, message_id, nome), entao

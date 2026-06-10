@@ -5,11 +5,21 @@
 // cadastram-se labels a EXCLUIR, nao a incluir.
 //
 //   ACOES (campo 'action' no body):
-//     'montar-query'  LEITURA: monta a query Gmail a partir de
-//                     gmail_config.data_inicial (after:YYYY/MM/DD) + as labels
-//                     ATIVAS como -label:"nome". Chamada pelo RUNNER do Actions
-//                     (so tem anon + X-Cron-Secret); aceita service_role/sessao
-//                     humana tambem. Read via service_role.
+//     'montar-query'  LEITURA: monta a(s) query(s) Gmail da JANELA INCREMENTAL
+//                     de dois lados (decisao Fabio 2026-06-10). Devolve
+//                     { queries: string[] } — 1 ou 2 entradas:
+//                       - NOVOS  (sempre que ja houve coleta): after:<coletado_ate
+//                         - 1 dia> -> pega so os e-mails que chegaram desde a
+//                         ultima coleta (overlap de 1 dia; o dedup da fila
+//                         absorve a repeticao da borda).
+//                       - ANTIGOS (so se data_inicial < coletado_desde): backfill
+//                         after:<data_inicial> before:<coletado_desde + 1 dia> ->
+//                         busca o historico quando o usuario BAIXA a data.
+//                       - 1a coleta (sem marcas): after:<data_inicial> (janela
+//                         antiga). Cada query carrega os mesmos termos de
+//                         blacklist (labels + categorias). Chamada pelo RUNNER do
+//                         Actions (so tem anon + X-Cron-Secret); aceita
+//                         service_role/sessao humana tambem. Read via service_role.
 //     'salvar-config' UPDATE da data_inicial (singleton). Sessao humana + audit.
 //     'salvar-label'  UPSERT de uma label da blacklist por 'label'. Sessao
 //                     humana autorizada + audit. Cria ou atualiza nome/ativo.
@@ -54,9 +64,16 @@ async function exigirSistemaOuHumano(req: Request): Promise<void> {
   }
 }
 
-/** data 'YYYY-MM-DD' (Postgres) -> 'YYYY/MM/DD' (operador after: do Gmail). */
+/** data 'YYYY-MM-DD' (Postgres) -> 'YYYY/MM/DD' (operador after:/before: do Gmail). */
 function dataParaGmail(d: string): string {
   return d.slice(0, 10).replace(/-/g, "/");
+}
+
+/** Soma n dias a uma data 'YYYY-MM-DD' (em UTC), devolve 'YYYY-MM-DD'. */
+function somarDias(iso: string, n: number): string {
+  const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
 }
 
 // Categorias do Gmail (as guias "Promoções", "Social" etc.) NAO sao labels
@@ -96,14 +113,19 @@ function termoBlacklist(nome: string): string {
   return `-label:"${nome.replace(/"/g, "")}"`;
 }
 
-/** action='montar-query' — monta a query Gmail (data inicial + blacklist). */
+/**
+ * action='montar-query' — monta a(s) query(s) da janela incremental de dois
+ * lados. Devolve { queries: string[] } (1 ou 2): NOVOS (sempre que ja houve
+ * coleta) + ANTIGOS (backfill, so se o usuario baixou data_inicial). Cada query
+ * leva os mesmos termos de blacklist (labels + categorias).
+ */
 async function handleMontarQuery(req: Request): Promise<Response> {
   await exigirSistemaOuHumano(req);
   const service = createServiceClient();
 
   const { data: cfg, error: cfgErr } = await service
     .from("gmail_config")
-    .select("data_inicial, categorias_excluidas")
+    .select("data_inicial, categorias_excluidas, coletado_ate, coletado_desde")
     .eq("id", true)
     .maybeSingle();
   if (cfgErr) {
@@ -119,19 +141,42 @@ async function handleMontarQuery(req: Request): Promise<Response> {
     throw new HttpError(500, "gmail_labels_query_failed", "falha ao listar as labels do Gmail");
   }
 
-  const partes: string[] = [];
-  const dataInicial = (cfg?.data_inicial as string | null) ?? null;
-  if (dataInicial) partes.push(`after:${dataParaGmail(dataInicial)}`);
+  // Termos de blacklist (labels ativas + categorias) — comuns a toda query.
+  const filtros: string[] = [];
   for (const l of labels ?? []) {
     const nome = (l as { label: string }).label?.trim();
-    if (nome) partes.push(termoBlacklist(nome));
+    if (nome) filtros.push(termoBlacklist(nome));
   }
   const categorias = (cfg?.categorias_excluidas as string[] | null) ?? [];
   for (const slug of categorias) {
-    if (CATEGORIAS_VALIDAS.has(slug)) partes.push(`-category:${slug}`);
+    if (CATEGORIAS_VALIDAS.has(slug)) filtros.push(`-category:${slug}`);
+  }
+  const sufixo = filtros.length ? ` ${filtros.join(" ")}` : "";
+
+  // data_inicial e NOT NULL no schema (default '2026-05-01'); guarda mesmo assim.
+  const dataInicial = ((cfg?.data_inicial as string | null) ?? "").slice(0, 10);
+  const ate = ((cfg?.coletado_ate as string | null) ?? "").slice(0, 10) || null;
+  const desde = ((cfg?.coletado_desde as string | null) ?? "").slice(0, 10) || null;
+
+  const queries: string[] = [];
+  if (!ate) {
+    // Primeira coleta (nunca fechou com sucesso): janela antiga, tudo desde a data.
+    const base = dataInicial ? `after:${dataParaGmail(dataInicial)}` : "";
+    queries.push(`${base}${sufixo}`.trim());
+  } else {
+    // NOVOS: do ultimo ponto coberto, recuando 1 dia (overlap; dedup absorve).
+    queries.push(`after:${dataParaGmail(somarDias(ate, -1))}${sufixo}`.trim());
+    // ANTIGOS (backfill): so quando a data foi BAIXADA abaixo do ja coberto.
+    const desdeEff = desde ?? dataInicial;
+    if (dataInicial && desdeEff && dataInicial < desdeEff) {
+      const janela =
+        `after:${dataParaGmail(dataInicial)} before:${dataParaGmail(somarDias(desdeEff, 1))}`;
+      queries.push(`${janela}${sufixo}`.trim());
+    }
   }
 
-  return jsonResponse({ query: partes.join(" ").trim() }, 200);
+  // 'query' (1a entrada) mantida para compat; o runner ja itera 'queries'.
+  return jsonResponse({ queries, query: queries[0] ?? "" }, 200);
 }
 
 /** action='salvar-config' — atualiza a data_inicial (singleton). */

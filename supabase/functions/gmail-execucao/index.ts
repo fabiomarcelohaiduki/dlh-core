@@ -19,6 +19,11 @@
 //             { execucao_id, ja_em_andamento }.
 //   'fechar'  Fecha a execucao (status concluida|erro, fim=now, contagens).
 //             Body: { execucao_id, status, total?, sucesso?, erro? }.
+//             Em 'concluida' AVANCA as marcas d'agua da janela incremental do
+//             gmail_config: coletado_ate = hoje (frente cobriu ate agora) e
+//             coletado_desde = min(coletado_desde, data_inicial) (se houve
+//             backfill, recua p/ a nova data). Em 'erro' nao mexe nas marcas
+//             (o proximo run re-varre a mesma janela; o dedup da fila protege).
 //   'fechar-orfa'  Fecha como 'erro' QUALQUER execucao em_andamento da fonte
 //             gmail (auto-cura). Chamado num step de cleanup if:always() do
 //             workflow: quando o run e CANCELADO o Node morre por sinal e o
@@ -113,6 +118,39 @@ async function fecharOrfa(service: ServiceClient): Promise<Response> {
   return jsonResponse({ ok: true, fechadas }, 200);
 }
 
+/**
+ * Avanca as marcas d'agua da janela incremental do gmail_config apos uma coleta
+ * concluida: coletado_ate = hoje (a frente cobriu ate agora) e coletado_desde =
+ * min(coletado_desde, data_inicial) (recua se houve backfill de ANTIGOS).
+ * Best-effort: falha aqui nao derruba o fechamento da execucao (so loga).
+ */
+async function avancarMarcas(service: ServiceClient): Promise<void> {
+  const { data: cfg, error: cfgErr } = await service
+    .from("gmail_config")
+    .select("data_inicial, coletado_desde")
+    .eq("id", true)
+    .maybeSingle();
+  if (cfgErr || !cfg) {
+    console.error("AVISO: gmail-execucao nao leu gmail_config p/ avancar marcas:", cfgErr?.message);
+    return;
+  }
+  const dataInicial = ((cfg.data_inicial as string | null) ?? "").slice(0, 10) || null;
+  const desde = ((cfg.coletado_desde as string | null) ?? "").slice(0, 10) || null;
+  const hoje = new Date().toISOString().slice(0, 10);
+
+  // min lexicografico ('YYYY-MM-DD' ordena por data). null => assume data_inicial.
+  let novoDesde = desde;
+  if (dataInicial && (!novoDesde || dataInicial < novoDesde)) novoDesde = dataInicial;
+
+  const { error: updErr } = await service
+    .from("gmail_config")
+    .update({ coletado_ate: hoje, coletado_desde: novoDesde, atualizado_em: new Date().toISOString() })
+    .eq("id", true);
+  if (updErr) {
+    console.error("AVISO: gmail-execucao falhou ao avancar marcas:", updErr.message);
+  }
+}
+
 /** Fecha a execucao (status final + contagens). */
 async function fechar(
   service: ServiceClient,
@@ -137,6 +175,12 @@ async function fechar(
   if (updError) {
     throw new HttpError(500, "execucao_update_failed", "falha ao fechar a execucao");
   }
+
+  // So uma coleta concluida com sucesso avanca a janela (erro re-varre depois).
+  if (status === "concluida") {
+    await avancarMarcas(service);
+  }
+
   return jsonResponse({ ok: true, execucao_id: execucaoId, status }, 200);
 }
 
