@@ -1,0 +1,63 @@
+name: Coletor Drive (nuvem)
+
+# DESCOBERTA da fonte Drive (camada 1), INDEPENDENTE da extracao. Roda no runner
+# Node do GitHub Actions porque a lista de arquivos vive na API do Google e a
+# credencial Drive so existe aqui (espelha a divisao do Gmail/Nomus).
+#
+# O que faz: resolve as pastas ATIVAS cadastradas no cockpit (Edge drive-pastas
+# action='ativas'), ou SO a pasta de override quando o disparo informa folder_id,
+# lista cada pasta (recursivo) e enfileira os vinculos via Edge documentos-descobrir
+# (descobrir-drive.mjs). NAO baixa bytes e NAO usa Tika -> workflow leve e rapido
+# (so produtor da fila).
+#
+# A EXTRACAO (Tika) e um workflow SEPARADO (extrair-anexos.yml) que consome a fila
+# por conta propria. Coleta e extracao sao DESACOPLADAS (produtor/consumidor):
+# concurrency group proprio, entao a coleta do Drive nao espera nem barra a
+# extracao (e vice-versa).
+#
+# Acionamento: disparo manual pelo cockpit (card Drive -> "Coletar agora", via
+# Edge drive-disparar -> RPC disparar_workflow_drive -> este workflow), agendamento
+# pelo painel (aplicar_agendamento_fonte('drive') -> pg_cron -> GitHub REST API),
+# ou workflow_dispatch direto com folder_id para validar 1 pasta pontual.
+on:
+  workflow_dispatch:
+    inputs:
+      folder_id:
+        description: "OVERRIDE Drive: descobre SO esta pasta (teste pontual). Vazio = descobre as pastas ATIVAS cadastradas no cockpit (tabela drive_pastas)."
+        type: string
+        required: false
+      gatilho:
+        description: "Origem do disparo (manual|agendada). A RPC disparar_workflow_drive manda 'manual' no clique do card; o agendamento omite -> default 'agendada'."
+        type: string
+        required: false
+
+# Coleta do Drive isolada: nao compartilha fila de execucao com a extracao nem
+# com as outras fontes (Nomus/Effecti/Gmail tem os seus). Duas coletas do Drive
+# nao rodam em paralelo.
+concurrency:
+  group: coletar-drive
+  cancel-in-progress: false
+
+jobs:
+  coletar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Instalar deps do runner
+        working-directory: .github/scripts
+        run: npm install --no-audit --no-fund
+
+      - name: Descobrir arquivos do Drive
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
+          DRIVE_FOLDER_ID: ${{ github.event.inputs.folder_id }}
+        run: node .github/scripts/descobrir-drive.mjs

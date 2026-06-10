@@ -358,11 +358,12 @@ export interface BuscaSemanticaResponse {
 
 /**
  * Tipo de fonte suportado. Credencial/teste/config (cmp-cred-form/cmp-cfg-form)
- * valem para effecti|nomus; o Gmail entra como fonte AGENDAVEL (relogio proprio
- * no card, coleta no GitHub Actions via coletar-gmail.yml) — autentica por
- * OAuth e configura via gmail-config, nao pelos forms de credencial.
+ * valem para effecti|nomus; o Gmail e o Drive entram como fontes AGENDAVEIS
+ * (relogio proprio no card, coleta no GitHub Actions via coletar-gmail.yml /
+ * coletar-drive.yml) — autenticam por OAuth e configuram via gmail-config /
+ * drive-pastas, nao pelos forms de credencial.
  */
-export type FonteTipo = "effecti" | "nomus" | "gmail";
+export type FonteTipo = "effecti" | "nomus" | "gmail" | "drive";
 
 /**
  * Snapshot de credencial de uma fonte (hidratado server-side via RLS) para o
@@ -454,6 +455,17 @@ export interface DispararGmailResponse {
  * pg_net (telemetria).
  */
 export interface DispararExtracaoResponse {
+  ok: boolean;
+  requestId: number | null;
+}
+
+/**
+ * POST drive-disparar -> aciona o workflow coletar-drive.yml no GitHub Actions
+ * (202). Descobre as pastas Drive ativas e enfileira os vinculos na fila de
+ * documentos (sem Tika), assincrono no runner. `requestId` e o id da requisicao
+ * pg_net (telemetria).
+ */
+export interface DispararDriveResponse {
   ok: boolean;
   requestId: number | null;
 }

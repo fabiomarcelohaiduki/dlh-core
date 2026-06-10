@@ -8,6 +8,7 @@ import { EffectiDisparoForm } from "@/components/cockpit/effecti-disparo-form";
 import { AgendamentoFonteForm } from "@/components/cockpit/agendamento-fonte-form";
 import { NomusCfgForm } from "@/components/cockpit/nomus-cfg-form";
 import { DrivePastasForm } from "@/components/cockpit/drive-pastas-form";
+import { DriveDisparoForm } from "@/components/cockpit/drive-disparo-form";
 import { GmailConfigForm } from "@/components/cockpit/gmail-config-form";
 import { GmailDisparoForm } from "@/components/cockpit/gmail-disparo-form";
 import { OAuthSourceCard } from "@/components/cockpit/source-card";
@@ -86,18 +87,21 @@ const GMAIL_PANEL = "painel-config-fonte-gmail";
 
 /**
  * Card da fonte Drive: conta Google conectada pelo cockpit (Edge drive-oauth) e
- * pastas administraveis. Pill reflete pastas ativas (Drive so extrai, nao tem
- * agendamento de coleta).
+ * pastas administraveis. Pill reflete o agendamento (Drive ganhou coleta propria
+ * agendavel, igual Gmail): "Ativa" so quando conectada + agendamento ligado +
+ * ha pastas ativas; "Pausada" quando conectada mas sem agendamento/pastas.
  */
 function DriveCard({
   pastas,
   conta,
+  agendamento,
   configAberto,
   onConfigurar,
   configPanelId,
 }: {
   pastas: DrivePastaState[];
   conta: DriveContaState;
+  agendamento: AgendamentoFonteState;
   configAberto: boolean;
   onConfigurar: () => void;
   configPanelId: string;
@@ -106,7 +110,7 @@ function DriveCard({
   const ativas = pastas.filter((p) => p.ativo).length;
   const pill = !conta.conectado
     ? ({ state: "idle", label: "Desconectada" } as const)
-    : ativas > 0
+    : agendamento.ativo && ativas > 0
       ? ({ state: "ok", label: "Ativa" } as const)
       : pastas.length > 0
         ? ({ state: "idle", label: "Pausada" } as const)
@@ -205,6 +209,7 @@ export function FontesCredenciais({
   effectiAgendamento,
   nomusAgendamento,
   gmailAgendamento,
+  driveAgendamento,
   nomus,
   drivePastas,
   driveConta,
@@ -218,6 +223,7 @@ export function FontesCredenciais({
   effectiAgendamento: AgendamentoFonteState;
   nomusAgendamento: AgendamentoFonteState;
   gmailAgendamento: AgendamentoFonteState;
+  driveAgendamento: AgendamentoFonteState;
   nomus: FonteCredState;
   drivePastas: DrivePastaState[];
   driveConta: DriveContaState;
@@ -271,6 +277,7 @@ export function FontesCredenciais({
         <DriveCard
           pastas={drivePastas}
           conta={driveConta}
+          agendamento={driveAgendamento}
           configAberto={aberto === "drive"}
           onConfigurar={() => toggle("drive")}
           configPanelId={DRIVE_PANEL}
@@ -322,6 +329,8 @@ export function FontesCredenciais({
             subtitle="Pastas administradas para extração de documentos."
             onClose={() => toggle("drive")}
           />
+          <AgendamentoFonteForm initial={driveAgendamento} />
+          <DriveDisparoForm />
           <DrivePastasForm initial={drivePastas} />
         </div>
       )}

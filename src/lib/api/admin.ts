@@ -1,6 +1,7 @@
 import { apiFetch } from "@/lib/api/client";
 import type {
   BuscaSemanticaResponse,
+  DispararDriveResponse,
   DispararExtracaoResponse,
   DispararGmailResponse,
   DispararNomusResponse,
@@ -158,6 +159,19 @@ export function dispararGmail(): Promise<DispararGmailResponse> {
  */
 export function dispararExtracao(): Promise<DispararExtracaoResponse> {
   return apiFetch<DispararExtracaoResponse>("extracao-disparar", {
+    method: "POST",
+  });
+}
+
+/**
+ * POST /drive-disparar — aciona MANUALMENTE a coleta/descoberta do Drive pelo
+ * card da fonte. O Drive descobre as pastas ativas no runner do GitHub Actions
+ * (coletar-drive.yml), independente da extracao; por isso a chamada nao leva
+ * corpo. Responde 202 (aceito); a coleta progride assincrona (acompanhar pelo
+ * painel).
+ */
+export function dispararDrive(): Promise<DispararDriveResponse> {
+  return apiFetch<DispararDriveResponse>("drive-disparar", {
     method: "POST",
   });
 }

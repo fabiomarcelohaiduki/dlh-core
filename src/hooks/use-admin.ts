@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   buscaSemantica,
+  dispararDrive,
   dispararExtracao,
   dispararGmail,
   dispararNomus,
@@ -138,6 +139,23 @@ export function useDispararExtracao() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => dispararExtracao(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: monitoringKeys.healthcheck });
+    },
+  });
+}
+
+/**
+ * useDispararDrive — dispara MANUALMENTE a coleta/descoberta do Drive (POST
+ * drive-disparar). Aciona o workflow coletar-drive.yml: descobre as pastas Drive
+ * ativas e enfileira os vinculos na fila de documentos (sem Tika), assincrono no
+ * runner. Sem invalidacao de execucoes (a descoberta do Drive nao grava linha em
+ * execucoes); o resumo de extracao reflete os novos vinculos pendentes.
+ */
+export function useDispararDrive() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => dispararDrive(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: monitoringKeys.healthcheck });
     },

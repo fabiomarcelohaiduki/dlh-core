@@ -162,7 +162,7 @@ export function parseFonteParam(value: string | null): Fonte {
  * effecti|nomus — o Gmail nao usa esses contratos (autentica por OAuth e
  * configura via gmail-config).
  */
-export const FONTES_AGENDAVEIS = ["effecti", "nomus", "gmail"] as const;
+export const FONTES_AGENDAVEIS = ["effecti", "nomus", "gmail", "drive"] as const;
 export type FonteAgendavel = (typeof FONTES_AGENDAVEIS)[number];
 
 export const fonteAgendavelEnum = z.enum(FONTES_AGENDAVEIS, {

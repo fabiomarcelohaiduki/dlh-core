@@ -14,8 +14,12 @@ name: Extrator de anexos (camada 1)
 #
 # FLUXO: o orquestrador extrair-anexos.mjs pede ao Edge documentos-ingerir os
 # VINCULOS pendentes (+ config_extracao), obtem os bytes de cada anexo pelo
-# ADAPTADOR da fonte (nomus/effecti), extrai o texto via Tika e empurra de
+# ADAPTADOR da fonte (nomus/effecti/drive), extrai o texto via Tika e empurra de
 # volta ao Edge, que faz dedup global + grava texto + indexa.
+#
+# DRAIN PURO: a descoberta do Drive virou workflow proprio (coletar-drive.yml),
+# igual Nomus/Gmail. Este workflow SO consome a fila (todas as fontes), nao
+# descobre mais nada -> produtor/consumidor 100% desacoplados.
 on:
   # Disparo MANUAL apenas (schedule temporario de drain removido). Acionar pelo
   # cockpit ou via `gh workflow run extrair-anexos.yml` quando quiser drenar a fila.
@@ -23,10 +27,6 @@ on:
     inputs:
       limite:
         description: "Tamanho do fetch por iteracao (vazio = 500, teto do Edge). O run re-busca em loop ate a fila esgotar ou o budget de tempo acabar."
-        type: string
-        required: false
-      folder_id:
-        description: "OVERRIDE Drive: descobre SO esta pasta (teste pontual). Vazio = descobre as pastas ATIVAS cadastradas no cockpit (tabela drive_pastas)."
         type: string
         required: false
 
@@ -74,24 +74,10 @@ jobs:
           echo "Tika nao respondeu a tempo" >&2
           exit 1
 
-      # Drive (fonte "so extracao": sem registro de coleta, so arquivos em
-      # pastas): descobre as pastas ATIVAS cadastradas no cockpit (drive_pastas),
-      # ou SO a pasta de override quando o disparo informa folder_id. Lista cada
-      # pasta (recursivo) e enfileira vinculos via Edge documentos-descobrir. O
-      # step de extracao abaixo consome a fila e baixa pelo adaptador 'drive'.
-      # Sem pastas ativas e sem override = no-op (sai em paz).
-      #
-      # As outras fontes tem COLETA propria e independente: Nomus (coletar-nomus.yml),
-      # Gmail (coletar-gmail.yml) e Effecti (Edge orquestrador). Elas enfileiram
-      # por conta propria; este workflow so descobre o Drive e DRENA a fila inteira.
-      - name: Descobrir anexos do Drive
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
-          DRIVE_FOLDER_ID: ${{ github.event.inputs.folder_id }}
-        run: node .github/scripts/descobrir-drive.mjs
-
+      # Todas as fontes tem COLETA/DESCOBERTA propria e independente: Nomus
+      # (coletar-nomus.yml), Gmail (coletar-gmail.yml), Drive (coletar-drive.yml)
+      # e Effecti (Edge orquestrador). Elas enfileiram por conta propria; este
+      # workflow so DRENA a fila inteira (todas as fontes, sem filtro de fonte).
       - name: Extrair anexos (orquestrador camada 1)
         env:
           TIKA_ENDPOINT: http://localhost:9998
