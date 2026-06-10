@@ -159,6 +159,11 @@ export function ExtracaoPanel({
             {feedback.message}
           </span>
         ) : null}
+
+        <div className="helper">
+          Drive e Gmail são descobertos automaticamente durante a coleta; aqui você enfileira
+          manualmente apenas Nomus e Effecti.
+        </div>
       </div>
 
       {/* Tabela de erros de extracao */}
