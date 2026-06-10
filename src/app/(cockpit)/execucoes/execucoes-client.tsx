@@ -10,6 +10,7 @@ import { RunsTable } from "@/components/cockpit/runs-table";
 import { EffectiDisparoForm } from "@/components/cockpit/effecti-disparo-form";
 import { NomusDisparoForm } from "@/components/cockpit/nomus-disparo-form";
 import { GmailDisparoForm } from "@/components/cockpit/gmail-disparo-form";
+import { DriveDisparoForm } from "@/components/cockpit/drive-disparo-form";
 import { WidgetError } from "@/components/cockpit/widget-error";
 import {
   OrigemFiltro,
@@ -34,6 +35,7 @@ const FONTE_DISPARO_OPCOES: { value: FonteTipo; label: string }[] = [
   { value: "effecti", label: "Effecti" },
   { value: "nomus", label: "Nomus" },
   { value: "gmail", label: "Gmail" },
+  { value: "drive", label: "Drive" },
 ];
 
 /** Recursos distintos presentes na lista (origem-aware) para o RecursoFiltro. */
@@ -87,12 +89,22 @@ export function ExecucoesClient() {
       <NomusDisparoForm fonteId={nomusId} janelaDias={nomusJanelaDias} bare />
     ) : fonteDisparo === "gmail" ? (
       <GmailDisparoForm fonteId={gmailId} bare />
+    ) : fonteDisparo === "drive" ? (
+      <DriveDisparoForm bare />
     ) : (
       <EffectiDisparoForm fonteId={effectiId} configDirty={false} bare />
     );
 
   const allRuns = useMemo(() => execucoes.data?.items ?? [], [execucoes.data]);
-  const recursos = useMemo(() => recursosDisponiveis(allRuns), [allRuns]);
+  // Recursos contextuais: so a origem selecionada expoe seus recursos. Sem
+  // origem ("todas") nao ha contexto -> oculta o filtro de recurso.
+  const recursos = useMemo(
+    () =>
+      origem === "todas"
+        ? []
+        : recursosDisponiveis(allRuns.filter((r) => normalizeOrigem(r.origem) === origem)),
+    [allRuns, origem],
+  );
 
   // Filtros client-side sobre a lista origem-aware ja carregada.
   const runs = useMemo(
@@ -124,39 +136,55 @@ export function ExecucoesClient() {
 
   return (
     <section className="screen">
-      <div className="page-head">
-        <div className="titles">
-          <h2>Execuções de sincronização</h2>
+      <div className="top-cards">
+        <div className="top-cards__col">
+          <div className="section-title" style={{ marginTop: 0 }}>
+            <h3>Disparar coleta</h3>
+          </div>
+          <div className="card card-compact disparo-card">
+            <div
+              className="filter-group segmented"
+              role="group"
+              aria-label="Fonte da coleta"
+              style={{ marginBottom: 14 }}
+            >
+              {FONTE_DISPARO_OPCOES.map((opt) => {
+                const active = fonteDisparo === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    className={cn("btn", "btn-sm", active && "btn-primary")}
+                    aria-pressed={active}
+                    onClick={() => setFonteDisparo(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            {disparoForm}
+          </div>
         </div>
-      </div>
 
-      <div className="section-title" style={{ marginTop: 0 }}>
-        <h3>Disparar coleta</h3>
-      </div>
-
-      <div className="card form-card">
-        <div
-          className="filter-group"
-          role="group"
-          aria-label="Fonte da coleta"
-          style={{ marginBottom: 14 }}
-        >
-          {FONTE_DISPARO_OPCOES.map((opt) => {
-            const active = fonteDisparo === opt.value;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                className={cn("btn", "btn-sm", active && "btn-primary")}
-                aria-pressed={active}
-                onClick={() => setFonteDisparo(opt.value)}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
+        <div className="top-cards__col">
+          <div className="section-title" style={{ marginTop: 0 }}>
+            <h3>Filtrar histórico</h3>
+          </div>
+          <div className="card card-compact">
+            <div className="filter-stack">
+              <OrigemFiltro
+                value={origem}
+                onChange={(v) => {
+                  setOrigem(v);
+                  setRecurso("todos");
+                }}
+                segmented
+              />
+              <RecursoFiltro recursos={recursos} value={recurso} onChange={setRecurso} />
+            </div>
+          </div>
         </div>
-        {disparoForm}
       </div>
 
       <div className="section-title">
@@ -164,26 +192,22 @@ export function ExecucoesClient() {
         {!execucoes.isLoading && !execucoes.isError && (
           <span className="count">{runs.length}</span>
         )}
-        <div className="right">
-          <OrigemFiltro value={origem} onChange={setOrigem} />
-          <RecursoFiltro recursos={recursos} value={recurso} onChange={setRecurso} />
-          <div
-            className={cn("conn", connected ? "ok" : "reconnecting")}
-            role="status"
-            aria-live="polite"
-          >
-            {connected ? (
-              <>
-                <span className="dot" aria-hidden="true" />
-                Tempo real ativo
-              </>
-            ) : (
-              <>
-                <Loader2 className="spin" aria-hidden="true" />
-                Reconectando…
-              </>
-            )}
-          </div>
+        <div
+          className={cn("conn", connected ? "ok" : "reconnecting")}
+          role="status"
+          aria-live="polite"
+        >
+          {connected ? (
+            <>
+              <span className="dot" aria-hidden="true" />
+              Tempo real ativo
+            </>
+          ) : (
+            <>
+              <Loader2 className="spin" aria-hidden="true" />
+              Reconectando…
+            </>
+          )}
         </div>
       </div>
 

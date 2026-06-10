@@ -5,11 +5,12 @@ import { cn } from "@/lib/utils";
 export type RecursoFiltroValue = "todos" | string;
 
 /**
- * cmp-recurso-filtro — Filtro segmentado por recurso/tipo da fonte.
+ * cmp-recurso-filtro — Filtro por recurso/tipo da fonte, em toggle.
  *
  * Os recursos disponiveis sao derivados da propria lista carregada (ex.:
- * 'processos' do Nomus). Aplica client-side sobre a lista origem-aware. Quando
- * nao ha recursos distintos, exibe apenas "Todos".
+ * 'processos' do Nomus). Sem pill "Todos": a origem ja traz todos os recursos;
+ * clicar um recurso filtra, clicar o mesmo de novo remove o filtro ("todos").
+ * Quando nao ha recursos distintos, oculta.
  */
 export function RecursoFiltro({
   recursos,
@@ -20,12 +21,11 @@ export function RecursoFiltro({
   value: RecursoFiltroValue;
   onChange: (value: RecursoFiltroValue) => void;
 }) {
-  // Com 0 ou 1 recurso nao ha escolha real: o "Todos" fica redundante -> oculta.
-  if (recursos.length <= 1) return null;
-  const options: RecursoFiltroValue[] = ["todos", ...recursos];
+  // Sem recurso para a origem selecionada nao ha o que filtrar -> oculta.
+  if (recursos.length === 0) return null;
   return (
     <div className="filter-group" role="group" aria-label="Filtrar por recurso">
-      {options.map((opt) => {
+      {recursos.map((opt) => {
         const active = value === opt;
         return (
           <button
@@ -33,9 +33,9 @@ export function RecursoFiltro({
             type="button"
             className={cn("btn", "btn-sm", active && "btn-primary")}
             aria-pressed={active}
-            onClick={() => onChange(opt)}
+            onClick={() => onChange(active ? "todos" : opt)}
           >
-            {opt === "todos" ? "Todos os recursos" : formatRecurso(opt)}
+            {formatRecurso(opt)}
           </button>
         );
       })}

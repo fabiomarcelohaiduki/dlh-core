@@ -57,7 +57,13 @@ export function execucaoDescriptor(execucao: Execucao): PillDescriptor {
     case "erro":
       return { state: "err", label: "Com erro" };
     case "concluida":
-      if (execucao.novos === 0 && execucao.alterados === 0) {
+      // Drive e so descoberta de vinculos (sem 'alterados'); re-descobrir
+      // arquivos ja vistos (novos=0) e o caso normal, nao um aviso -> verde.
+      if (
+        normalizeOrigem(execucao.origem) !== "drive" &&
+        execucao.novos === 0 &&
+        execucao.alterados === 0
+      ) {
         return { state: "warn", label: "Concluída · sem novos" };
       }
       return { state: "ok", label: "Concluída" };
@@ -68,10 +74,10 @@ export function execucaoDescriptor(execucao: Execucao): PillDescriptor {
 
 /**
  * Origem normalizada das telas multi-origem (filtro Effecti x Nomus x Gmail).
- *  - execucoes.origem  = tipo da fonte ('effecti' | 'nomus' | 'gmail'); null (legado) = Effecti.
- *  - erros.origem      = 'aviso' (Effecti), 'processo-*' (Nomus) ou 'gmail'.
+ *  - execucoes.origem  = tipo da fonte ('effecti' | 'nomus' | 'gmail' | 'drive'); null (legado) = Effecti.
+ *  - erros.origem      = 'aviso' (Effecti), 'processo-*' (Nomus), 'gmail' ou 'drive'.
  */
-export type OrigemKey = "effecti" | "nomus" | "gmail";
+export type OrigemKey = "effecti" | "nomus" | "gmail" | "drive";
 
 /**
  * Teto de retomadas automaticas (NOMUS_MAX_RETOMADAS). Acima dele a retomada
@@ -85,6 +91,7 @@ export function normalizeOrigem(origem: string | null | undefined): OrigemKey {
   if (!origem) return "effecti";
   const o = origem.toLowerCase();
   if (o === "gmail") return "gmail";
+  if (o === "drive") return "drive";
   if (o === "nomus" || o.startsWith("processo")) return "nomus";
   if (o === "effecti" || o === "aviso") return "effecti";
   return "effecti";
@@ -97,6 +104,8 @@ export function origemLabel(key: OrigemKey): string {
       return "Nomus";
     case "gmail":
       return "Gmail";
+    case "drive":
+      return "Drive";
     default:
       return "Effecti";
   }

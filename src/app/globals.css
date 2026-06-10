@@ -1554,6 +1554,70 @@ select {
   align-items: center;
   gap: 8px;
 }
+/* Barra de filtros dedicada (abaixo do titulo): grupos espacados, quebram linha. */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  margin: 0 0 13px;
+}
+/* Cards do topo lado a lado (disparo + filtros): mesma altura, quebram em
+   telas estreitas. Cada coluna = titulo de secao + card. */
+.top-cards {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 4px 24px;
+}
+.top-cards__col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.top-cards__col > .card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+/* Card que hugga o conteudo em vez do vazio de 640px do form-card. */
+.card-compact {
+  width: fit-content;
+  min-width: 320px;
+  max-width: 100%;
+}
+/* Filtros empilhados: origens em cima, recurso abre abaixo ao selecionar origem. */
+.filter-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+/* Segmented control: segmentos unidos sobre fundo afundado, o ativo "elevado"
+   (fundo claro + sombra). Usado no seletor de fonte do disparo e no filtro de
+   origem do historico, para os dois cards ficarem visualmente iguais. */
+.segmented {
+  gap: 0;
+  padding: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.segmented > .btn {
+  border-color: transparent;
+  background: transparent;
+}
+.segmented > .btn:hover {
+  background: var(--surface);
+  border-color: transparent;
+}
+.segmented > .btn-primary,
+.segmented > .btn-primary:hover {
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
 /* Permite que multiplos grupos de filtro quebrem linha sem estourar. */
 .section-title .right {
   flex-wrap: wrap;

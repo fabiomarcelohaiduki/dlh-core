@@ -48,7 +48,15 @@ export function ErrosClient() {
   // useErros(etapa?) -> GET /ingestao/erros (com ?etapa= quando filtrado).
   const erros = useErros(etapa === "todos" ? undefined : etapa);
   const allItems = useMemo(() => erros.data?.items ?? [], [erros.data]);
-  const recursos = useMemo(() => recursosDisponiveis(allItems), [allItems]);
+  // Recursos contextuais: so a origem selecionada expoe seus recursos. Sem
+  // origem ("todas") nao ha contexto -> oculta o filtro de recurso.
+  const recursos = useMemo(
+    () =>
+      origem === "todas"
+        ? []
+        : recursosDisponiveis(allItems.filter((e) => normalizeOrigem(e.origem) === origem)),
+    [allItems, origem],
+  );
 
   // Filtros client-side (origem/recurso) sobre a lista origem-aware.
   const filtrados = useMemo(
@@ -84,15 +92,23 @@ export function ErrosClient() {
         {!erros.isLoading && !erros.isError && (
           <span className="count">{filtrados.length}</span>
         )}
-        <div className="right">
-          <OrigemFiltro value={origem} onChange={setOrigem} />
-          <RecursoFiltro recursos={recursos} value={recurso} onChange={setRecurso} />
-        </div>
       </div>
 
-      <div className="section-title" style={{ marginTop: 14 }}>
-        <h3>Etapa</h3>
-        <div className="right" role="group" aria-label="Filtrar erros por etapa">
+      <div className="filter-bar">
+        <OrigemFiltro
+          value={origem}
+          onChange={(v) => {
+            setOrigem(v);
+            setRecurso("todos");
+          }}
+        />
+        <RecursoFiltro recursos={recursos} value={recurso} onChange={setRecurso} />
+        <div
+          className="filter-group"
+          role="group"
+          aria-label="Filtrar erros por etapa"
+          style={{ marginLeft: "auto" }}
+        >
           {ETAPA_FILTERS.map((f) => {
             const active = etapa === f.value;
             return (
