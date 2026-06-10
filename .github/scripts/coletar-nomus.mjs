@@ -27,6 +27,8 @@
 //   NOMUS_PAUSA_LOTE_MS    pausa entre lotes em ms (default 5000)
 //   NOMUS_MAX_RETRIES      tentativas por pagina (default 5)
 //   NOMUS_MAX_PAGINAS      teto de seguranca de paginas (default 1000)
+//   NOMUS_GET_TIMEOUT_MS   timeout por GET de pagina (default 600000 = 10min)
+//   NOMUS_NETWORK_RETRY_FLOOR_MS  piso de espera pos fetch failed (default 15000)
 //
 // MODO de coleta:
 //   incremental (default) — pede ao Edge a MARCA D'AGUA (maior nomus_id ja
@@ -68,6 +70,17 @@ const BACKOFF_TETO_MS = 60_000;
 // demora (medido 2,5s a 140s/pagina, sem nenhum 429/tempoAteLiberar). Este log
 // da visibilidade ao throttle silencioso, que o log [rate-limit] nao captura.
 const SLOW_GET_MS = posInt(process.env.NOMUS_SLOW_GET_MS, 30_000);
+// Timeout EXPLICITO por GET de pagina. O tarpit do Nomus ja empurrou um unico
+// GET para 311s (run #32); o default do undici (~300s headersTimeout) estoura
+// nesses casos e o `fetch` rejeita com "fetch failed", derrubando o run. Damos
+// folga ampla (10min) para o tarpit responder sem matar o job; o AbortSignal
+// garante que um GET pendurado nao trave o runner para sempre.
+const GET_TIMEOUT_MS = posInt(process.env.NOMUS_GET_TIMEOUT_MS, 600_000);
+// Piso de espera entre tentativas APOS falha de rede (fetch failed). O backoff
+// exponencial padrao comeca em 0,5s — curto demais para o tarpit aliviar. Com
+// piso de 15s, as MAX_RETRIES tentativas somam fôlego suficiente (~75s+) para o
+// gateway do Nomus respirar antes de desistir e abortar o run.
+const NETWORK_RETRY_FLOOR_MS = posInt(process.env.NOMUS_NETWORK_RETRY_FLOOR_MS, 15_000);
 
 function posInt(raw, fallback) {
   const n = Number(raw);
@@ -149,12 +162,21 @@ async function fetchPagina(pagina) {
           "Content-Type": "application/json",
           Accept: "application/json",
         },
+        signal: AbortSignal.timeout(GET_TIMEOUT_MS),
       });
     } catch (err) {
       if (attempt >= MAX_RETRIES) {
         fail(`falha de rede ao contatar o Nomus (pagina ${pagina}): ${err?.message ?? err}`, 1);
       }
-      await delay(backoff(attempt));
+      // Falha de rede (fetch failed / timeout) costuma ser o tarpit do Nomus
+      // engasgado: espera com PISO maior que o backoff exponencial padrao para
+      // dar tempo do gateway aliviar antes da proxima tentativa.
+      const waitMs = Math.max(backoff(attempt), NETWORK_RETRY_FLOOR_MS);
+      console.error(
+        `[rede] pagina ${pagina}: ${err?.message ?? err} ` +
+          `(tentativa ${attempt + 1}/${MAX_RETRIES}), aguardando ${Math.round(waitMs / 1000)}s`,
+      );
+      await delay(waitMs);
       attempt += 1;
       continue;
     }
