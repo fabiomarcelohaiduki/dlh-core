@@ -18,7 +18,6 @@ type Variant = "dashboard" | "execucoes";
 const COLUMNS: Record<Variant, string[]> = {
   dashboard: ["Início", "Gatilho", "Novos", "Alterados", "Duração", "Status"],
   execucoes: [
-    "Execução",
     "Início",
     "Origem",
     "Recurso",
@@ -227,7 +226,6 @@ export function RunsTable({
                   className={cn(clickable && "clk")}
                   onClick={clickable ? () => onErroClick?.(r) : undefined}
                 >
-                  {isExecucoes && <td className="mono">{r.id}</td>}
                   <td className="tnum">{formatDateTime(r.inicio)}</td>
                   {isExecucoes && (
                     <td>
