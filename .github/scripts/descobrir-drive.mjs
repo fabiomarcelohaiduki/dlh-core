@@ -44,6 +44,9 @@ if (!CRON_SECRET) fail("env CRON_DISPATCH_SECRET ausente.");
 
 const DESCOBRIR_URL = `${SUPABASE_URL}/functions/v1/documentos-descobrir`;
 const PASTAS_URL = `${SUPABASE_URL}/functions/v1/drive-pastas`;
+const EXECUCAO_URL = `${SUPABASE_URL}/functions/v1/drive-execucao`;
+// 'manual' (disparo pelo card) ou 'agendada' (cron->GitHub API). Default agendada.
+const GATILHO = (process.env.DRIVE_GATILHO ?? "agendada").trim() === "manual" ? "manual" : "agendada";
 
 function headers() {
   const h = { "Content-Type": "application/json", "X-Cron-Secret": CRON_SECRET };
@@ -52,6 +55,52 @@ function headers() {
     h["Authorization"] = `Bearer ${ANON}`;
   }
   return h;
+}
+
+/**
+ * Abre a execucao da coleta no banco (via Edge drive-execucao). Devolve o
+ * execucao_id, ou null se a fonte ja estiver coletando (lock-por-fonte) — caso
+ * em que o runner aborta sem rodar coleta duplicada.
+ */
+async function abrirExecucao() {
+  const res = await fetch(EXECUCAO_URL, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ action: "abrir", gatilho: GATILHO }),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    fail(`drive-execucao (abrir) falhou (${res.status}): ${text.slice(0, 300)}`, 1);
+  }
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch (_) {
+    fail("resposta nao-JSON de drive-execucao (abrir).", 1);
+  }
+  if (json?.ja_em_andamento) {
+    console.log(`Ja ha uma coleta do Drive em andamento (execucao ${json.execucao_id}). Abortando.`);
+    return null;
+  }
+  console.log(`Execucao aberta: ${json?.execucao_id}.`);
+  return json?.execucao_id ?? null;
+}
+
+/** Fecha a execucao (status final + contagens). Best-effort: nao derruba o run. */
+async function fecharExecucao(execId, status, total, sucesso, erro, novos = 0) {
+  if (!execId) return;
+  try {
+    const res = await fetch(EXECUCAO_URL, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ action: "fechar", execucao_id: execId, status, total, sucesso, erro, novos }),
+    });
+    if (!res.ok) {
+      console.error(`AVISO: drive-execucao (fechar) falhou (${res.status}): ${(await res.text()).slice(0, 200)}`);
+    }
+  } catch (err) {
+    console.error(`AVISO: falha ao fechar a execucao: ${err?.message ?? err}`);
+  }
 }
 
 /** Pastas a descobrir: override (1 pasta) OU as ativas do cockpit. */
@@ -78,12 +127,16 @@ async function resolverPastas() {
   return Array.isArray(json?.pastas) ? json.pastas : [];
 }
 
-/** Lista uma pasta e empurra os arquivos ao Edge em lotes. Devolve inseridos. */
+/**
+ * Lista uma pasta e empurra os arquivos ao Edge em lotes. Devolve
+ * { total, inseridos }: total = arquivos baixaveis vistos (alimenta o
+ * total_processar da execucao); inseridos = vinculos novos/reabertos.
+ */
 async function descobrirPasta(folderId, token) {
   const arquivos = await listarArquivosPasta(folderId, token);
   if (arquivos.length === 0) {
     console.log("  nenhum arquivo baixavel (pasta vazia ou so Google Docs nativos).");
-    return 0;
+    return { total: 0, inseridos: 0 };
   }
   // Enfileira em LOTES: a funcao descobrir_vinculos_drive faz N inserts numa
   // transacao, e uma pasta grande num unico POST estoura o timeout do gateway
@@ -110,26 +163,46 @@ async function descobrirPasta(folderId, token) {
     if (Number.isFinite(n)) inseridos += n;
     console.log(`  lote ${i / LOTE + 1}: ${lote.length} arquivo(s) -> novos/reabertos ${json?.inseridos ?? "?"}`);
   }
-  return inseridos;
+  return { total: arquivos.length, inseridos };
 }
 
 async function main() {
-  const pastas = await resolverPastas();
-  if (pastas.length === 0) {
-    console.log("Nenhuma pasta do Drive ativa cadastrada. Nada a descobrir.");
-    return;
-  }
+  // Registra a execucao ANTES da coleta (lock-por-fonte no Edge). Se a fonte ja
+  // coleta, execId vem null e o run aborta sem duplicar.
+  const execId = await abrirExecucao();
+  if (execId === null) return;
 
-  console.log(`${pastas.length} pasta(s) do Drive a descobrir.`);
-  const token = await getDriveAccessToken();
-  let totalInseridos = 0;
-  for (const p of pastas) {
-    const folderId = (p.folder_id ?? "").trim();
-    if (!folderId) continue;
-    console.log(`Pasta "${p.nome ?? folderId}" (${folderId})...`);
-    totalInseridos += await descobrirPasta(folderId, token);
+  try {
+    const pastas = await resolverPastas();
+    if (pastas.length === 0) {
+      console.log("Nenhuma pasta do Drive ativa cadastrada. Nada a descobrir.");
+      await fecharExecucao(execId, "concluida", 0, 0, 0);
+      return;
+    }
+
+    console.log(`${pastas.length} pasta(s) do Drive a descobrir.`);
+    const token = await getDriveAccessToken();
+    let totalArquivos = 0;
+    let totalInseridos = 0;
+    for (const p of pastas) {
+      const folderId = (p.folder_id ?? "").trim();
+      if (!folderId) continue;
+      console.log(`Pasta "${p.nome ?? folderId}" (${folderId})...`);
+      const r = await descobrirPasta(folderId, token);
+      totalArquivos += r.total;
+      totalInseridos += r.inseridos;
+    }
+    console.log(
+      `Descoberta Drive concluida. Arquivos=${totalArquivos}, vinculos novos/reabertos=${totalInseridos}.`,
+    );
+    // Todos os arquivos foram varridos/enfileirados -> processados = total (barra
+    // 100% na conclusao). `novos` = vinculos ineditos apos dedup da fila.
+    await fecharExecucao(execId, "concluida", totalArquivos, totalArquivos, 0, totalInseridos);
+  } catch (err) {
+    // Fecha a execucao como 'erro' antes de propagar (libera o lock-por-fonte).
+    await fecharExecucao(execId, "erro", 0, 0, 0);
+    throw err;
   }
-  console.log(`Descoberta Drive concluida. Total vinculos novos/reabertos: ${totalInseridos}.`);
 }
 
 main().catch((err) => fail(err?.message ?? String(err), 1));

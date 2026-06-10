@@ -60,4 +60,17 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
           DRIVE_FOLDER_ID: ${{ github.event.inputs.folder_id }}
+          DRIVE_GATILHO: ${{ github.event.inputs.gatilho }}
         run: node .github/scripts/descobrir-drive.mjs
+
+      # Auto-cura: se o run for CANCELADO, o Node morre por sinal e o try/catch
+      # do descobrir-drive nao fecha a execucao -> orfa em_andamento. Este step
+      # if:always() roda no grace period e fecha a orfa como 'erro'. No fim
+      # normal a execucao ja esta 'concluida' -> no-op.
+      - name: Fechar execucao orfa (cancelamento)
+        if: ${{ always() }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
+        run: node .github/scripts/fechar-orfa-drive.mjs
