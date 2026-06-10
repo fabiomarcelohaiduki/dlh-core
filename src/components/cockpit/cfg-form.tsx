@@ -82,15 +82,17 @@ function toDefaults(initial: ConfigIngestaoState): CfgValues {
  */
 export function CfgForm({
   initial,
+  fonteId,
   onDirtyChange,
 }: {
   initial: ConfigIngestaoState;
+  fonteId: string | null;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const salvar = useSalvarConfig();
   const execucoes = useExecucoes({ limit: 50 });
 
-  const running = hasRunningExecucao(execucoes.data?.items, "effecti");
+  const running = hasRunningExecucao(execucoes.data?.items, fonteId);
 
   const [saveFeedback, setSaveFeedback] = useState<Feedback | null>(null);
 

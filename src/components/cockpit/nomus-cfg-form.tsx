@@ -134,7 +134,13 @@ function TipoToggle({
  * para persistir; as alteracoes valem na PROXIMA execucao (sem redeploy).
  * Estados de loading (skeleton) e erro (inline) presentes na leitura e gravacao.
  */
-export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteState }) {
+export function NomusCfgForm({
+  agendamento,
+  fonteId,
+}: {
+  agendamento?: AgendamentoFonteState;
+  fonteId?: string | null;
+}) {
   const config = useIngestaoConfig("nomus");
   const salvar = useSalvarIngestaoConfig();
 
@@ -288,7 +294,11 @@ export function NomusCfgForm({ agendamento }: { agendamento?: AgendamentoFonteSt
               {r.key === "processos" && ativo && agendamento && (
                 <div style={{ marginTop: 16 }}>
                   <AgendamentoFonteForm initial={agendamento} nota={notaFull} />
-                  <NomusDisparoForm recurso={r.key} janelaDias={janelaDias} />
+                  <NomusDisparoForm
+                    recurso={r.key}
+                    janelaDias={janelaDias}
+                    fonteId={fonteId ?? null}
+                  />
                 </div>
               )}
             </div>

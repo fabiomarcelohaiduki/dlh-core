@@ -291,8 +291,12 @@ export function FontesCredenciais({
             onClose={() => toggle(setEffectiAberto, effectiRef)}
           />
           <AgendamentoFonteForm initial={effectiAgendamento} />
-          <EffectiDisparoForm configDirty={effectiCfgDirty} />
-          <CfgForm initial={effectiConfig} onDirtyChange={setEffectiCfgDirty} />
+          <EffectiDisparoForm fonteId={effecti.id} configDirty={effectiCfgDirty} />
+          <CfgForm
+            initial={effectiConfig}
+            fonteId={effecti.id}
+            onDirtyChange={setEffectiCfgDirty}
+          />
         </div>
       )}
 
@@ -303,7 +307,7 @@ export function FontesCredenciais({
             nome="Nomus"
             onClose={() => toggle(setNomusAberto, nomusRef)}
           />
-          <NomusCfgForm agendamento={nomusAgendamento} />
+          <NomusCfgForm agendamento={nomusAgendamento} fonteId={nomus.id} />
         </div>
       )}
 

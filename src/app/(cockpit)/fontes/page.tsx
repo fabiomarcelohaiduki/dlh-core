@@ -28,6 +28,7 @@ const FREQUENCIAS: ReadonlySet<Frequencia> = new Set([
 
 /** Linha lida de public.fontes (apenas a referencia/booleano, nunca o segredo). */
 interface FonteRow {
+  id: string | null;
   nome: string | null;
   tipo: string | null;
   endpoint_base: string | null;
@@ -74,13 +75,14 @@ async function loadFonte(): Promise<FonteEffectiState> {
   const supabase = await createClient();
   const { data: raw } = await supabase
     .from("fontes")
-    .select("nome, tipo, endpoint_base, estado_conexao, token_cifrado, updated_at")
+    .select("id, nome, tipo, endpoint_base, estado_conexao, token_cifrado, updated_at")
     .eq("tipo", "effecti")
     .maybeSingle();
 
   const data = (raw ?? null) as FonteRow | null;
 
   return {
+    id: data?.id ?? null,
     nome: data?.nome ?? "Effecti",
     tipo: data?.tipo ?? "effecti",
     endpointBase: data?.endpoint_base ?? "—",
@@ -99,13 +101,14 @@ async function loadFonteNomus(): Promise<FonteCredState> {
   const supabase = await createClient();
   const { data: raw } = await supabase
     .from("fontes")
-    .select("nome, tipo, endpoint_base, estado_conexao, token_cifrado, updated_at")
+    .select("id, nome, tipo, endpoint_base, estado_conexao, token_cifrado, updated_at")
     .eq("tipo", "nomus")
     .maybeSingle();
 
   const data = (raw ?? null) as FonteRow | null;
 
   return {
+    id: data?.id ?? null,
     nome: data?.nome ?? "Nomus",
     tipo: data?.tipo ?? "nomus",
     endpointBase: data?.endpoint_base ?? "—",

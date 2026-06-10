@@ -153,6 +153,8 @@ export type Frequencia = "manual" | "horaria" | "diaria" | "semanal" | "mensal";
  * (RNF-02). `ultimaVerificacao` vem de fontes.updated_at.
  */
 export interface FonteEffectiState {
+  /** id da fonte (public.fontes.id); base do filtro de coleta em andamento. */
+  id: string | null;
   nome: string;
   tipo: string;
   endpointBase: string;

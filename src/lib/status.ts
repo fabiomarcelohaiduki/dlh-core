@@ -134,24 +134,21 @@ export function indexacaoDescriptor(status: string | null): PillDescriptor {
 }
 
 /**
- * True quando ha uma coleta em andamento (base do anti-duplo-disparo).
- * Com `origem`, considera apenas execucoes daquela fonte (lock-por-fonte):
- * o backfill de outra fonte (ex.: Nomus) nao acende o indicador do Effecti.
+ * True quando ha uma coleta em andamento PARA A FONTE informada (base do
+ * anti-duplo-disparo). Filtra por `fonteId` — a chave inequivoca do lock
+ * (o backend tranca por fonte_id). NAO usa `execucoes.origem`: na pratica
+ * nenhuma fonte popula essa coluna (fica null tanto no Effecti quanto no
+ * Nomus), entao comparar por origem dava falso negativo (Nomus nao travava)
+ * e falso positivo (coleta do Nomus travava o botao do Effecti). Sem fonteId
+ * (ainda hidratando) nao trava nada.
  */
 export function hasRunningExecucao(
   items: Execucao[] | undefined,
-  origem?: string,
+  fonteId: string | null | undefined,
 ): boolean {
-  // Compara pela origem NORMALIZADA: a coleta do Effecti grava origem=null
-  // (legado), entao `e.origem === "effecti"` cru nunca casaria e o botao nao
-  // travava. normalizeOrigem mapeia null/'aviso' -> effecti e 'processo-*' -> nomus.
-  const alvo = origem == null ? null : normalizeOrigem(origem);
+  if (!fonteId) return false;
   return Boolean(
-    items?.some(
-      (e) =>
-        e.status === "em_andamento" &&
-        (alvo == null || normalizeOrigem(e.origem) === alvo),
-    ),
+    items?.some((e) => e.status === "em_andamento" && e.fonteId === fonteId),
   );
 }
 

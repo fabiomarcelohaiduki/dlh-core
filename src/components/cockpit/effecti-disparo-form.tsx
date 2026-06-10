@@ -19,10 +19,16 @@ type Feedback = { kind: "ok" | "err"; message: string };
  * elas NAO valem para esta coleta (so na proxima execucao, apos salvar) antes
  * de disparar. O estado `dirty` vem do CfgForm, subido pelo painel pai.
  */
-export function EffectiDisparoForm({ configDirty }: { configDirty: boolean }) {
+export function EffectiDisparoForm({
+  fonteId,
+  configDirty,
+}: {
+  fonteId: string | null;
+  configDirty: boolean;
+}) {
   const coleta = useColetaDemanda();
   const execucoes = useExecucoes({ limit: 50 });
-  const running = hasRunningExecucao(execucoes.data?.items, "effecti");
+  const running = hasRunningExecucao(execucoes.data?.items, fonteId);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
 
   const disabled = running || coleta.isPending;

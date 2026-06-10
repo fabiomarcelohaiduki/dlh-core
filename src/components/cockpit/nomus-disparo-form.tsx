@@ -29,19 +29,21 @@ type Feedback = { kind: "ok" | "err"; message: string };
 export function NomusDisparoForm({
   recurso = "processos",
   janelaDias = null,
+  fonteId = null,
 }: {
   recurso?: string;
   janelaDias?: number | null;
+  fonteId?: string | null;
 }) {
   const janelaLabel = janelaDias != null ? `${janelaDias} dias` : "full";
   const janelaFrase =
     janelaDias != null ? `dos últimos ${janelaDias} dias` : "da janela configurada";
   const disparar = useDispararNomus();
   const execucoes = useExecucoes({ limit: 50 });
-  // Trava os botoes enquanto ja ha coleta do Nomus rodando (evita queimar um
+  // Trava os botoes enquanto ja ha coleta desta fonte rodando (evita queimar um
   // run do Actions que so falharia com 409 no primeiro push). Alinha o Nomus
   // ao comportamento do Effecti; o 409 do Edge segue como rede de seguranca.
-  const running = hasRunningExecucao(execucoes.data?.items, "nomus");
+  const running = hasRunningExecucao(execucoes.data?.items, fonteId);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   // Modo em voo: trava ambos os botoes e mostra o spinner so no acionado.
   const [emVoo, setEmVoo] = useState<NomusModo | null>(null);
