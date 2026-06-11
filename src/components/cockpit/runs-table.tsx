@@ -42,9 +42,9 @@ function NumCell({ value }: { value: number }) {
 
 /**
  * Progresso ao vivo (US-15): barra processados_sucesso/total_processar e o
- * cursor checkpoint.pagina_atual para fontes em blocos (Nomus). Sem dados de
- * bloco (Effecti monolitico parado) cai em "—". Em andamento sem total
- * conhecido usa barra indeterminada.
+ * cursor checkpoint.pagina_atual para fontes em blocos (Nomus e Effecti). Sem
+ * dados de bloco (execucao legada sem checkpoint, parada) cai em "—". Em
+ * andamento sem total conhecido usa barra indeterminada.
  */
 function ProgressCell({ execucao }: { execucao: Execucao }) {
   const total = execucao.totalProcessar ?? 0;

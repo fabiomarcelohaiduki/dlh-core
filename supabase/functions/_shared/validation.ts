@@ -429,6 +429,13 @@ export const coletarSchema = z
         errorMap: () => ({ message: `gatilho invalido (use: ${GATILHOS.join(", ")})` }),
       })
       .optional(),
+    // Retomada manual (botao "Retomar" do painel, so Effecti): id da execucao
+    // em erro a retomar a partir do checkpoint EXATO, em vez de recomecar do
+    // bloco 1. Ignorado pelo Nomus (handleNomus inicia coleta nova).
+    retomarExecucaoId: z
+      .string({ invalid_type_error: "retomarExecucaoId deve ser string" })
+      .uuid("retomarExecucaoId deve ser UUID")
+      .optional(),
   })
   .strict();
 

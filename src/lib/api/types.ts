@@ -21,7 +21,8 @@ export type ExecucaoStatus = "concluida" | "em_andamento" | "erro";
 
 /**
  * Cursor/estado de retomada da execucao (execucoes.checkpoint). Presente nas
- * fontes coletadas em blocos (ex.: Nomus); null no Effecti monolitico.
+ * fontes coletadas em blocos (Nomus e, desde 11/06, Effecti); null apenas nas
+ * execucoes legadas sem checkpoint.
  */
 export interface ExecucaoCheckpoint {
   paginaAtual: number | null;
@@ -49,11 +50,11 @@ export interface Execucao {
   fonteId: string | null;
   /** Origem/tipo da fonte ('effecti' | 'nomus'); null quando indeterminada. */
   origem: string | null;
-  /** Recurso coletado (ex.: 'processos'); null para o Effecti monolitico. */
+  /** Recurso coletado (ex.: 'processos'); null para o Effecti (recurso unico). */
   recurso: string | null;
   /** Tipo-alvo do recurso (ex.: tipos ativos do Nomus). */
   tipoAlvo: string | null;
-  /** Cursor de paginacao/retomada; null quando vazio (Effecti). */
+  /** Cursor de paginacao/retomada; null nas execucoes legadas sem checkpoint. */
   checkpoint: ExecucaoCheckpoint | null;
 }
 

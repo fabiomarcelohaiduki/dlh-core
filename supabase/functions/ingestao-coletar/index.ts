@@ -44,6 +44,8 @@ import {
 } from "../_shared/nomus-pipeline.ts";
 import {
   buildInitialEffectiCheckpoint,
+  type EffectiCheckpoint,
+  parseEffectiCheckpoint,
   runEffectiBlock,
 } from "../_shared/effecti-pipeline.ts";
 import type { ColetaNomusResponse, ColetaResponse } from "../_shared/types.ts";
@@ -101,6 +103,117 @@ async function loadEffectiConfig(
   return (data ?? null) as EffectiConfigRow | null;
 }
 
+/**
+ * Descoberta automatica da camada 1 apos um bloco Effecti: enfileira os
+ * vinculos pendentes dos avisos recem-persistidos (descobrir_vinculos_effecti,
+ * SQL puro + idempotente). Best-effort: a falha aqui nao reverte a coleta (a
+ * descoberta manual segue no painel de Extracao). Roda por bloco -> parcial e
+ * aceitavel, a idempotencia reconcilia ao final dos blocos seguintes.
+ */
+async function descobrirVinculosEffectiPosBloco(
+  service: ReturnType<typeof createServiceClient>,
+  execucaoId: string,
+): Promise<void> {
+  const { error } = await service.rpc("descobrir_vinculos_effecti", {
+    p_extensoes: null,
+    p_limite_avisos: null,
+  });
+  if (error) {
+    console.error("[ingestao-coletar] descoberta effecti pos-bloco falhou", {
+      execucaoId,
+      err: error.message,
+    });
+  }
+}
+
+/**
+ * Retomada manual de uma execucao Effecti em 'erro' a partir do checkpoint
+ * EXATO (botao "Retomar" do painel -> retomarExecucaoId). Em vez de recomecar
+ * do bloco 1 (coleta fresca), reabre a MESMA execucao no bloco/pagina onde
+ * parou. Reseta tentativas_retomada (re-arma a retomada automatica do
+ * orquestrador) e processa UM bloco em background; os seguintes avancam pelo
+ * ciclo. Retorna null quando a execucao nao existe, nao e desta fonte, nao
+ * esta em erro ou ja concluiu o checkpoint -> o chamador cai na coleta fresca.
+ */
+async function resumeEffectiErrored(
+  service: ReturnType<typeof createServiceClient>,
+  fonte: Awaited<ReturnType<typeof getFonteByTipo>>,
+  token: string,
+  execucaoId: string,
+  caller: CallerContext,
+): Promise<Response | null> {
+  const { data: exec, error } = await service
+    .from("execucoes")
+    .select("id, checkpoint")
+    .eq("id", execucaoId)
+    .eq("fonte_id", fonte.id)
+    .eq("status", "erro")
+    .maybeSingle();
+  if (error) {
+    throw new HttpError(500, "execucao_query_failed", "falha ao consultar a execucao");
+  }
+  if (!exec) return null;
+
+  const checkpoint = parseEffectiCheckpoint((exec as { checkpoint: unknown }).checkpoint);
+  if (!checkpoint || checkpoint.fase === "concluido") return null;
+
+  const retomado: EffectiCheckpoint = { ...checkpoint, tentativas_retomada: 0 };
+  const { error: upError } = await service
+    .from("execucoes")
+    .update({ status: "em_andamento", etapa_atual: "coleta", checkpoint: retomado })
+    .eq("id", execucaoId)
+    .eq("status", "erro");
+  if (upError) {
+    // Corrida no indice unico parcial (uidx_execucoes_uma_ativa_por_fonte):
+    // uma coleta fresca nasceu entre o lock-check e este update -> 409.
+    if (upError.code === "23505") {
+      throw new HttpError(
+        409,
+        "execucao_em_andamento",
+        "ja existe uma coleta Effecti em andamento; aguarde a conclusao",
+      );
+    }
+    throw new HttpError(500, "execucao_update_failed", "falha ao retomar a execucao");
+  }
+
+  const config = await loadEffectiConfig(service, fonte.id);
+  const connector = new EffectiConnector({ endpointBase: fonte.endpointBase, token });
+  const env = getEnv();
+  const embeddingProvider = env.embeddingsEndpoint ? createEmbeddingProvider() : undefined;
+
+  const blockPromise = runEffectiBlock(
+    { db: service, connector, embeddingProvider, fonteId: fonte.id },
+    {
+      execucaoId,
+      checkpoint: retomado,
+      modalidades: config?.modalidades ?? undefined,
+      portais: config?.portais ?? undefined,
+    },
+  )
+    .then(() => descobrirVinculosEffectiPosBloco(service, execucaoId))
+    .catch((err) => {
+      console.error("[ingestao-coletar] retomada effecti falhou", {
+        execucaoId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    });
+
+  if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+    EdgeRuntime.waitUntil(blockPromise);
+  }
+
+  await logSensitiveAction({
+    tabela: "execucoes",
+    acao: "retomar_coleta",
+    registroId: execucaoId,
+    usuario: caller.usuario,
+    dadosNovos: { gatilho: caller.gatilho, fonte: fonte.tipo },
+  });
+
+  const body: ColetaResponse = { execucaoId, status: "em_andamento" };
+  return jsonResponse(body, 202);
+}
+
 async function handleEffecti(
   service: ReturnType<typeof createServiceClient>,
   input: ColetarInput,
@@ -138,6 +251,19 @@ async function handleEffecti(
       "execucao_em_andamento",
       "ja existe uma coleta Effecti em andamento; aguarde a conclusao",
     );
+  }
+
+  // Retomada manual (botao "Retomar"): retoma a execucao em erro do checkpoint
+  // exato. Cai para coleta fresca quando ela nao for mais retomavel.
+  if (input.retomarExecucaoId) {
+    const retomada = await resumeEffectiErrored(
+      service,
+      fonte,
+      token,
+      input.retomarExecucaoId,
+      caller,
+    );
+    if (retomada) return retomada;
   }
 
   const config = await loadEffectiConfig(service, fonte.id);
@@ -197,24 +323,7 @@ async function handleEffecti(
     { db: service, connector, embeddingProvider, fonteId: fonte.id },
     { execucaoId, checkpoint, modalidades, portais },
   )
-    .then(async () => {
-      // Descoberta automatica da camada 1 apos o bloco: enfileira os vinculos
-      // pendentes dos avisos recem-persistidos (descobrir_vinculos_effecti, SQL
-      // puro + idempotente). Espelha o Gmail/Drive, que descobrem na coleta.
-      // Best-effort: a falha aqui nao reverte a coleta (a descoberta manual
-      // segue no painel de Extracao). Roda por bloco -> parcial e aceitavel,
-      // a idempotencia reconcilia ao final dos blocos seguintes.
-      const { error: descErr } = await service.rpc("descobrir_vinculos_effecti", {
-        p_extensoes: null,
-        p_limite_avisos: null,
-      });
-      if (descErr) {
-        console.error("[ingestao-coletar] descoberta effecti pos-bloco falhou", {
-          execucaoId,
-          err: descErr.message,
-        });
-      }
-    })
+    .then(() => descobrirVinculosEffectiPosBloco(service, execucaoId))
     .catch((err) => {
       console.error("[ingestao-coletar] bloco effecti falhou", {
         execucaoId,

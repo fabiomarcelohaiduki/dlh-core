@@ -32,7 +32,8 @@ export function EffectiDisparoForm({
   /** Renderiza sem o card proprio (para embutir num card externo). */
   bare?: boolean;
 }) {
-  // Legenda fixa sob o botao. O Effecti nao tem marca d'agua/cursor: toda
+  // Legenda fixa sob o botao. O Effecti coleta em BLOCOS com cursor de retomada
+  // DENTRO de cada coleta (desde 11/06), mas sem marca d'agua incremental: toda
   // coleta RE-VARRE a janela configurada e deduplica por hash (sem distincao
   // incremental/full do Nomus). Sem janela carregada, frase generica.
   const janelaFrase =

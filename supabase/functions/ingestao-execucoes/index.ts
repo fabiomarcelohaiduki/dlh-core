@@ -47,7 +47,8 @@ interface ExecucaoRow {
 
 /**
  * Normaliza o checkpoint jsonb (snake_case) para camelCase. Retorna null para
- * o checkpoint vazio do Effecti monolitico ('{}') — sem cursor de paginacao.
+ * o checkpoint vazio ('{}') das execucoes legadas sem cursor de paginacao.
+ * Effecti e Nomus gravam pagina_atual; o Effecti tambem traz bloco_inicio.
  */
 function toCheckpoint(raw: unknown): ExecucaoCheckpoint | null {
   if (!raw || typeof raw !== "object") return null;

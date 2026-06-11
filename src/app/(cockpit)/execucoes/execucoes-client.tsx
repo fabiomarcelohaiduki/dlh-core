@@ -147,10 +147,14 @@ export function ExecucoesClient() {
   async function handleRetomar(execucao: Execucao) {
     if (retomandoId) return;
     setRetomandoId(execucao.id);
+    const fonte = normalizeOrigem(execucao.origem) as FonteTipo;
     try {
       await coletar.mutateAsync({
-        fonte: normalizeOrigem(execucao.origem) as FonteTipo,
+        fonte,
         recurso: (execucao.recurso ?? "processos") as "processos",
+        // Effecti retoma do checkpoint exato da execucao em erro; o Nomus
+        // ignora (inicia coleta nova, com cursor proprio no runner).
+        ...(fonte === "effecti" ? { retomarExecucaoId: execucao.id } : {}),
       });
     } catch {
       // Feedback de falha fica a cargo do refetch/Realtime; nada a propagar.

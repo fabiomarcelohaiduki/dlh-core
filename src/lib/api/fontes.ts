@@ -135,6 +135,11 @@ export interface ColetarInput {
   fonte: FonteTipo;
   recurso?: "processos";
   janelaDias?: number;
+  /**
+   * Retomada manual (botao "Retomar", so Effecti): id da execucao em erro a
+   * retomar do checkpoint EXATO. Ignorado pelo Nomus (inicia coleta nova).
+   */
+  retomarExecucaoId?: string;
 }
 
 /**
@@ -146,6 +151,7 @@ export function coletar(input: ColetarInput): Promise<ColetarResponse> {
   const body: Record<string, unknown> = { fonte: input.fonte };
   if (input.recurso) body.recurso = input.recurso;
   if (input.janelaDias !== undefined) body.janelaDias = input.janelaDias;
+  if (input.retomarExecucaoId) body.retomarExecucaoId = input.retomarExecucaoId;
   return apiFetch<ColetaNomusRaw>("ingestao-coletar", {
     method: "POST",
     body: JSON.stringify(body),
