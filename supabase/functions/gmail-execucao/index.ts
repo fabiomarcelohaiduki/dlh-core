@@ -94,6 +94,21 @@ async function abrir(service: ServiceClient, gatilho: string): Promise<Response>
     .select("id")
     .single();
   if (insError || !execucao) {
+    // Corrida perdida no indice unico parcial (uidx_execucoes_uma_ativa_por_fonte):
+    // outra coleta gmail nasceu entre o check e o insert -> devolve a corrente.
+    if (insError?.code === "23505") {
+      const { data: corrente } = await service
+        .from("execucoes")
+        .select("id")
+        .eq("fonte_id", fonteId)
+        .eq("status", "em_andamento")
+        .limit(1)
+        .maybeSingle();
+      return jsonResponse(
+        { execucao_id: corrente ? String((corrente as { id: string }).id) : "", ja_em_andamento: true },
+        200,
+      );
+    }
     throw new HttpError(500, "execucao_insert_failed", "falha ao criar a execucao");
   }
   return jsonResponse({ execucao_id: String((execucao as { id: string }).id), ja_em_andamento: false }, 201);

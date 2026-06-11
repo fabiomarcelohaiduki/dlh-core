@@ -164,6 +164,15 @@ async function handleEffecti(
     .single();
 
   if (insError || !execucao) {
+    // Corrida perdida no indice unico parcial (uidx_execucoes_uma_ativa_por_fonte):
+    // outra coleta Effecti nasceu entre o check e o insert -> mesmo 409 do pre-check.
+    if (insError?.code === "23505") {
+      throw new HttpError(
+        409,
+        "execucao_em_andamento",
+        "ja existe uma coleta Effecti em andamento; aguarde a conclusao",
+      );
+    }
     throw new HttpError(500, "execucao_insert_failed", "falha ao criar a execucao");
   }
   const execucaoId = String((execucao as { id: string }).id);
@@ -348,6 +357,24 @@ async function handleNomus(
     .single();
 
   if (insError || !execucao) {
+    // Corrida perdida no indice unico parcial (uidx_execucoes_uma_ativa_por_fonte):
+    // outra coleta do mesmo recurso nasceu entre o check e o insert -> 409.
+    if (insError?.code === "23505") {
+      const { data: corrente } = await service
+        .from("execucoes")
+        .select("id")
+        .eq("status", "em_andamento")
+        .eq("fonte_id", fonte.id)
+        .eq("recurso", recurso)
+        .limit(1)
+        .maybeSingle();
+      const body: ColetaNomusResponse = {
+        execucao_id: corrente ? String((corrente as { id: string }).id) : "",
+        estado: "em_andamento",
+        ja_em_andamento: true,
+      };
+      return jsonResponse(body, 409);
+    }
     throw new HttpError(500, "execucao_insert_failed", "falha ao criar a execucao");
   }
   const execucaoId = String((execucao as { id: string }).id);
