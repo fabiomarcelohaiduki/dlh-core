@@ -1,38 +1,45 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
+  Activity,
+  ChevronRight,
   Clock,
+  Copy,
   Database,
+  FileCheck,
+  FileClock,
+  FileWarning,
+  HardDrive,
+  Layers,
+  Mail,
+  Rocket,
   Server,
   TriangleAlert,
-  ChevronRight,
-  Rocket,
 } from "lucide-react";
 import { useExecucoes, useErros, useHealthcheck } from "@/hooks/use-monitoring";
 import { useFontes } from "@/hooks/use-fontes";
-import { conexaoDescriptor } from "@/lib/status";
+import { useExtracaoResumo } from "@/hooks/use-documentos";
+import {
+  conexaoDescriptor,
+  healthDescriptor,
+  healthMeta,
+  type OrigemKey,
+} from "@/lib/status";
 import { formatNumber, formatRelative, formatDateTime, formatGatilho } from "@/lib/format";
 import { StatCard } from "@/components/cockpit/stat-card";
 import { StatusPill } from "@/components/cockpit/status-pill";
-import { RunsTable } from "@/components/cockpit/runs-table";
-import { ErrosTable } from "@/components/cockpit/erros-table";
-import { ColetaButton } from "@/components/cockpit/coleta-button";
 import { WidgetError } from "@/components/cockpit/widget-error";
 
-const DASH_RUNS_LIMIT = 6;
-
-type Origem = "effecti" | "nomus";
 type EstadoConexaoLike = Parameters<typeof conexaoDescriptor>[0];
 
 /**
  * matchesOrigem — casa uma execucao com a fonte. Execucoes legadas (anteriores
  * ao schema multi-fonte) tem fonte_id null e, portanto, origem null; todas eram
- * do Effecti (1a fonte). O Nomus sempre grava fonte_id, entao origem null conta
- * como Effecti.
+ * do Effecti (1a fonte). O Nomus/Gmail/Drive sempre gravam fonte_id, entao
+ * origem null conta como Effecti.
  */
-function matchesOrigem(runOrigem: string | null, origem: Origem): boolean {
+function matchesOrigem(runOrigem: string | null, origem: OrigemKey): boolean {
   return runOrigem === origem || (origem === "effecti" && runOrigem === null);
 }
 
@@ -45,7 +52,7 @@ function matchesOrigem(runOrigem: string | null, origem: Origem): boolean {
 function derivarSaude(
   estado: EstadoConexaoLike | undefined,
   runs: { origem: string | null; status: string }[],
-  origem: Origem,
+  origem: OrigemKey,
   temDado: boolean,
 ): EstadoConexaoLike {
   if (estado === "erro") return "erro";
@@ -57,7 +64,7 @@ function derivarSaude(
 /** ultimaColeta — fim da ultima execucao concluida da fonte; fallback p/ fontes. */
 function ultimaColeta(
   runs: { origem: string | null; fim: string | null }[],
-  origem: Origem,
+  origem: OrigemKey,
   fallback: string | null,
 ): string | null {
   const finalizada = runs.find((r) => matchesOrigem(r.origem, origem) && r.fim);
@@ -65,37 +72,68 @@ function ultimaColeta(
 }
 
 export function DashboardClient() {
-  const router = useRouter();
-
   const health = useHealthcheck();
   const execucoes = useExecucoes({ limit: 50 });
   const erros = useErros();
   const fontes = useFontes();
+  const extracao = useExtracaoResumo();
 
   const healthData = health.data;
   const runs = execucoes.data?.items ?? [];
   const errosItems = erros.data?.items ?? [];
-
-  const running = runs.some((r) => r.status === "em_andamento");
+  const contagens = extracao.data?.contagens;
 
   const totalAvisos = healthData?.totalAvisos ?? 0;
   const totalProcessos = healthData?.totalProcessos ?? 0;
   const itensComErro = healthData?.itensComErro ?? 0;
+  const totalSubstrato = totalAvisos + totalProcessos;
+
+  // Status geral do pipeline (vw_healthcheck) -> hero do topo.
+  const statusIngestao = healthData?.statusIngestao ?? "Falha";
+  const statusPill = healthDescriptor(statusIngestao);
+  const statusMetaInfo = healthMeta(statusIngestao);
 
   // Saude por fonte. O pill de conexao (public.fontes.estado_conexao) so e
-  // carimbado pelo teste manual / coleta do Nomus, entao o pipeline do Effecti
-  // o deixa em "nao_configurada" mesmo coletando. Para refletir a coleta real,
-  // derivamos a saude e a "ultima coleta" da ultima execucao da fonte (origem +
-  // fim), com fallback para o estado/timestamp de public.fontes.
-  const effecti = fontes.data?.find((f) => f.tipo === "effecti");
-  const nomus = fontes.data?.find((f) => f.tipo === "nomus");
-
-  const effectiSaude = derivarSaude(effecti?.estadoConexao, runs, "effecti", totalAvisos > 0);
-  const nomusSaude = derivarSaude(nomus?.estadoConexao, runs, "nomus", totalProcessos > 0);
-  const effectiPill = conexaoDescriptor(effectiSaude);
-  const nomusPill = conexaoDescriptor(nomusSaude);
-  const effectiColeta = ultimaColeta(runs, "effecti", effecti?.ultimaColetaEm ?? null);
-  const nomusColeta = ultimaColeta(runs, "nomus", nomus?.ultimaColetaEm ?? null);
+  // carimbado pelo teste manual / coleta do Nomus, entao o pipeline das demais
+  // fontes o deixa em "nao_configurada" mesmo coletando. Para refletir a coleta
+  // real, derivamos a saude e a "ultima coleta" da ultima execucao da fonte
+  // (origem + fim), com fallback para o estado/timestamp de public.fontes.
+  const fonteCards: {
+    tipo: OrigemKey;
+    label: string;
+    icon: React.ReactNode;
+    temDado: boolean;
+    metaPrefixo: string | null;
+  }[] = [
+    {
+      tipo: "effecti",
+      label: "Effecti",
+      icon: <Database aria-hidden="true" />,
+      temDado: totalAvisos > 0,
+      metaPrefixo: `${formatNumber(totalAvisos)} avisos`,
+    },
+    {
+      tipo: "nomus",
+      label: "Nomus",
+      icon: <Server aria-hidden="true" />,
+      temDado: totalProcessos > 0,
+      metaPrefixo: `${formatNumber(totalProcessos)} processos`,
+    },
+    {
+      tipo: "gmail",
+      label: "Gmail",
+      icon: <Mail aria-hidden="true" />,
+      temDado: false,
+      metaPrefixo: null,
+    },
+    {
+      tipo: "drive",
+      label: "Drive",
+      icon: <HardDrive aria-hidden="true" />,
+      temDado: false,
+      metaPrefixo: null,
+    },
+  ];
 
   // Estado empty global -> onboarding (1o acesso): nenhum dado em fonte alguma.
   const allLoaded =
@@ -112,16 +150,6 @@ export function DashboardClient() {
 
   return (
     <section className="screen">
-      <div className="page-head">
-        <div className="titles">
-          <h2>Dashboard</h2>
-          <p>Saúde da ingestão e status das execuções de sincronização das fontes conectadas.</p>
-        </div>
-        <div className="actions">
-          <ColetaButton variant="primary" blocked={running} />
-        </div>
-      </div>
-
       {isOnboarding && (
         <div className="banner">
           <Rocket aria-hidden="true" />
@@ -131,40 +159,37 @@ export function DashboardClient() {
               Ainda não há dados no substrato. Configure a credencial e a frequência das fontes em{" "}
               <Link href="/fontes" className="link">
                 Fontes e credenciais
-              </Link>
-              , ou dispare a primeira coleta agora.
+              </Link>{" "}
+              para iniciar a primeira coleta.
             </p>
           </div>
         </div>
       )}
 
-      {/* ---- KPIs: saude por fonte + erros (widget com error/empty proprios) ---- */}
-      {health.isError || fontes.isError ? (
+      {/* ---- KPIs globais: status, substrato, ultima sync, erros ---- */}
+      {health.isError ? (
         <WidgetError
           title="Indicadores indisponíveis"
-          message="Não foi possível ler a saúde das fontes."
-          onRetry={() => {
-            health.refetch();
-            fontes.refetch();
-          }}
+          message="Não foi possível ler a saúde da ingestão."
+          onRetry={() => health.refetch()}
         />
       ) : (
         <div className="grid-dlh g4">
           <StatCard
-            icon={<Database aria-hidden="true" />}
-            label="Effecti · avisos"
+            icon={<Activity aria-hidden="true" />}
+            label="Status da ingestão"
             pill
-            loading={fontes.isLoading || health.isLoading}
-            value={<StatusPill state={effectiPill.state} label={effectiPill.label} />}
-            meta={`${formatNumber(totalAvisos)} avisos · coleta ${formatRelative(effectiColeta)}`}
+            loading={health.isLoading}
+            value={<StatusPill state={statusPill.state} label={statusPill.label} />}
+            meta={statusMetaInfo.text}
+            metaTone={statusMetaInfo.tone}
           />
           <StatCard
-            icon={<Server aria-hidden="true" />}
-            label="Nomus · processos"
-            pill
-            loading={fontes.isLoading || health.isLoading}
-            value={<StatusPill state={nomusPill.state} label={nomusPill.label} />}
-            meta={`${formatNumber(totalProcessos)} processos · coleta ${formatRelative(nomusColeta)}`}
+            icon={<Layers aria-hidden="true" />}
+            label="Substrato"
+            loading={health.isLoading}
+            value={formatNumber(totalSubstrato)}
+            meta={`${formatNumber(totalAvisos)} avisos · ${formatNumber(totalProcessos)} processos`}
           />
           <StatCard
             icon={<Clock aria-hidden="true" />}
@@ -199,65 +224,105 @@ export function DashboardClient() {
         </div>
       )}
 
-      {/* ---- Execucoes recentes ---- */}
+      {/* ---- Fontes conectadas (saude por fonte) ---- */}
       <div className="section-title">
-        <h3>Execuções recentes</h3>
-        {!execucoes.isLoading && !execucoes.isError && (
-          <span className="count">{runs.length}</span>
-        )}
+        <h3>Fontes conectadas</h3>
         <div className="right">
-          <Link href="/execucoes" className="link">
-            Ver todas
+          <Link href="/fontes" className="link">
+            Gerenciar fontes
             <ChevronRight aria-hidden="true" />
           </Link>
         </div>
       </div>
-      {execucoes.isError ? (
+      {fontes.isError ? (
         <WidgetError
-          title="Execuções indisponíveis"
-          message="Não foi possível listar as execuções recentes."
-          onRetry={() => execucoes.refetch()}
+          title="Fontes indisponíveis"
+          message="Não foi possível ler a saúde das fontes."
+          onRetry={() => fontes.refetch()}
         />
       ) : (
-        <RunsTable
-          variant="dashboard"
-          loading={execucoes.isLoading}
-          runs={runs.slice(0, DASH_RUNS_LIMIT)}
-          emptyTitle="Nenhuma execução ainda"
-          emptyDescription="Dispare uma coleta sob demanda para iniciar a sincronização incremental."
-          emptyAction={<ColetaButton blocked={running} />}
-          onErroClick={() => router.push("/erros")}
-        />
+        <div className="grid-dlh g4">
+          {fonteCards.map((fc) => {
+            const fonte = fontes.data?.find((f) => f.tipo === fc.tipo);
+            const saude = derivarSaude(fonte?.estadoConexao, runs, fc.tipo, fc.temDado);
+            const pill = conexaoDescriptor(saude);
+            const coleta = ultimaColeta(runs, fc.tipo, fonte?.ultimaColetaEm ?? null);
+            const metaColeta = `coleta ${formatRelative(coleta)}`;
+            return (
+              <StatCard
+                key={fc.tipo}
+                icon={fc.icon}
+                label={fc.label}
+                pill
+                loading={fontes.isLoading || health.isLoading}
+                value={<StatusPill state={pill.state} label={pill.label} />}
+                meta={fc.metaPrefixo ? `${fc.metaPrefixo} · ${metaColeta}` : metaColeta}
+              />
+            );
+          })}
+        </div>
       )}
 
-      {/* ---- Erros recentes ---- */}
+      {/* ---- Pipeline de extração (camada 1: documentos) ---- */}
       <div className="section-title">
-        <h3>Erros recentes</h3>
-        {!erros.isLoading && !erros.isError && (
-          <span className="count">{errosItems.length}</span>
-        )}
+        <h3>Pipeline de extração</h3>
         <div className="right">
-          <Link href="/erros" className="link">
-            Abrir lista de erros
+          <Link href="/extracao" className="link">
+            Abrir extração
             <ChevronRight aria-hidden="true" />
           </Link>
         </div>
       </div>
-      {erros.isError ? (
+      {extracao.isError ? (
         <WidgetError
-          title="Erros indisponíveis"
-          message="Não foi possível listar os erros de ingestão."
-          onRetry={() => erros.refetch()}
+          title="Extração indisponível"
+          message="Não foi possível ler o resumo do pipeline de extração."
+          onRetry={() => extracao.refetch()}
         />
       ) : (
-        <ErrosTable
-          variant="dashboard"
-          loading={erros.isLoading}
-          erros={errosItems.slice(0, 6)}
-          emptyTitle="Nenhum erro recente"
-          emptyDescription="A ingestão está saudável: coleta, tratamento e indexação sem falhas."
-          onInvestigar={(avisoId) => router.push(`/edital/${avisoId}`)}
-        />
+        <div className="grid-dlh g4">
+          <StatCard
+            icon={<FileClock aria-hidden="true" />}
+            label="Pendentes"
+            loading={extracao.isLoading}
+            value={formatNumber(contagens?.pendente ?? 0)}
+            meta="Anexos na fila de extração"
+          />
+          <StatCard
+            icon={<FileCheck aria-hidden="true" />}
+            label="Extraídos"
+            loading={extracao.isLoading}
+            value={formatNumber(contagens?.extraido ?? 0)}
+            meta="Texto extraído com sucesso"
+            metaTone="up"
+          />
+          <StatCard
+            icon={<Copy aria-hidden="true" />}
+            label="Herdados"
+            loading={extracao.isLoading}
+            value={formatNumber(contagens?.herdado ?? 0)}
+            meta="Reaproveitados por dedup"
+          />
+          <StatCard
+            icon={<FileWarning aria-hidden="true" />}
+            label="Falhas"
+            loading={extracao.isLoading}
+            value={
+              <span
+                className="tnum"
+                style={{ color: (contagens?.erro ?? 0) > 0 ? "var(--err)" : undefined }}
+              >
+                {formatNumber(contagens?.erro ?? 0)}
+              </span>
+            }
+            meta={
+              (contagens?.erro ?? 0) > 0
+                ? "Anexos que falharam na extração"
+                : "Nenhuma falha de extração"
+            }
+            metaTone={(contagens?.erro ?? 0) > 0 ? "warn" : "up"}
+          />
+        </div>
       )}
     </section>
   );
