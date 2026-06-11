@@ -12,6 +12,7 @@ export interface HealthcheckResponse {
   ultimaSync: string | null;
   totalAvisos: number;
   totalProcessos: number;
+  totalPessoas: number;
   itensComErro: number;
 }
 

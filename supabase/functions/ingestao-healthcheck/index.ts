@@ -54,11 +54,19 @@ async function handler(req: Request): Promise<Response> {
       throw new HttpError(500, "healthcheck_query_failed", "falha ao contar processos");
     }
 
+    const { count: totalPessoas, error: pessoaError } = await service
+      .from("nomus_pessoas")
+      .select("*", { count: "exact", head: true });
+    if (pessoaError) {
+      throw new HttpError(500, "healthcheck_query_failed", "falha ao contar pessoas");
+    }
+
     const body: HealthcheckResponse = {
       statusIngestao: mapStatus((data?.status_ingestao as string | null) ?? null),
       ultimaSync: (data?.ultima_sync as string | null) ?? null,
       totalAvisos: Number(data?.total_avisos ?? 0),
       totalProcessos: Number(totalProcessos ?? 0),
+      totalPessoas: Number(totalPessoas ?? 0),
       itensComErro: Number(data?.itens_com_erro ?? 0),
     };
     return jsonResponse(body, 200);

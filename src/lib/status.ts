@@ -67,7 +67,7 @@ export function execucaoDescriptor(execucao: Execucao): PillDescriptor {
 /**
  * Origem normalizada das telas multi-origem (filtro Effecti x Nomus x Gmail).
  *  - execucoes.origem  = tipo da fonte ('effecti' | 'nomus' | 'gmail' | 'drive'); null (legado) = Effecti.
- *  - erros.origem      = 'aviso' (Effecti), 'processo-*' (Nomus), 'gmail' ou 'drive'.
+ *  - erros.origem      = 'aviso' (Effecti), 'processo-*'/'pessoa' (Nomus), 'gmail' ou 'drive'.
  */
 export type OrigemKey = "effecti" | "nomus" | "gmail" | "drive";
 
@@ -84,7 +84,7 @@ export function normalizeOrigem(origem: string | null | undefined): OrigemKey {
   const o = origem.toLowerCase();
   if (o === "gmail") return "gmail";
   if (o === "drive") return "drive";
-  if (o === "nomus" || o.startsWith("processo")) return "nomus";
+  if (o === "nomus" || o.startsWith("processo") || o.startsWith("pessoa")) return "nomus";
   if (o === "effecti" || o === "aviso") return "effecti";
   return "effecti";
 }

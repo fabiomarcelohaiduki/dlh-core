@@ -85,8 +85,9 @@ export function DashboardClient() {
 
   const totalAvisos = healthData?.totalAvisos ?? 0;
   const totalProcessos = healthData?.totalProcessos ?? 0;
+  const totalPessoas = healthData?.totalPessoas ?? 0;
   const itensComErro = healthData?.itensComErro ?? 0;
-  const totalSubstrato = totalAvisos + totalProcessos;
+  const totalSubstrato = totalAvisos + totalProcessos + totalPessoas;
 
   // Status geral do pipeline (vw_healthcheck) -> hero do topo.
   const statusIngestao = healthData?.statusIngestao ?? "Falha";
@@ -116,8 +117,8 @@ export function DashboardClient() {
       tipo: "nomus",
       label: "Nomus",
       icon: <Server aria-hidden="true" />,
-      temDado: totalProcessos > 0,
-      metaPrefixo: `${formatNumber(totalProcessos)} processos`,
+      temDado: totalProcessos > 0 || totalPessoas > 0,
+      metaPrefixo: `${formatNumber(totalProcessos)} processos · ${formatNumber(totalPessoas)} pessoas`,
     },
     {
       tipo: "gmail",
@@ -145,6 +146,7 @@ export function DashboardClient() {
     allLoaded &&
     totalAvisos === 0 &&
     totalProcessos === 0 &&
+    totalPessoas === 0 &&
     runs.length === 0 &&
     errosItems.length === 0;
 
@@ -215,7 +217,7 @@ export function DashboardClient() {
             label="Substrato"
             loading={health.isLoading}
             value={formatNumber(totalSubstrato)}
-            meta={`${formatNumber(totalAvisos)} avisos · ${formatNumber(totalProcessos)} processos`}
+            meta={`${formatNumber(totalAvisos)} avisos · ${formatNumber(totalProcessos)} processos · ${formatNumber(totalPessoas)} pessoas`}
           />
           <StatCard
             index={2}
