@@ -22,14 +22,14 @@ import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 import { nomusDispararSchema, parseJsonBody } from "../_shared/validation.ts";
 import { getFonteByTipo } from "../_shared/vault.ts";
+import { workflowRunsUrl } from "../_shared/github.ts";
 
 // Idade maxima do checkpoint.runner_ts para considerar um run VIVO. Acima dela a
 // execucao em_andamento e ORFA (run morto por timeout 6h / cancel). Espelha o
 // mesmo teto do nomus-ingerir (action "retomar"), unica fonte da regra de stale.
 const RUNNER_STALE_MS = 15 * 60_000;
 
-const NOMUS_RUNS_URL =
-  "https://api.github.com/repos/fabiomarcelohaiduki/dlh-core/actions/workflows/coletar-nomus.yml/runs?per_page=10";
+const NOMUS_RUNS_URL = workflowRunsUrl("coletar-nomus.yml");
 
 /**
  * True quando ha um run do coletar-nomus.yml ainda ATIVO (status != completed:

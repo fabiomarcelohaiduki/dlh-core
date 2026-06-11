@@ -26,9 +26,9 @@ import { getEnv } from "../_shared/env.ts";
 import { requireAuthorizedUser } from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
+import { workflowRunsUrl } from "../_shared/github.ts";
 
-const DRIVE_RUNS_URL =
-  "https://api.github.com/repos/fabiomarcelohaiduki/dlh-core/actions/workflows/coletar-drive.yml/runs?per_page=10";
+const DRIVE_RUNS_URL = workflowRunsUrl("coletar-drive.yml");
 
 /**
  * True quando ha um run do coletar-drive.yml ainda ATIVO (status != completed:

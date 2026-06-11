@@ -30,9 +30,9 @@ import { requireAuthorizedUser } from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 import { getFonteByTipo } from "../_shared/vault.ts";
+import { workflowRunsUrl } from "../_shared/github.ts";
 
-const GMAIL_RUNS_URL =
-  "https://api.github.com/repos/fabiomarcelohaiduki/dlh-core/actions/workflows/coletar-gmail.yml/runs?per_page=10";
+const GMAIL_RUNS_URL = workflowRunsUrl("coletar-gmail.yml");
 
 /**
  * True quando ha um run do coletar-gmail.yml ainda ATIVO (status != completed:

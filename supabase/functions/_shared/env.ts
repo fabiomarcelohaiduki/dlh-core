@@ -50,6 +50,8 @@ export interface AppEnv {
   gmailOauthRedirect?: string;
   /** URL do cockpit para onde o callback do Gmail redireciona o navegador (fallback: a do Drive, mesmo cockpit). */
   gmailOauthReturnUrl?: string;
+  /** owner/repo do GitHub onde rodam os workflows de coleta (ex.: "owner/repo"). */
+  githubRepo: string;
 }
 
 /** Embedding default do MVP (bge-m3 local self-hosted, vector(1024)). */
@@ -121,6 +123,7 @@ export function getEnv(): AppEnv {
     driveOauthReturnUrl: firstNonEmpty("DRIVE_OAUTH_RETURN_URL"),
     gmailOauthRedirect: firstNonEmpty("GMAIL_OAUTH_REDIRECT"),
     gmailOauthReturnUrl: firstNonEmpty("GMAIL_OAUTH_RETURN_URL", "DRIVE_OAUTH_RETURN_URL"),
+    githubRepo: firstNonEmpty("GITHUB_REPO") ?? "fabiomarcelohaiduki/dlh-core",
   };
 
   return cached;
