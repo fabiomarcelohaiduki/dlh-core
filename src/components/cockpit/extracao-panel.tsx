@@ -104,9 +104,12 @@ export function ExtracaoPanel({
   // principal muda por fonte: descobrir enfileira anexos ja no banco; Gmail/Drive
   // disparam a coleta na nuvem (a descoberta acontece dentro dela).
   const capStyle: CSSProperties = { fontSize: 12, lineHeight: 1.5, color: "var(--faint)", maxWidth: 240 };
+  // Nomus: so processos tem anexos (pessoas nao passam por extracao), entao a
+  // legenda diz "processos" em vez do generico "Nomus".
+  const descobrirAlvo = fonte === "nomus" ? "dos processos do Nomus" : `do ${FONTE_LABEL[fonte]}`;
   const acaoCaption =
     modo === "descobrir"
-      ? `Enfileira os anexos pendentes do ${FONTE_LABEL[fonte]} para extração. Rodar de novo só pega os inéditos.`
+      ? `Enfileira os anexos pendentes ${descobrirAlvo} para extração.`
       : fonte === "gmail"
         ? "Dispara a coleta do Gmail, que descobre e enfileira os anexos."
         : "Dispara a coleta do Drive: lista as pastas ativas e enfileira os vínculos.";
@@ -332,7 +335,13 @@ export function ExtracaoPanel({
       <div className="section-title">
         <h3>Filtros</h3>
         {!resumo.isLoading && (
-          <span className="count">{errosFiltrados.length}</span>
+          <span className="count">
+            {/* A lista vem capada em 200 (MAX_ERROS_RESUMO no Edge). Quando ha
+                mais erros que o teto, mostra "200 de 600" p/ nao esconder o resto. */}
+            {filtroFonte === "todas" && erros.length < errosCount
+              ? `${formatNumber(errosFiltrados.length)} de ${formatNumber(errosCount)}`
+              : formatNumber(errosFiltrados.length)}
+          </span>
         )}
       </div>
       <div className="filter-bar">
