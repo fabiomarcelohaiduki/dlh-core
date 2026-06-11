@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { type CSSProperties, useState } from "react";
 import {
   Check,
   Clock,
@@ -100,6 +100,18 @@ export function ExtracaoPanel({
         ? "Coletar Gmail agora"
         : "Coletar Drive agora";
 
+  // Legenda fraca sob cada botao (mesmo padrao dos cards de Fontes). A do botao
+  // principal muda por fonte: descobrir enfileira anexos ja no banco; Gmail/Drive
+  // disparam a coleta na nuvem (a descoberta acontece dentro dela).
+  const capStyle: CSSProperties = { fontSize: 12, lineHeight: 1.5, color: "var(--faint)", maxWidth: 240 };
+  const acaoCaption =
+    modo === "descobrir"
+      ? `Enfileira os anexos pendentes do ${FONTE_LABEL[fonte]} para extração. Rodar de novo só pega os inéditos.`
+      : fonte === "gmail"
+        ? "Dispara a coleta do Gmail, que descobre e enfileira os anexos."
+        : "Dispara a coleta do Drive: lista as pastas ativas e enfileira os vínculos.";
+  const drenarCaption = "Processa a fila de anexos pendentes via Tika (todas as fontes).";
+
   async function handleAcao() {
     if (disabled) return;
     setFeedback(null);
@@ -194,44 +206,50 @@ export function ExtracaoPanel({
               marginLeft: "auto",
               display: "flex",
               flexWrap: "wrap",
-              alignItems: "center",
+              alignItems: "flex-start",
               gap: 10,
             }}
           >
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleAcao}
-              disabled={disabled}
-              aria-disabled={disabled}
-              title={blocked ? blockedReason : undefined}
-            >
-              {pending ? (
-                <Loader2 className="spin" aria-hidden="true" />
-              ) : modo === "descobrir" ? (
-                <Search aria-hidden="true" />
-              ) : (
-                <Play aria-hidden="true" />
-              )}
-              <span>{pending ? (modo === "descobrir" ? "Descobrindo…" : "Disparando…") : actionLabel}</span>
-            </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleAcao}
+                disabled={disabled}
+                aria-disabled={disabled}
+                title={blocked ? blockedReason : undefined}
+              >
+                {pending ? (
+                  <Loader2 className="spin" aria-hidden="true" />
+                ) : modo === "descobrir" ? (
+                  <Search aria-hidden="true" />
+                ) : (
+                  <Play aria-hidden="true" />
+                )}
+                <span>{pending ? (modo === "descobrir" ? "Descobrindo…" : "Disparando…") : actionLabel}</span>
+              </button>
+              <span className="helper" style={capStyle}>{acaoCaption}</span>
+            </div>
 
             {/* Drain da fila (Tika): gatilho independente da descoberta por fonte. */}
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={handleDrenar}
-              disabled={dispararExtracao.isPending}
-              aria-disabled={dispararExtracao.isPending}
-              title="Processa a fila de anexos pendentes via Tika (todas as fontes)"
-            >
-              {dispararExtracao.isPending ? (
-                <Loader2 className="spin" aria-hidden="true" />
-              ) : (
-                <FileText aria-hidden="true" />
-              )}
-              <span>{dispararExtracao.isPending ? "Disparando…" : "Extrair fila agora"}</span>
-            </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={handleDrenar}
+                disabled={dispararExtracao.isPending}
+                aria-disabled={dispararExtracao.isPending}
+                title="Processa a fila de anexos pendentes via Tika (todas as fontes)"
+              >
+                {dispararExtracao.isPending ? (
+                  <Loader2 className="spin" aria-hidden="true" />
+                ) : (
+                  <FileText aria-hidden="true" />
+                )}
+                <span>{dispararExtracao.isPending ? "Disparando…" : "Extrair fila agora"}</span>
+              </button>
+              <span className="helper" style={capStyle}>{drenarCaption}</span>
+            </div>
           </div>
         </div>
 
