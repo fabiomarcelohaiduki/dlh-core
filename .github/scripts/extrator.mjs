@@ -114,6 +114,18 @@ function stripTags(texto) {
     .trim();
 }
 
+/**
+ * Header HTTP e ByteString (latin1): codepoints > 255 quebram o fetch
+ * ("character ... is greater than 255"). O nome aqui e SO dica de tipo pro
+ * Tika, entao trocamos os chars fora do latin1 (ex.: U+FFFD de nome corrompido)
+ * por "_" e escapamos aspas/controle/barra que invalidariam o fil="...".
+ */
+function nomeSeguroHeader(nome) {
+  return String(nome)
+    .replace(/[\u0100-\uFFFF]/g, "_")
+    .replace(/[\u0000-\u001f"\\]/g, "_");
+}
+
 /** Envia os bytes ao Tika e recebe text/plain. Tika detecta o tipo sozinho. */
 async function extrairViaTika({ bytes, nomeArquivo, extension, config }) {
   const headers = {
@@ -121,7 +133,9 @@ async function extrairViaTika({ bytes, nomeArquivo, extension, config }) {
     "Content-Type": "application/octet-stream",
   };
   // Ajuda a deteccao de tipo do Tika pelo nome do arquivo.
-  if (nomeArquivo) headers["Content-Disposition"] = `attachment; filename="${nomeArquivo}"`;
+  if (nomeArquivo) {
+    headers["Content-Disposition"] = `attachment; filename="${nomeSeguroHeader(nomeArquivo)}"`;
+  }
 
   // Estrategia de OCR (PDF). Imagens sempre passam por OCR no Tika full.
   const estrategia = config.ocrEstrategia === "nunca"
