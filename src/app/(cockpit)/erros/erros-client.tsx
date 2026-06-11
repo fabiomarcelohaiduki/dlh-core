@@ -86,8 +86,7 @@ export function ErrosClient() {
           <h2>Erros de ingestão</h2>
           <p>
             Falhas de coleta, persistência e indexação/embedding, de todas as
-            origens. Erros de extração de arquivos ficam na tela Extração. Abra
-            um item para investigar o registro correspondente.
+            origens. Erros de extração de arquivos ficam na tela Extração.
           </p>
         </div>
       </div>

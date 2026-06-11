@@ -137,12 +137,9 @@ export function ExecucoesClient() {
   return (
     <section className="screen">
       {/* Disparo de coleta por fonte (seletor segmentado + form da fonte). */}
-      <div className="section-title" style={{ marginTop: 0 }}>
-        <h3>Disparar coleta</h3>
-      </div>
       <div
         className="card disparo-card"
-        style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}
+        style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12, marginTop: 0 }}
       >
         <div
           className="filter-group segmented"

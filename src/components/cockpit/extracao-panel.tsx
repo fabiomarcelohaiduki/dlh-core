@@ -161,66 +161,8 @@ export function ExtracaoPanel({
 
   return (
     <>
-      {/* KPIs por status (padrao StatCard do dashboard) */}
-      <div className="section-title" style={{ marginTop: 0 }}>
-        <h3>Anexos na fila</h3>
-        {!resumo.isLoading && (
-          <span className="count">{formatNumber(contagens?.total ?? 0)}</span>
-        )}
-      </div>
-      <div className="grid-dlh g4">
-        <StatCard
-          icon={<Clock aria-hidden="true" />}
-          label="Pendentes"
-          loading={resumo.isLoading}
-          value={
-            <span className="tnum" style={{ color: "var(--run)" }}>
-              {formatNumber(contagens?.pendente ?? 0)}
-            </span>
-          }
-          meta="aguardando extração"
-        />
-        <StatCard
-          icon={<Check aria-hidden="true" />}
-          label="Extraídos"
-          loading={resumo.isLoading}
-          value={
-            <span className="tnum" style={{ color: "var(--ok)" }}>
-              {formatNumber(contagens?.extraido ?? 0)}
-            </span>
-          }
-          meta="texto disponível"
-          metaTone="up"
-        />
-        <StatCard
-          icon={<Copy aria-hidden="true" />}
-          label="Herdados"
-          loading={resumo.isLoading}
-          value={<span className="tnum">{formatNumber(contagens?.herdado ?? 0)}</span>}
-          meta="reaproveitados por dedup"
-        />
-        <StatCard
-          icon={<TriangleAlert aria-hidden="true" />}
-          label="Erros"
-          loading={resumo.isLoading}
-          value={
-            <span
-              className="tnum"
-              style={{ color: errosCount > 0 ? "var(--err)" : undefined }}
-            >
-              {formatNumber(errosCount)}
-            </span>
-          }
-          meta={errosCount > 0 ? "verifique a lista abaixo" : "sem falhas"}
-          metaTone={errosCount > 0 ? "warn" : "up"}
-        />
-      </div>
-
       {/* Disparo: descobrir por fonte + drenar a fila (Tika). */}
-      <div className="section-title">
-        <h3>Descobrir e extrair</h3>
-      </div>
-      <div className="card disparo-card" style={{ display: "grid", gap: 12 }}>
+      <div className="card disparo-card" style={{ display: "grid", gap: 12, marginTop: 0 }}>
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
           <div
             className="filter-group segmented"
@@ -311,6 +253,61 @@ export function ExtracaoPanel({
             {feedback.message}
           </span>
         ) : null}
+      </div>
+
+      {/* KPIs por status (padrao StatCard do dashboard) */}
+      <div className="section-title">
+        <h3>Anexos na fila</h3>
+        {!resumo.isLoading && (
+          <span className="count">{formatNumber(contagens?.total ?? 0)}</span>
+        )}
+      </div>
+      <div className="grid-dlh g4">
+        <StatCard
+          icon={<Clock aria-hidden="true" />}
+          label="Pendentes"
+          loading={resumo.isLoading}
+          value={
+            <span className="tnum" style={{ color: "var(--run)" }}>
+              {formatNumber(contagens?.pendente ?? 0)}
+            </span>
+          }
+          meta="aguardando extração"
+        />
+        <StatCard
+          icon={<Check aria-hidden="true" />}
+          label="Extraídos"
+          loading={resumo.isLoading}
+          value={
+            <span className="tnum" style={{ color: "var(--ok)" }}>
+              {formatNumber(contagens?.extraido ?? 0)}
+            </span>
+          }
+          meta="texto disponível"
+          metaTone="up"
+        />
+        <StatCard
+          icon={<Copy aria-hidden="true" />}
+          label="Herdados"
+          loading={resumo.isLoading}
+          value={<span className="tnum">{formatNumber(contagens?.herdado ?? 0)}</span>}
+          meta="reaproveitados por dedup"
+        />
+        <StatCard
+          icon={<TriangleAlert aria-hidden="true" />}
+          label="Erros"
+          loading={resumo.isLoading}
+          value={
+            <span
+              className="tnum"
+              style={{ color: errosCount > 0 ? "var(--err)" : undefined }}
+            >
+              {formatNumber(errosCount)}
+            </span>
+          }
+          meta={errosCount > 0 ? "verifique a lista abaixo" : "sem falhas"}
+          metaTone={errosCount > 0 ? "warn" : "up"}
+        />
       </div>
 
       {/* Filtros (mesmo layout da tela Erros). */}
