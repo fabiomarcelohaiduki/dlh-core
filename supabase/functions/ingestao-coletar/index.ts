@@ -190,7 +190,22 @@ async function resumeEffectiErrored(
       portais: config?.portais ?? undefined,
     },
   )
-    .then(() => descobrirVinculosEffectiPosBloco(service, execucaoId))
+    .then(async (outcome) => {
+      await descobrirVinculosEffectiPosBloco(service, execucaoId);
+      // Auto-encadeamento (11/06): o bloco encerrou por teto e ainda ha janela
+      // -> reenfileira o orquestrador para o proximo bloco, fechando a janela
+      // inteira num so disparo manual (card "Coletar avisos agora" e botao
+      // "Retomar"). So em 'em_andamento': 'concluida' e fim; 'erro' cai no cron
+      // diario + Retomar (evita loop de erro apertado). Best-effort.
+      if (outcome.estado === "em_andamento") {
+        const { error: reqError } = await service.rpc("reenfileirar_coleta", {
+          p_fonte_tipo: "effecti",
+        });
+        if (reqError) {
+          console.error("reenfileirar_coleta falhou", reqError.message);
+        }
+      }
+    })
     .catch((err) => {
       console.error("[ingestao-coletar] retomada effecti falhou", {
         execucaoId,
@@ -323,7 +338,22 @@ async function handleEffecti(
     { db: service, connector, embeddingProvider, fonteId: fonte.id },
     { execucaoId, checkpoint, modalidades, portais },
   )
-    .then(() => descobrirVinculosEffectiPosBloco(service, execucaoId))
+    .then(async (outcome) => {
+      await descobrirVinculosEffectiPosBloco(service, execucaoId);
+      // Auto-encadeamento (11/06): o bloco encerrou por teto e ainda ha janela
+      // -> reenfileira o orquestrador para o proximo bloco, fechando a janela
+      // inteira num so disparo manual (card "Coletar avisos agora" e botao
+      // "Retomar"). So em 'em_andamento': 'concluida' e fim; 'erro' cai no cron
+      // diario + Retomar (evita loop de erro apertado). Best-effort.
+      if (outcome.estado === "em_andamento") {
+        const { error: reqError } = await service.rpc("reenfileirar_coleta", {
+          p_fonte_tipo: "effecti",
+        });
+        if (reqError) {
+          console.error("reenfileirar_coleta falhou", reqError.message);
+        }
+      }
+    })
     .catch((err) => {
       console.error("[ingestao-coletar] bloco effecti falhou", {
         execucaoId,
