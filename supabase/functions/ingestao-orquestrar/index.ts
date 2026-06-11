@@ -48,6 +48,13 @@ const CRON_SECRET_NAME = "CRON_DISPATCH_SECRET" as const;
 const DEFAULT_JANELA_DIAS = 7;
 const NOMUS_RECURSO = "processos" as const;
 
+// Teto de heartbeat do Effecti: execucao ativa sem updates (updated_at) por
+// mais que isso => orfa (o Edge Runtime morreu no meio do pipeline). O
+// pipeline vivo toca a linha a cada item, entao o teto pode ser folgado sem
+// risco de matar um run legitimo. Configuravel via Edge secret; default 10 min.
+const EFFECTI_ORPHAN_STALE_MS = Number(Deno.env.get("EFFECTI_ORPHAN_STALE_MS")) ||
+  10 * 60 * 1000;
+
 interface FonteRow {
   id: string;
   tipo: string;
@@ -62,6 +69,7 @@ interface ExecRow {
   status: string;
   checkpoint: unknown;
   inicio: string;
+  updated_at?: string | null;
 }
 
 interface ConfigRow {
@@ -467,7 +475,7 @@ async function tickFonte(
   //    a dela (Nomus, por blocos) ou deixa o Effecti concluir sozinho (ocioso).
   const { data: ativa, error: ativaErr } = await service
     .from("execucoes")
-    .select("id, fonte_id, recurso, status, checkpoint, inicio")
+    .select("id, fonte_id, recurso, status, checkpoint, inicio, updated_at")
     .eq("status", "em_andamento")
     .eq("fonte_id", fonte.id)
     .order("inicio", { ascending: true })
@@ -482,8 +490,28 @@ async function tickFonte(
     if (exec.recurso && checkpoint) {
       return await advanceNomus(service, exec, checkpoint);
     }
-    // Effecti (sem checkpoint): roda seu pipeline proprio; nada a avancar.
-    return { acao: "ocioso", execucao_id: exec.id, fonte: fonte.tipo, recurso: exec.recurso };
+    // Effecti (sem checkpoint): roda seu pipeline proprio em background. Auto-cura
+    // de orfa: se o heartbeat (updated_at, bumpado a cada item) ficou velho, o
+    // Edge Runtime morreu no meio -> fecha como erro e libera o lock; senao,
+    // segue vivo e nada ha a avancar (ocioso). Heartbeat ilegivel = conservador
+    // (trata como vivo, nunca mata um run legitimo).
+    const heartbeatMs = Date.parse(exec.updated_at ?? exec.inicio);
+    const vivo = !Number.isFinite(heartbeatMs) ||
+      Date.now() - heartbeatMs <= EFFECTI_ORPHAN_STALE_MS;
+    if (vivo) {
+      return { acao: "ocioso", execucao_id: exec.id, fonte: fonte.tipo, recurso: exec.recurso };
+    }
+    await service
+      .from("execucoes")
+      .update({ status: "erro", etapa_atual: null, fim: new Date().toISOString() })
+      .eq("id", exec.id)
+      .eq("status", "em_andamento");
+    console.warn("[orquestrar] orfa Effecti auto-curada (heartbeat velho)", {
+      execucaoId: exec.id,
+      fonte: fonte.tipo,
+      updatedAt: exec.updated_at,
+    });
+    // Lock liberado: segue para retomada/inicio abaixo.
   }
 
   // 2. Retomada automatica de execucao em 'erro' DESTA fonte com checkpoint
