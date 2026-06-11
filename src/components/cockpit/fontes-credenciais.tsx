@@ -358,7 +358,10 @@ export function FontesCredenciais({
             nome="Gmail"
             onClose={() => toggle("gmail")}
           />
-          <AgendamentoFonteForm initial={gmailAgendamento} />
+          <AgendamentoFonteForm
+            initial={gmailAgendamento}
+            nota="A cada execução busca os e-mails novos desde a última coleta e enfileira corpo e anexos."
+          />
           <GmailDisparoForm fonteId={gmailFonteId} />
           <GmailConfigForm config={gmailConfig} labels={gmailLabels} />
         </div>

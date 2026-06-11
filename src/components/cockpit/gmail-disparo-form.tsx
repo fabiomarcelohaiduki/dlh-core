@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { type CSSProperties, useState } from "react";
 import { Check, Loader2, Play, TriangleAlert } from "lucide-react";
 import { useDispararGmail } from "@/hooks/use-admin";
 import { useExecucoes } from "@/hooks/use-monitoring";
@@ -56,16 +56,22 @@ export function GmailDisparoForm({
 
   const ocupado = disparar.isPending;
 
+  const capStyle: CSSProperties = { fontSize: 12, lineHeight: 1.5, color: "var(--faint)", maxWidth: 240 };
+  const caption = "Busca os e-mails novos desde a última coleta e enfileira corpo e anexos.";
+
   const body = (
-    <div className="form-foot" style={{ marginTop: 0, flexWrap: "wrap" }}>
-      <button className="btn btn-primary" type="button" onClick={executar} disabled={ocupado}>
-        {ocupado ? (
-          <Loader2 className="spin" aria-hidden="true" />
-        ) : (
-          <Play aria-hidden="true" />
-        )}
-        <span>{ocupado ? "Disparando…" : "Coletar e-mails agora"}</span>
-      </button>
+    <div className="form-foot" style={{ marginTop: 0, flexWrap: "wrap", alignItems: "flex-start" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <button className="btn btn-primary" type="button" onClick={executar} disabled={ocupado}>
+          {ocupado ? (
+            <Loader2 className="spin" aria-hidden="true" />
+          ) : (
+            <Play aria-hidden="true" />
+          )}
+          <span>{ocupado ? "Disparando…" : "Coletar e-mails agora"}</span>
+        </button>
+        <span className="helper" style={capStyle}>{caption}</span>
+      </div>
 
       {running ? (
         <span className="action-hint">
