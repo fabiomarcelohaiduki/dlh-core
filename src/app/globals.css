@@ -1171,12 +1171,17 @@ button {
   align-items: center;
 }
 
-/* ---------- tables (cmp-runs-table / cmp-erros-table) ---------- */
+/* ---------- tables (cmp-runs-table / cmp-erros-table) ----------
+   Elevacao premium: o wrapper herda a mesma linguagem fisica do .card
+   (sombra calibrada + fio de luz no topo). thead sticky no eixo vertical,
+   linhas com hover de mola e marca de accent sem layout shift.
+   ADITIVO/recalibrado — nenhuma classe ou var foi renomeada/removida. */
 .tbl-wrap {
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   overflow: hidden;
   background: var(--surface);
+  box-shadow: var(--hairline-top), var(--shadow-card);
 }
 .tbl-wrap table {
   width: 100%;
@@ -1184,31 +1189,65 @@ button {
   font-size: 13px;
 }
 .tbl-wrap thead th {
+  /* gruda logo abaixo da .topbar sticky (58px) ao rolar a .main; fica
+     atras da topbar (z menor) — sem cobrir o chrome do cockpit */
+  position: sticky;
+  top: 58px;
+  z-index: 1;
   text-align: left;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--faint);
-  padding: 11px 16px;
+  color: var(--muted);
+  padding: 12px 16px;
+  /* surface-2 opaca para o sticky cobrir as linhas que rolam por baixo */
   background: var(--surface-2);
-  border-bottom: 1px solid var(--border);
+  /* fio de luz no topo + linha de base mais definida que o corpo */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), inset 0 -1px 0 var(--border);
   white-space: nowrap;
 }
+.tbl-wrap thead th:first-child {
+  border-top-left-radius: var(--r-md);
+}
+.tbl-wrap thead th:last-child {
+  border-top-right-radius: var(--r-md);
+}
 .tbl-wrap tbody td {
-  padding: 12px 16px;
+  padding: 13px 16px;
   border-bottom: 1px solid var(--border-soft);
   vertical-align: middle;
+  /* tabular nas celulas numericas herda; cor de base de corpo */
+  color: var(--fg);
+  /* posiciona a marca de accent (box-shadow inset) sem deslocar conteudo */
+  position: relative;
+}
+.tbl-wrap tbody td.sub {
+  color: var(--faint);
 }
 .tbl-wrap tbody tr:last-child td {
   border-bottom: none;
 }
+/* Zebra ultra-sutil: respiro de leitura sem poluir o dark. */
+.tbl-wrap tbody tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.012);
+}
+.tbl-wrap tbody tr {
+  transition: background 0.22s var(--ease-spring);
+}
+.tbl-wrap tbody tr:hover td {
+  background: var(--surface-2);
+}
 .tbl-wrap tbody tr.clk {
   cursor: pointer;
-  transition: background 0.12s ease;
 }
-.tbl-wrap tbody tr.clk:hover {
+.tbl-wrap tbody tr.clk:hover td {
   background: var(--surface-2);
+}
+/* Marca de accent na 1a celula da linha clicavel em hover — pura sombra
+   inset (GPU-friendly, zero reflow), revela affordance de navegacao. */
+.tbl-wrap tbody tr.clk:hover td:first-child {
+  box-shadow: inset 2px 0 0 var(--accent-line);
 }
 .tbl-wrap .sub {
   color: var(--faint);
@@ -1272,6 +1311,8 @@ button {
   justify-content: center;
   padding: 13px;
   border-top: 1px solid var(--border-soft);
+  /* base levemente recuada distingue rodape do corpo de dados */
+  background: rgba(255, 255, 255, 0.012);
 }
 
 /* ---------- skeleton (estado loading) ---------- */
@@ -1288,8 +1329,15 @@ button {
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
-  animation: shimmer 1.4s ease-in-out infinite;
+  /* brilho do shimmer com leve tinta de accent no nucleo (coerente com o tema) */
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.05),
+    rgba(217, 154, 60, 0.05),
+    transparent
+  );
+  animation: shimmer 1.5s var(--ease-spring) infinite;
 }
 @keyframes shimmer {
   100% {
@@ -1825,7 +1873,7 @@ select {
   display: inline-flex;
   align-items: center;
   height: 21px;
-  padding: 0 8px;
+  padding: 0 9px;
   border-radius: var(--r-sm);
   font-size: 11px;
   font-weight: 600;
@@ -1834,6 +1882,8 @@ select {
   border: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--muted);
+  /* fio de luz no topo iguala a badge a superficie usinada do tema */
+  box-shadow: var(--hairline-top);
 }
 .tag.effecti {
   color: var(--accent);
@@ -1859,14 +1909,17 @@ select {
   border-radius: 999px;
   background: var(--surface-3);
   overflow: hidden;
+  /* leve profundidade interna no trilho da barra */
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.25);
 }
 .prog-bar {
   display: block;
   height: 100%;
   width: 0;
   border-radius: 999px;
-  background: var(--run);
-  transition: width 0.3s ease;
+  /* fill com brilho sutil no topo (volume) mantendo o azul --run de base */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 60%), var(--run);
+  transition: width 0.4s var(--ease-spring);
 }
 /* Sem total conhecido em execucao em andamento: barra indeterminada. */
 .prog-bar[data-indet="true"] {
@@ -1888,4 +1941,21 @@ select {
 }
 .tbl-wrap.tbl-scroll > table {
   min-width: 880px;
+}
+
+/* Acessibilidade: zera o micro-movimento adicionado nas tabelas/acessorios
+   para quem pede reducao de animacao. Hover/estados de cor permanecem. */
+@media (prefers-reduced-motion: reduce) {
+  .tbl-wrap tbody tr {
+    transition: none;
+  }
+  .skel::after {
+    animation: none;
+  }
+  .prog-bar {
+    transition: none;
+  }
+  .prog-bar[data-indet="true"] {
+    animation: none;
+  }
 }
