@@ -33,15 +33,28 @@ const NOMUS_RUNS_URL = workflowRunsUrl("coletar-nomus.yml");
 
 /**
  * True quando ha um run do coletar-nomus.yml ainda ATIVO (status != completed:
- * queued|in_progress|waiting|...). Cobre a JANELA de setup do runner (~60s entre
- * o dispatch e o 1o push, em que a execucao ainda nao existe no banco) — o run ja
- * aparece como queued no instante do dispatch. Um run morto por timeout/cancel
- * fica status="completed", entao NAO bloqueia (orfa cai na camada de execucoes).
- * Best-effort: qualquer falha (token ausente, GitHub fora, parse) retorna false
- * -> nao bloqueia. NB: nao distingue recurso (a API de runs nao expoe inputs);
- * so 'processos' roda hoje, entao e exato na pratica.
+ * queued|in_progress|waiting|...) PARA O RECURSO ALVO. Cobre a JANELA de setup do
+ * runner (~60s entre o dispatch e o 1o push, em que a execucao ainda nao existe no
+ * banco) — o run ja aparece como queued no instante do dispatch. Um run morto por
+ * timeout/cancel fica status="completed", entao NAO bloqueia (orfa cai na camada
+ * de execucoes). Best-effort: qualquer falha (token ausente, GitHub fora, parse)
+ * retorna false -> nao bloqueia.
+ *
+ * DISTINCAO POR RECURSO: a listagem de runs nao expoe os inputs do dispatch, mas o
+ * workflow define run-name "Coletor Nomus · <recurso> · <modo>" — o nome aparece em
+ * name/display_title. So bloqueia quando um run ativo casa com o recurso alvo;
+ * runs de OUTRO recurso (ou legados sem run-name, que nao casam) nao bloqueiam.
  */
-async function nomusRunAtivo(service: ReturnType<typeof createServiceClient>): Promise<boolean> {
+function runCasaRecurso(r: { name?: string; display_title?: string }, recurso: string): boolean {
+  const alvo = recurso.toLowerCase();
+  const titulo = `${r?.name ?? ""} ${r?.display_title ?? ""}`.toLowerCase();
+  return titulo.includes(alvo);
+}
+
+async function nomusRunAtivo(
+  service: ReturnType<typeof createServiceClient>,
+  recurso: string,
+): Promise<boolean> {
   try {
     const { data: token, error } = await service.rpc("github_dispatch_token");
     if (error || typeof token !== "string" || !token) return false;
@@ -56,7 +69,9 @@ async function nomusRunAtivo(service: ReturnType<typeof createServiceClient>): P
     if (!res.ok) return false;
     const json = await res.json();
     const runs = Array.isArray(json?.workflow_runs) ? json.workflow_runs : [];
-    return runs.some((r: { status?: string }) => typeof r?.status === "string" && r.status !== "completed");
+    return runs.some((r: { status?: string; name?: string; display_title?: string }) =>
+      typeof r?.status === "string" && r.status !== "completed" && runCasaRecurso(r, recurso)
+    );
   } catch (_) {
     return false;
   }
@@ -130,12 +145,13 @@ async function handler(req: Request): Promise<Response> {
     }
 
     // Camada (2) STALE-AWARE-SAFE: run do Actions ainda ativo na janela de setup
-    // do runner (antes de a execucao nascer no banco). Fecha o duplo-disparo por
-    // clique rapido — o run aparece como queued no instante do dispatch. Um run
-    // morto (timeout/cancel) ja e status="completed" aqui, entao NAO bloqueia a
-    // retomada de uma orfa (essa cai na camada 1 acima). Best-effort: se a API
-    // falhar, segue so com a camada 1.
-    if (await nomusRunAtivo(service)) {
+    // do runner (antes de a execucao nascer no banco), ESCOPADO ao recurso alvo
+    // (um run de OUTRO recurso roda em paralelo e nao deve bloquear). Fecha o
+    // duplo-disparo por clique rapido — o run aparece como queued no instante do
+    // dispatch. Um run morto (timeout/cancel) ja e status="completed" aqui, entao
+    // NAO bloqueia a retomada de uma orfa (essa cai na camada 1 acima). Best-effort:
+    // se a API falhar, segue so com a camada 1.
+    if (await nomusRunAtivo(service, recursoAlvo)) {
       throw new HttpError(409, "execucao_em_andamento", "ja ha uma coleta do Nomus em andamento");
     }
 

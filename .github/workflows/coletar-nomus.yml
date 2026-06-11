@@ -1,5 +1,10 @@
 name: Coletor Nomus (nuvem)
 
+# run-name inclui o RECURSO e o MODO no titulo do run. Isso e o que permite ao
+# guard do cockpit (Edge nomus-disparar) distinguir runs por recurso pela GitHub
+# API, que NAO expoe os inputs do dispatch na listagem de runs.
+run-name: "Coletor Nomus · ${{ github.event.inputs.recurso || 'processos' }} · ${{ github.event.inputs.modo || 'incremental' }}"
+
 # Coleta os processos do Nomus a partir da NUVEM (runner Node/OpenSSL) e faz
 # push para a Edge Function nomus-ingerir, que persiste no Supabase reusando o
 # pipeline do cockpit. Roda na nuvem porque o Supabase Edge (Deno) nao conecta
@@ -29,10 +34,12 @@ on:
         type: string
         default: agendada
 
-# Garante que duas execucoes nao rodem em paralelo (alinhado ao single-flight
-# global do cockpit, que recusaria a 2a com 409).
+# Concurrency POR RECURSO: o lock do cockpit (nomus-ingerir) e por (fonte_id,
+# recurso), entao recursos distintos (processos, pessoas, ...) rodam em PARALELO,
+# cada um single-flight no seu proprio group. Dois disparos do MESMO recurso a 2a
+# fica na fila (cancel-in-progress: false preserva o cursor de backfill).
 concurrency:
-  group: coletar-nomus
+  group: coletar-nomus-${{ github.event.inputs.recurso || 'processos' }}
   cancel-in-progress: false
 
 jobs:
