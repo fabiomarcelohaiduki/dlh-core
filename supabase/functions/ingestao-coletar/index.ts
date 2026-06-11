@@ -296,11 +296,16 @@ async function handleNomus(
     );
   }
 
-  // Single-flight GLOBAL: bloqueia se ja houver execucao em andamento (US-04).
+  // Anti-duplo-disparo POR FONTE+RECURSO (lock-por-fonte, alinhado ao
+  // orquestrador e ao Effecti/Gmail): recusa novo disparo apenas se ESTE
+  // recurso ja coleta. Backfill de outra fonte (ou de outro modulo Nomus)
+  // nao barra esta coleta. O indice unico parcial fecha a corrida no banco.
   const { data: emAndamento, error: andamentoError } = await service
     .from("execucoes")
     .select("id, recurso")
     .eq("status", "em_andamento")
+    .eq("fonte_id", fonte.id)
+    .eq("recurso", recurso)
     .limit(1);
   if (andamentoError) {
     throw new HttpError(500, "execucao_query_failed", "falha ao verificar execucoes em andamento");
