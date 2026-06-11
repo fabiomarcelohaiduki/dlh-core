@@ -84,6 +84,10 @@ export function ExecucoesClient() {
   const nomusConfig = useIngestaoConfig("nomus");
   const nomusJanelaDias = nomusConfig.data?.recursos?.processos?.janelaDias ?? null;
 
+  // Janela deslizante do Effecti (top-level) p/ a legenda do botao de coleta.
+  const effectiConfig = useIngestaoConfig("effecti");
+  const effectiJanelaDias = effectiConfig.data?.janelaDias ?? null;
+
   const disparoForm =
     fonteDisparo === "nomus" ? (
       <NomusDisparoForm fonteId={nomusId} janelaDias={nomusJanelaDias} bare />
@@ -92,7 +96,12 @@ export function ExecucoesClient() {
     ) : fonteDisparo === "drive" ? (
       <DriveDisparoForm bare />
     ) : (
-      <EffectiDisparoForm fonteId={effectiId} configDirty={false} bare />
+      <EffectiDisparoForm
+        fonteId={effectiId}
+        configDirty={false}
+        janelaDias={effectiJanelaDias}
+        bare
+      />
     );
 
   const allRuns = useMemo(() => execucoes.data?.items ?? [], [execucoes.data]);

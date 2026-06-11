@@ -302,8 +302,15 @@ export function FontesCredenciais({
             nome="Effecti"
             onClose={() => toggle("effecti")}
           />
-          <AgendamentoFonteForm initial={effectiAgendamento} />
-          <EffectiDisparoForm fonteId={effecti.id} configDirty={effectiCfgDirty} />
+          <AgendamentoFonteForm
+            initial={effectiAgendamento}
+            nota={`A cada execução re-varre os últimos ${effectiConfig.janelaDias} dias e ingere avisos novos; atualiza os que mudaram.`}
+          />
+          <EffectiDisparoForm
+            fonteId={effecti.id}
+            configDirty={effectiCfgDirty}
+            janelaDias={effectiConfig.janelaDias}
+          />
           <CfgForm
             initial={effectiConfig}
             fonteId={effecti.id}
