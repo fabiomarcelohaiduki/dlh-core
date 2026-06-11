@@ -28,6 +28,7 @@ import { handleCorsPreflight } from "../_shared/cors.ts";
 import { assertMethod, errorResponse, HttpError, jsonResponse } from "../_shared/http.ts";
 import { getEnv } from "../_shared/env.ts";
 import { extractBearerToken, matchesCronSecret } from "../_shared/auth.ts";
+import { timingSafeEqual } from "../_shared/crypto.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import {
   createEmbeddingProvider,
@@ -77,7 +78,7 @@ interface ItemResultado {
 async function assertInternalAuth(req: Request): Promise<void> {
   const bearer = extractBearerToken(req);
   const env = getEnv();
-  if (bearer && bearer === env.serviceRoleKey) return;
+  if (bearer && timingSafeEqual(bearer, env.serviceRoleKey)) return;
 
   if (await matchesCronSecret(req)) return;
 

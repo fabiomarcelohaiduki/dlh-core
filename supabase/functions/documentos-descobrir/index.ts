@@ -44,6 +44,7 @@ import { handleCorsPreflight } from "../_shared/cors.ts";
 import { assertMethod, errorResponse, HttpError, jsonResponse } from "../_shared/http.ts";
 import { getEnv } from "../_shared/env.ts";
 import { extractBearerToken, matchesCronSecret, requireAuthorizedUser } from "../_shared/auth.ts";
+import { timingSafeEqual } from "../_shared/crypto.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 
@@ -104,7 +105,7 @@ interface CallerContext {
 async function resolveCaller(req: Request): Promise<CallerContext> {
   const token = extractBearerToken(req);
   const env = getEnv();
-  if (token && token === env.serviceRoleKey) {
+  if (token && timingSafeEqual(token, env.serviceRoleKey)) {
     return { gatilho: "agendada", usuario: null };
   }
   if (await matchesCronSecret(req)) {

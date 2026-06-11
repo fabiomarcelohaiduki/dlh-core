@@ -18,6 +18,7 @@
 import { extractBearerToken, requireAuthorizedUser } from "./auth.ts";
 import { HttpError } from "./http.ts";
 import { getServiceSecret, LIA_SERVICE_KEY_NAME } from "./vault.ts";
+import { timingSafeEqual } from "./crypto.ts";
 
 /** Escopo concedido a API key de servico da Lia (read-only + busca semantica). */
 export const LIA_SERVICE_SCOPE = "read-only:busca-semantica" as const;
@@ -35,23 +36,6 @@ export type V1Principal =
     /** E-mail normalizado do usuario autorizado do cockpit. */
     readonly email: string;
   };
-
-/**
- * Compara duas strings em tempo (aproximadamente) constante, evitando que o
- * tempo de resposta revele quantos caracteres da API key conferem.
- */
-function timingSafeEqual(a: string, b: string): boolean {
-  const encoder = new TextEncoder();
-  const ab = encoder.encode(a);
-  const bb = encoder.encode(b);
-  // Sempre percorre o maior comprimento; diferenca de tamanho ja conta no diff.
-  let diff = ab.length ^ bb.length;
-  const len = Math.max(ab.length, bb.length);
-  for (let i = 0; i < len; i++) {
-    diff |= (ab[i] ?? 0) ^ (bb[i] ?? 0);
-  }
-  return diff === 0;
-}
 
 /**
  * Autentica uma requisicao ao contrato /v1. Retorna o principal (servico ou

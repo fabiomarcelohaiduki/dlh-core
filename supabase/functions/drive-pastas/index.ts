@@ -21,6 +21,7 @@ import { handleCorsPreflight } from "../_shared/cors.ts";
 import { errorResponse, HttpError, jsonResponse } from "../_shared/http.ts";
 import { getEnv } from "../_shared/env.ts";
 import { extractBearerToken, matchesCronSecret, requireAuthorizedUser } from "../_shared/auth.ts";
+import { timingSafeEqual } from "../_shared/crypto.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 
@@ -52,7 +53,8 @@ async function readBody(req: Request): Promise<Record<string, unknown>> {
 async function handleAtivas(req: Request): Promise<Response> {
   const token = extractBearerToken(req);
   const env = getEnv();
-  const ehSistema = (token && token === env.serviceRoleKey) || (await matchesCronSecret(req));
+  const ehSistema = (token && timingSafeEqual(token, env.serviceRoleKey)) ||
+    (await matchesCronSecret(req));
   if (!ehSistema) {
     await requireAuthorizedUser(req); // cockpit tambem pode ler; nega anon
   }

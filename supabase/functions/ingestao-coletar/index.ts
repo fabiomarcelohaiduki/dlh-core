@@ -22,6 +22,7 @@ import { handleCorsPreflight } from "../_shared/cors.ts";
 import { assertMethod, errorResponse, HttpError, jsonResponse } from "../_shared/http.ts";
 import { getEnv } from "../_shared/env.ts";
 import { extractBearerToken, requireAuthorizedUser } from "../_shared/auth.ts";
+import { timingSafeEqual } from "../_shared/crypto.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 import {
@@ -66,7 +67,7 @@ async function resolveCaller(req: Request, requested?: Gatilho): Promise<CallerC
   const token = extractBearerToken(req);
   const env = getEnv();
 
-  if (token && token === env.serviceRoleKey) {
+  if (token && timingSafeEqual(token, env.serviceRoleKey)) {
     return { gatilho: requested ?? "agendada", usuario: null };
   }
 

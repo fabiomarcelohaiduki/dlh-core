@@ -23,6 +23,7 @@ import { handleCorsPreflight } from "../_shared/cors.ts";
 import { assertMethod, errorResponse, HttpError, jsonResponse } from "../_shared/http.ts";
 import { getEnv } from "../_shared/env.ts";
 import { extractBearerToken } from "../_shared/auth.ts";
+import { timingSafeEqual } from "../_shared/crypto.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { getFonteSecret, getServiceSecret } from "../_shared/vault.ts";
 import { createConnector } from "../_shared/effecti-connector.ts";
@@ -87,20 +88,13 @@ interface ConfigRow {
 async function assertInternalAuth(req: Request): Promise<void> {
   const bearer = extractBearerToken(req);
   const env = getEnv();
-  if (bearer && bearer === env.serviceRoleKey) return;
+  if (bearer && timingSafeEqual(bearer, env.serviceRoleKey)) return;
 
   const provided = req.headers.get("X-Cron-Secret")?.trim() ?? "";
   const expected = (await getServiceSecret(CRON_SECRET_NAME))?.trim() ?? "";
   if (expected && provided && timingSafeEqual(provided, expected)) return;
 
   throw new HttpError(401, "cron_unauthorized", "chamada interna nao autorizada");
-}
-
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
 }
 
 // ---------------------------------------------------------------------
