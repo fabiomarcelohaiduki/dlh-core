@@ -380,6 +380,7 @@ export default async function FontesPage() {
     config,
     agendamentoEffecti,
     agendamentoNomus,
+    agendamentoNomusPessoas,
     agendamentoGmail,
     agendamentoDrive,
     fonteNomus,
@@ -394,6 +395,7 @@ export default async function FontesPage() {
     loadConfig(),
     loadAgendamentoFonte("effecti"),
     loadAgendamentoFonte("nomus", "processos"),
+    loadAgendamentoFonte("nomus", "pessoas"),
     loadAgendamentoFonte("gmail"),
     loadAgendamentoFonte("drive"),
     loadFonteNomus(),
@@ -418,6 +420,7 @@ export default async function FontesPage() {
         effectiConfig={config}
         effectiAgendamento={agendamentoEffecti}
         nomusAgendamento={agendamentoNomus}
+        nomusPessoasAgendamento={agendamentoNomusPessoas}
         gmailAgendamento={agendamentoGmail}
         driveAgendamento={agendamentoDrive}
         nomus={fonteNomus}

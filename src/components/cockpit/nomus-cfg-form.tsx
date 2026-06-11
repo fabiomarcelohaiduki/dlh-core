@@ -142,9 +142,11 @@ function TipoToggle({
  */
 export function NomusCfgForm({
   agendamento,
+  agendamentoPessoas,
   fonteId,
 }: {
   agendamento?: AgendamentoFonteState;
+  agendamentoPessoas?: AgendamentoFonteState;
   fonteId?: string | null;
 }) {
   const config = useIngestaoConfig("nomus");
@@ -308,10 +310,9 @@ export function NomusCfgForm({
                 </div>
               )}
 
-              {/* Pessoas e coleta MANUAL-FIRST: so disparo (sem agendamento ainda).
-                  Cron por recurso pode ser ligado depois, medindo o custo do 1o run. */}
-              {r.key === "pessoas" && ativo && (
+              {r.key === "pessoas" && ativo && agendamentoPessoas && (
                 <div style={{ marginTop: 16 }}>
+                  <AgendamentoFonteForm initial={agendamentoPessoas} nota={notaFull} />
                   <NomusDisparoForm
                     recurso={r.key}
                     janelaDias={janelaDias}

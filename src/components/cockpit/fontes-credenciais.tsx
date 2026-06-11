@@ -208,6 +208,7 @@ export function FontesCredenciais({
   effectiConfig,
   effectiAgendamento,
   nomusAgendamento,
+  nomusPessoasAgendamento,
   gmailAgendamento,
   driveAgendamento,
   nomus,
@@ -222,6 +223,7 @@ export function FontesCredenciais({
   effectiConfig: ConfigIngestaoState;
   effectiAgendamento: AgendamentoFonteState;
   nomusAgendamento: AgendamentoFonteState;
+  nomusPessoasAgendamento: AgendamentoFonteState;
   gmailAgendamento: AgendamentoFonteState;
   driveAgendamento: AgendamentoFonteState;
   nomus: FonteCredState;
@@ -317,7 +319,11 @@ export function FontesCredenciais({
             nome="Nomus"
             onClose={() => toggle("nomus")}
           />
-          <NomusCfgForm agendamento={nomusAgendamento} fonteId={nomus.id} />
+          <NomusCfgForm
+            agendamento={nomusAgendamento}
+            agendamentoPessoas={nomusPessoasAgendamento}
+            fonteId={nomus.id}
+          />
         </div>
       )}
 
