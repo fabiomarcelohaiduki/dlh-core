@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { type CSSProperties, useState } from "react";
 import { Check, FileText, Loader2, TriangleAlert } from "lucide-react";
 import { useDispararExtracao } from "@/hooks/use-admin";
 import { ApiError } from "@/lib/api/client";
@@ -41,6 +41,15 @@ export function ExtracaoDisparoForm() {
 
   const ocupado = disparar.isPending;
 
+  const capStyle: CSSProperties = {
+    fontSize: 12,
+    lineHeight: 1.5,
+    color: "var(--faint)",
+    maxWidth: 240,
+  };
+  const acaoCaption =
+    "Processa a fila de anexos pendentes via Tika (todas as fontes).";
+
   return (
     <div className="card" style={{ display: "grid", gap: 14 }}>
       <div className="cfg-panel-head" style={{ margin: "0 0 2px" }}>
@@ -62,15 +71,20 @@ export function ExtracaoDisparoForm() {
         </div>
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
-        <button className="btn btn-primary" type="button" onClick={executar} disabled={ocupado}>
-          {ocupado ? (
-            <Loader2 className="spin" aria-hidden="true" />
-          ) : (
-            <FileText aria-hidden="true" />
-          )}
-          <span>{ocupado ? "Disparando…" : "Extrair fila agora"}</span>
-        </button>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 10 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <button className="btn btn-primary" type="button" onClick={executar} disabled={ocupado}>
+            {ocupado ? (
+              <Loader2 className="spin" aria-hidden="true" />
+            ) : (
+              <FileText aria-hidden="true" />
+            )}
+            <span>{ocupado ? "Disparando…" : "Extrair fila agora"}</span>
+          </button>
+          <span className="helper" style={capStyle}>
+            {acaoCaption}
+          </span>
+        </div>
 
         {feedback ? (
           <span className={cn("save-note", feedback.kind === "err" && "err")}>
