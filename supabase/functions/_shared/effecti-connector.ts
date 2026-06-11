@@ -171,6 +171,22 @@ interface EffectiPage {
   hasMore: boolean;
 }
 
+/** Opcoes de uma busca pagina-a-pagina dentro de um bloco (processamento em
+ *  blocos com checkpoint). Os filtros sao allowlists do cliente (a API so
+ *  aceita begin/end), iguais aos de collect(). */
+export interface EffectiPageOptions {
+  modalidades?: string[];
+  portais?: string[];
+  signal?: AbortSignal;
+}
+
+/** Resultado de UMA pagina de UM bloco: itens ja filtrados + se ha mais
+ *  paginas no MESMO bloco (hasMore). */
+export interface EffectiPageResult {
+  items: CollectedAviso[];
+  hasMore: boolean;
+}
+
 export class EffectiConnector implements SourceConnector {
   public readonly tipo = "effecti";
 
@@ -297,6 +313,51 @@ export class EffectiConnector implements SourceConnector {
       // Proximo bloco comeca 1s apos o fim do anterior (evita sobreposicao).
       chunkBegin = new Date(chunkEnd.getTime() + 1000);
     }
+  }
+
+  /**
+   * Coleta UMA pagina (0-indexed) de UM bloco [blocoInicio, blocoFim] ja
+   * recortado em <= 5 dias pelo chamador (checkpoint). Espelha o
+   * NomusConnector.collectPage para permitir processamento em BLOCOS com
+   * checkpoint/retomada (a janela grande nao cabe num unico waitUntil do Edge).
+   * Aplica os mesmos filtros de allowlist (portais/modalidades) de collect().
+   * Retorna os itens filtrados e `hasMore` (ha mais paginas NESTE bloco).
+   */
+  async collectPage(
+    blocoInicio: Date,
+    blocoFim: Date,
+    pagina: number,
+    options: EffectiPageOptions = {},
+  ): Promise<EffectiPageResult> {
+    const portaisFilter = options.portais && options.portais.length > 0
+      ? new Set(options.portais)
+      : null;
+    const modalidadesFilter = options.modalidades && options.modalidades.length > 0
+      ? new Set(options.modalidades)
+      : null;
+
+    const url = this.buildPageUrl(pagina);
+    const res = await this.fetchWithBackoff(
+      url,
+      { method: "POST", body: buildWindowBody(blocoInicio, blocoFim) },
+      options.signal,
+    );
+    const payload = (await res.json()) as unknown;
+    const { items, hasMore } = parseEffectiPage(payload);
+
+    const filtered = items.filter((item) => {
+      if (portaisFilter && (item.portal === null || !portaisFilter.has(item.portal))) {
+        return false;
+      }
+      if (modalidadesFilter && !modalidadesFilter.has(item.modalidade)) {
+        return false;
+      }
+      return true;
+    });
+
+    // hasMore so faz sentido se a pagina veio com itens (pagina vazia = fim do
+    // bloco, mesmo que o metadado diga o contrario).
+    return { items: filtered, hasMore: items.length > 0 && hasMore };
   }
 
   // -------------------------------------------------------------------

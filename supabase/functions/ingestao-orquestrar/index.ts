@@ -26,10 +26,9 @@ import { extractBearerToken } from "../_shared/auth.ts";
 import { timingSafeEqual } from "../_shared/crypto.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { getFonteSecret, getServiceSecret } from "../_shared/vault.ts";
-import { createConnector } from "../_shared/effecti-connector.ts";
+import { createConnector, EffectiConnector } from "../_shared/effecti-connector.ts";
 import { type NomusConnector, type NomusRecursoConfig } from "../_shared/nomus-connector.ts";
 import { createEmbeddingProvider } from "../_shared/embeddings.ts";
-import { runPipeline } from "../_shared/pipeline.ts";
 import {
   buildInitialCheckpoint,
   type CheckpointModo,
@@ -39,6 +38,13 @@ import {
   parseCheckpoint,
   runNomusBlock,
 } from "../_shared/nomus-pipeline.ts";
+import {
+  buildInitialEffectiCheckpoint,
+  type EffectiCheckpoint,
+  effectiMaxRetomadas,
+  parseEffectiCheckpoint,
+  runEffectiBlock,
+} from "../_shared/effecti-pipeline.ts";
 import type { OrquestrarResponse } from "../_shared/types.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
@@ -339,9 +345,14 @@ async function startEffecti(
   config: ConfigRow | null,
 ): Promise<OrquestrarResponse> {
   const janelaDias = config?.janela_dias ?? DEFAULT_JANELA_DIAS;
-  const sinceDate = janelaMovel(janelaDias);
+  const until = new Date();
+  const since = janelaMovel(janelaDias, until);
   const modalidades = config?.modalidades ?? undefined;
   const portais = config?.portais ?? undefined;
+  // Coleta em BLOCOS com checkpoint (decisao 11/06): janela grande (ex.: 30
+  // dias) nao cabe num unico waitUntil do Edge. Avanca UM bloco aqui e o
+  // orquestrador avanca os seguintes nos tiques do ciclo (igual ao Nomus).
+  const checkpoint = buildInitialEffectiCheckpoint(since, until);
 
   const { data: execucao, error: insError } = await service
     .from("execucoes")
@@ -350,6 +361,7 @@ async function startEffecti(
       gatilho: "agendada",
       janela_dias: janelaDias,
       fonte_id: fonte.id,
+      checkpoint,
       novos: 0,
       alterados: 0,
       status: "em_andamento",
@@ -366,24 +378,79 @@ async function startEffecti(
   }
   const execucaoId = String((execucao as { id: string }).id);
 
-  const connector = createConnector(fonte.tipo, { endpointBase: fonte.endpoint_base, token });
+  const connector = new EffectiConnector({ endpointBase: fonte.endpoint_base, token });
   const env = getEnv();
   const embeddingProvider = env.embeddingsEndpoint ? createEmbeddingProvider() : undefined;
 
-  const pipelinePromise = runPipeline(
-    { db: service, connector, embeddingProvider },
-    { execucaoId, sinceDate, modalidades, portais },
-  ).catch((err) => {
-    console.error("[orquestrar] pipeline effecti falhou", {
-      execucaoId,
-      err: err instanceof Error ? err.message : String(err),
-    });
-  });
-  if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
-    EdgeRuntime.waitUntil(pipelinePromise);
-  }
+  // Primeiro bloco sincrono: o resultado define a acao (iniciou/concluiu).
+  const outcome = await runEffectiBlock(
+    { db: service, connector, embeddingProvider, fonteId: fonte.id },
+    { execucaoId, checkpoint, modalidades, portais },
+  );
 
-  return { acao: "iniciou", execucao_id: execucaoId, fonte: fonte.tipo, recurso: null };
+  return {
+    acao: outcome.concluido ? "concluiu" : "iniciou",
+    execucao_id: execucaoId,
+    fonte: fonte.tipo,
+    recurso: null,
+  };
+}
+
+/** Avanca UM bloco de uma execucao Effecti em_andamento (single-flight). */
+async function advanceEffecti(
+  service: ReturnType<typeof createServiceClient>,
+  exec: ExecRow,
+  checkpoint: EffectiCheckpoint,
+): Promise<OrquestrarResponse> {
+  const fonte = await loadFonte(service, exec.fonte_id);
+  if (!fonte) {
+    return { acao: "ocioso", execucao_id: exec.id, fonte: null, recurso: null };
+  }
+  const token = await getFonteSecret(fonte.id);
+  if (!token) {
+    return { acao: "ocioso", execucao_id: exec.id, fonte: fonte.tipo, recurso: null };
+  }
+  const config = await loadConfig(service, fonte.id);
+  const connector = new EffectiConnector({ endpointBase: fonte.endpoint_base, token });
+  const env = getEnv();
+  const embeddingProvider = env.embeddingsEndpoint ? createEmbeddingProvider() : undefined;
+
+  const outcome = await runEffectiBlock(
+    { db: service, connector, embeddingProvider, fonteId: fonte.id },
+    {
+      execucaoId: exec.id,
+      checkpoint,
+      modalidades: config?.modalidades ?? undefined,
+      portais: config?.portais ?? undefined,
+    },
+  );
+
+  return {
+    acao: outcome.concluido ? "concluiu" : "avancou",
+    execucao_id: exec.id,
+    fonte: fonte.tipo,
+    recurso: null,
+  };
+}
+
+/** Retoma uma execucao Effecti em 'erro' (incrementa tentativas) e avanca. */
+async function resumeEffecti(
+  service: ReturnType<typeof createServiceClient>,
+  exec: ExecRow,
+  checkpoint: EffectiCheckpoint,
+): Promise<OrquestrarResponse> {
+  const retomado: EffectiCheckpoint = {
+    ...checkpoint,
+    tentativas_retomada: checkpoint.tentativas_retomada + 1,
+  };
+  const { error } = await service
+    .from("execucoes")
+    .update({ status: "em_andamento", etapa_atual: "coleta", checkpoint: retomado })
+    .eq("id", exec.id);
+  if (error) {
+    throw new HttpError(500, "execucao_update_failed", "falha ao retomar a execucao");
+  }
+  return await advanceEffecti(service, exec, retomado);
 }
 
 async function loadFonte(
@@ -478,15 +545,26 @@ async function tickFonte(
   }
   if (ativa) {
     const exec = ativa as ExecRow;
-    const checkpoint = parseCheckpoint(exec.checkpoint);
-    if (exec.recurso && checkpoint) {
-      return await advanceNomus(service, exec, checkpoint);
+    // Nomus: avanca um bloco pelo checkpoint do recurso.
+    if (fonte.tipo === "nomus") {
+      const checkpoint = parseCheckpoint(exec.checkpoint);
+      if (checkpoint) {
+        return await advanceNomus(service, exec, checkpoint);
+      }
     }
-    // Effecti (sem checkpoint): roda seu pipeline proprio em background. Auto-cura
-    // de orfa: se o heartbeat (updated_at, bumpado a cada item) ficou velho, o
-    // Edge Runtime morreu no meio -> fecha como erro e libera o lock; senao,
-    // segue vivo e nada ha a avancar (ocioso). Heartbeat ilegivel = conservador
-    // (trata como vivo, nunca mata um run legitimo).
+    // Effecti (novo): tem checkpoint em blocos -> avanca um bloco aqui (igual
+    // ao Nomus). Janela grande (ex.: 30 dias) nao cabe num unico tique.
+    if (fonte.tipo === "effecti") {
+      const checkpoint = parseEffectiCheckpoint(exec.checkpoint);
+      if (checkpoint) {
+        return await advanceEffecti(service, exec, checkpoint);
+      }
+    }
+    // Effecti legado (sem checkpoint): rodou seu pipeline proprio em background.
+    // Auto-cura de orfa: se o heartbeat (updated_at, bumpado a cada item) ficou
+    // velho, o Edge Runtime morreu no meio -> fecha como erro e libera o lock;
+    // senao, segue vivo e nada ha a avancar (ocioso). Heartbeat ilegivel =
+    // conservador (trata como vivo, nunca mata um run legitimo).
     const heartbeatMs = Date.parse(exec.updated_at ?? exec.inicio);
     const vivo = !Number.isFinite(heartbeatMs) ||
       Date.now() - heartbeatMs <= EFFECTI_ORPHAN_STALE_MS;
@@ -507,25 +585,34 @@ async function tickFonte(
   }
 
   // 2. Retomada automatica de execucao em 'erro' DESTA fonte com checkpoint
-  //    valido, dentro do teto NOMUS_MAX_RETOMADAS.
-  const maxRetomadas = nomusMaxRetomadas();
+  //    valido, dentro do teto de retomadas. Nomus e Effecti tem checkpoint;
+  //    discrimina pelo tipo da fonte (execucoes Effecti legadas sem checkpoint
+  //    sao ignoradas pelo parse e seguem aguardando acao manual).
   const { data: comErro, error: erroErr } = await service
     .from("execucoes")
     .select("id, fonte_id, recurso, status, checkpoint, inicio")
     .eq("status", "erro")
     .eq("fonte_id", fonte.id)
-    .not("recurso", "is", null)
     .order("inicio", { ascending: true })
     .limit(20);
   if (erroErr) {
     throw new HttpError(500, "execucao_query_failed", "falha ao verificar execucoes em erro");
   }
   for (const row of (comErro ?? []) as ExecRow[]) {
-    const checkpoint = parseCheckpoint(row.checkpoint);
-    if (!checkpoint) continue;
-    if (checkpoint.fase === "concluido") continue;
-    if (checkpoint.tentativas_retomada >= maxRetomadas) continue; // aguarda manual.
-    return await resumeNomus(service, row, checkpoint);
+    if (fonte.tipo === "nomus") {
+      const checkpoint = parseCheckpoint(row.checkpoint);
+      if (!checkpoint) continue;
+      if (checkpoint.fase === "concluido") continue;
+      if (checkpoint.tentativas_retomada >= nomusMaxRetomadas()) continue; // aguarda manual.
+      return await resumeNomus(service, row, checkpoint);
+    }
+    if (fonte.tipo === "effecti") {
+      const checkpoint = parseEffectiCheckpoint(row.checkpoint);
+      if (!checkpoint) continue;
+      if (checkpoint.fase === "concluido") continue;
+      if (checkpoint.tentativas_retomada >= effectiMaxRetomadas()) continue; // aguarda manual.
+      return await resumeEffecti(service, row, checkpoint);
+    }
   }
 
   // 3. Inicia uma nova coleta se a fonte estiver DUE pela sua frequencia.

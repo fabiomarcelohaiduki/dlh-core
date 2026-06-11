@@ -223,9 +223,9 @@ async function collectAll(
 // Persistencia do aviso base (upsert com dedupe por effecti_id)
 // ---------------------------------------------------------------------
 
-type PersistStatus = "novo" | "alterado" | "ignorado";
+export type PersistStatus = "novo" | "alterado" | "ignorado";
 
-async function persistAvisoBase(
+export async function persistAvisoBase(
   db: SupabaseClient,
   aviso: CollectedAviso,
   execucaoId: string,
@@ -329,7 +329,7 @@ function buildRow(aviso: CollectedAviso, execucaoId: string, hash: string) {
   };
 }
 
-async function resolveAvisoId(db: SupabaseClient, effectiId: string): Promise<string | null> {
+export async function resolveAvisoId(db: SupabaseClient, effectiId: string): Promise<string | null> {
   const { data } = await db
     .from("avisos")
     .select("id")
@@ -338,7 +338,7 @@ async function resolveAvisoId(db: SupabaseClient, effectiId: string): Promise<st
   return data ? String((data as { id: string }).id) : null;
 }
 
-async function setStatusIndexacao(
+export async function setStatusIndexacao(
   db: SupabaseClient,
   avisoId: string,
   status: StatusIndexacao,

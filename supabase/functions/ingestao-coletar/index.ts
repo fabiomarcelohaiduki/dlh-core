@@ -33,23 +33,25 @@ import {
   parseJsonBody,
 } from "../_shared/validation.ts";
 import { getFonteByTipo, getFonteSecret } from "../_shared/vault.ts";
-import { createConnector } from "../_shared/effecti-connector.ts";
+import { createConnector, EffectiConnector } from "../_shared/effecti-connector.ts";
 import { type NomusConnector, type NomusRecursoConfig } from "../_shared/nomus-connector.ts";
 import { createEmbeddingProvider } from "../_shared/embeddings.ts";
-import { runPipeline } from "../_shared/pipeline.ts";
 import {
   buildInitialCheckpoint,
   type CheckpointModo,
   janelaMovel,
   runNomusBlock,
 } from "../_shared/nomus-pipeline.ts";
+import {
+  buildInitialEffectiCheckpoint,
+  runEffectiBlock,
+} from "../_shared/effecti-pipeline.ts";
 import type { ColetaNomusResponse, ColetaResponse } from "../_shared/types.ts";
 
 // EdgeRuntime expoe waitUntil para manter a funcao viva apos a resposta.
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
 const DEFAULT_JANELA_DIAS = 7;
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const DEFAULT_RECURSO: ColetarRecurso = "processos";
 
 interface CallerContext {
@@ -140,9 +142,14 @@ async function handleEffecti(
 
   const config = await loadEffectiConfig(service, fonte.id);
   const janelaDias = input.janelaDias ?? config?.janela_dias ?? DEFAULT_JANELA_DIAS;
-  const sinceDate = new Date(Date.now() - janelaDias * MS_PER_DAY);
+  const until = new Date();
+  const since = janelaMovel(janelaDias, until);
   const modalidades = config?.modalidades ?? undefined;
   const portais = config?.portais ?? undefined;
+  // Coleta em BLOCOS com checkpoint (decisao 11/06): janela grande (ex.: 30
+  // dias) nao cabe num unico waitUntil do Edge. Processa UM BLOCO aqui e o
+  // orquestrador avanca os blocos seguintes nos tiques do ciclo (igual Nomus).
+  const checkpoint = buildInitialEffectiCheckpoint(since, until);
 
   const { data: execucao, error: insError } = await service
     .from("execucoes")
@@ -151,6 +158,7 @@ async function handleEffecti(
       gatilho: caller.gatilho,
       janela_dias: janelaDias,
       fonte_id: fonte.id,
+      checkpoint,
       novos: 0,
       alterados: 0,
       status: "em_andamento",
@@ -177,43 +185,45 @@ async function handleEffecti(
   }
   const execucaoId = String((execucao as { id: string }).id);
 
-  const connector = createConnector(fonte.tipo, {
+  const connector = new EffectiConnector({
     endpointBase: fonte.endpointBase,
     token,
   });
   const env = getEnv();
   const embeddingProvider = env.embeddingsEndpoint ? createEmbeddingProvider() : undefined;
 
-  const pipelinePromise = runPipeline(
-    { db: service, connector, embeddingProvider },
-    { execucaoId, sinceDate, modalidades, portais },
+  // Processa UM BLOCO em background; o orquestrador avanca os blocos seguintes.
+  const blockPromise = runEffectiBlock(
+    { db: service, connector, embeddingProvider, fonteId: fonte.id },
+    { execucaoId, checkpoint, modalidades, portais },
   )
     .then(async () => {
-      // Descoberta automatica da camada 1 apos a coleta: enfileira os vinculos
+      // Descoberta automatica da camada 1 apos o bloco: enfileira os vinculos
       // pendentes dos avisos recem-persistidos (descobrir_vinculos_effecti, SQL
       // puro + idempotente). Espelha o Gmail/Drive, que descobrem na coleta.
       // Best-effort: a falha aqui nao reverte a coleta (a descoberta manual
-      // segue no painel de Extracao).
+      // segue no painel de Extracao). Roda por bloco -> parcial e aceitavel,
+      // a idempotencia reconcilia ao final dos blocos seguintes.
       const { error: descErr } = await service.rpc("descobrir_vinculos_effecti", {
         p_extensoes: null,
         p_limite_avisos: null,
       });
       if (descErr) {
-        console.error("[ingestao-coletar] descoberta effecti pos-coleta falhou", {
+        console.error("[ingestao-coletar] descoberta effecti pos-bloco falhou", {
           execucaoId,
           err: descErr.message,
         });
       }
     })
     .catch((err) => {
-      console.error("[ingestao-coletar] pipeline falhou", {
+      console.error("[ingestao-coletar] bloco effecti falhou", {
         execucaoId,
         err: err instanceof Error ? err.message : String(err),
       });
     });
 
   if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
-    EdgeRuntime.waitUntil(pipelinePromise);
+    EdgeRuntime.waitUntil(blockPromise);
   }
 
   await logSensitiveAction({
