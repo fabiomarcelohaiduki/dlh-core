@@ -657,6 +657,21 @@ async function handler(req: Request): Promise<Response> {
     }
 
     const body = await tickFonte(service, fonte, agendamento.frequencia);
+
+    // Auto-encadeamento (11/06): a coleta roda UM bloco por invocacao. Quando
+    // ainda ha blocos (acao iniciou/avancou), reenfileira o orquestrador para o
+    // proximo bloco via pg_net, fechando a janela inteira num so disparo do
+    // agendamento. Em concluiu/ocioso a cadeia para. Best-effort: falha no
+    // reenfileiramento nao derruba a resposta (o cron diario retoma).
+    if (body.acao === "iniciou" || body.acao === "avancou") {
+      const { error: reqError } = await service.rpc("reenfileirar_coleta", {
+        p_fonte_tipo: fonte.tipo,
+      });
+      if (reqError) {
+        console.error("reenfileirar_coleta falhou", reqError.message);
+      }
+    }
+
     return jsonResponse(body, 200);
   } catch (err) {
     return await errorResponse(err, { fn: "ingestao-orquestrar" });
