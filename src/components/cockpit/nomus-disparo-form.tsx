@@ -56,7 +56,7 @@ export function NomusDisparoForm({
     recurso === "pessoas"
       ? "Pessoas novas e edições desde a última coleta. Rápido."
       : "Só processos novos (acima da marca). Não reprocessa edições.";
-  const capFull = `Re-varre ${janelaFrase} e atualiza o que mudou, inclusive edições. Operação pesada.`;
+  const capFull = `Re-varre ${janelaFrase} e atualiza o que mudou, inclusive edições.`;
   const disparar = useDispararNomus();
   // Poll a cada 5s para o aviso de coleta em andamento refletir o estado real
   // (a coleta pode iniciar pelo agendamento/runner, sem passar por estes botoes).
