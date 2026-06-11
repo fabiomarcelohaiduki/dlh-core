@@ -16,13 +16,14 @@ type Feedback = { kind: "ok" | "err"; message: string };
  *
  * O Nomus coleta num runner Node do GitHub Actions (o Edge nao fecha o TLS
  * legado do Nomus). Estes botoes acionam o workflow_dispatch sob demanda:
- *   - "Coletar novos agora" (incremental): processos -> so os NOVOS (id acima
+ *   - "Coletar agora" (incremental): processos -> so os NOVOS (id acima
  *     da marca d'agua), NAO reprocessa edicoes. pessoas -> NOVOS + EDICOES
  *     desde a ultima coleta (o recurso pessoas expoe dataModificacao, entao o
  *     runner faz uma 2a passada por data). Rapido nos dois casos.
  *   - "Re-varrer janela" (full): re-varre TUDO da JANELA configurada e atualiza
  *     o que mudou, inclusive edicoes — operacao pesada, por isso exige
- *     confirmacao. E o mesmo modo do agendamento diario. Para processos e a
+ *     confirmacao. E o modo do agendamento diario de PROCESSOS (pessoas
+ *     agenda incremental, pois expoe dataModificacao). Para processos e a
  *     UNICA forma de capturar edicoes (o Nomus nao expoe data de alteracao de
  *     processo); para pessoas e so um reforco/recuperacao da janela inteira.
  *
@@ -123,7 +124,7 @@ export function NomusDisparoForm({
               ) : (
                 <Play aria-hidden="true" />
               )}
-              <span>{emVoo === "incremental" ? "Disparando…" : "Coletar novos agora"}</span>
+              <span>{emVoo === "incremental" ? "Disparando…" : "Coletar agora"}</span>
             </button>
             <span className="helper" style={capStyle}>{capIncremental}</span>
           </div>

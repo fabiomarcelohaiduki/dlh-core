@@ -264,6 +264,13 @@ export function NomusCfgForm({
             janelaDias != null
               ? `Coleta full: re-varre os últimos ${janelaDias} dias e atualiza o que mudou.`
               : "Coleta full: re-varre a janela configurada e atualiza o que mudou.";
+          // Pessoas tem dataModificacao, entao o agendamento roda INCREMENTAL
+          // (pega novos + edicoes barato); processos roda full (sem data de
+          // alteracao, so capta edicoes re-varrendo a janela).
+          const notaAgendamento =
+            r.key === "pessoas"
+              ? "Coleta incremental: pega pessoas novas e edições desde a última coleta."
+              : notaFull;
           return (
             <div
               key={r.key}
@@ -312,7 +319,7 @@ export function NomusCfgForm({
 
               {r.key === "pessoas" && ativo && agendamentoPessoas && (
                 <div style={{ marginTop: 16 }}>
-                  <AgendamentoFonteForm initial={agendamentoPessoas} nota={notaFull} />
+                  <AgendamentoFonteForm initial={agendamentoPessoas} nota={notaAgendamento} />
                   <NomusDisparoForm
                     recurso={r.key}
                     janelaDias={janelaDias}
