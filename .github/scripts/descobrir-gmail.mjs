@@ -243,21 +243,35 @@ async function main() {
     // re-rodar nao duplica (email e imutavel).
     const itens = [];
     let processadas = 0;
+    let falhas = 0;
     for (const { id } of mensagens) {
-      const msg = await obterMensagem(id);
-      const novos = itensDaMensagem(msg);
-      itens.push(...novos);
+      // Tolerancia por mensagem: uma falha transitoria do Gmail (ex: 500
+      // "Internal error") NAO pode abortar a coleta inteira. Registra, pula e
+      // segue — a mensagem reentra na proxima coleta (overlap da janela). Sem
+      // isso, uma unica mensagem-veneno trava a fonte (marcas so avancam em
+      // 'concluida', entao a janela re-lista e re-morre toda hora).
       processadas += 1;
-      console.error(`[mensagem ${processadas}/${mensagens.length}] ${id}: ${novos.length} item(ns)`);
+      try {
+        const msg = await obterMensagem(id);
+        const novos = itensDaMensagem(msg);
+        itens.push(...novos);
+        console.error(`[mensagem ${processadas}/${mensagens.length}] ${id}: ${novos.length} item(ns)`);
+      } catch (err) {
+        falhas += 1;
+        console.error(
+          `[mensagem ${processadas}/${mensagens.length}] ${id}: FALHA (pulada) -> ${err?.message ?? err}`,
+        );
+      }
     }
 
     const inseridos = await enfileirar(itens);
     console.log(
-      `Descoberta Gmail concluida. Mensagens=${processadas}, itens=${itens.length}, novos=${inseridos}.`,
+      `Descoberta Gmail concluida. Mensagens=${processadas}, falhas=${falhas}, itens=${itens.length}, novos=${inseridos}.`,
     );
-    // Todos os itens foram varridos/enfileirados -> processados = total (barra
-    // 100% na conclusao). `novos` = itens ineditos apos dedup da fila.
-    await fecharExecucao(execId, "concluida", itens.length, itens.length, 0, inseridos);
+    // Os itens varridos foram enfileirados -> processados com sucesso = total de
+    // itens. `falhas` = mensagens que nao puderam ser lidas (serao tentadas de
+    // novo na proxima coleta). `novos` = itens ineditos apos dedup da fila.
+    await fecharExecucao(execId, "concluida", itens.length, itens.length, falhas, inseridos);
   } catch (err) {
     // Fecha a execucao como 'erro' antes de propagar (libera o lock-por-fonte).
     await fecharExecucao(execId, "erro", 0, 0, 0);
