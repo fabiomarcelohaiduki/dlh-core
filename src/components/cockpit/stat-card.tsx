@@ -1,7 +1,10 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 type MetaTone = "default" | "up" | "warn" | "err";
+
+/** CSS custom property `--i` consumida pela cascata `.stat-rise` (globals.css). */
+type StaggerStyle = CSSProperties & { "--i"?: number };
 
 /**
  * cmp-stat-card — Card de KPI do Dashboard.
@@ -18,6 +21,7 @@ export function StatCard({
   metaTone = "default",
   pill = false,
   loading = false,
+  index,
 }: {
   icon: ReactNode;
   label: string;
@@ -27,9 +31,13 @@ export function StatCard({
   /** Quando o valor e um StatusPill, alinha como no card de healthcheck. */
   pill?: boolean;
   loading?: boolean;
+  /** Posicao no grid; alimenta a cascata de entrada `.stat-rise` via `--i`. */
+  index?: number;
 }) {
+  const style: StaggerStyle | undefined =
+    index != null ? { "--i": index } : undefined;
   return (
-    <div className="card stat">
+    <div className="card stat" style={style}>
       <div className="k">
         {icon}
         {label}

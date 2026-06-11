@@ -36,6 +36,15 @@
   --mono: var(--font-mono), ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace;
   --sans: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, system-ui, sans-serif;
   --sp: 24px;
+
+  /* Sombras calibradas para dark (matizadas, baixa opacidade, fonte de luz
+     unica vindo de cima). ADITIVO — nenhuma var existente foi alterada. */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.32), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+  --shadow-card-hover: 0 1px 2px rgba(0, 0, 0, 0.34), 0 18px 40px -18px rgba(0, 0, 0, 0.62);
+  /* Fio de luz interno no topo do card (highlight de borda usinada). */
+  --hairline-top: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  /* Curva de mola padrao para micro-movimento (sem linear/ease-in-out). */
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 * {
@@ -730,16 +739,33 @@ button {
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   padding: 18px;
+  box-shadow: var(--shadow-card), var(--hairline-top);
 }
 
 .section-title {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 26px 0 13px;
+  gap: 11px;
+  margin: 34px 0 15px;
 }
 .section-title h3 {
-  font-size: 14.5px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+}
+/* Tick de accent antes do titulo de secao: ancora visual discreta. */
+.section-title h3::before {
+  content: "";
+  width: 3px;
+  height: 13px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.85;
 }
 .section-title .count {
   font-size: 12px;
@@ -776,11 +802,14 @@ button {
   display: flex;
   gap: 13px;
   align-items: flex-start;
-  background: var(--accent-soft);
+  background:
+    radial-gradient(120% 140% at 0% 0%, var(--accent-soft), transparent 60%),
+    var(--surface);
   border: 1px solid var(--accent-line);
   border-radius: var(--r-md);
-  padding: 15px 18px;
+  padding: 16px 19px;
   margin-bottom: 22px;
+  box-shadow: var(--shadow-card), var(--hairline-top);
 }
 .banner svg {
   width: 18px;
@@ -796,6 +825,64 @@ button {
   margin: 4px 0 0;
   font-size: 12.5px;
   color: var(--muted);
+}
+
+/* ---------- dashboard: cabecalho editorial + ambiente — ADITIVO ----------
+   Classes proprias do Dashboard. Nao reaproveitam .page-head (que carrega
+   semantica das telas de admin) para nao haver acoplamento. */
+.dash-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 26px;
+}
+.dash-head .eyebrow {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin: 0 0 9px;
+}
+.dash-head h2 {
+  font-size: 25px;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+}
+.dash-head .lede {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  max-width: 56ch;
+}
+/* Status-resumo a direita do cabecalho: pill + carimbo de sincronizacao. */
+.dash-head .head-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+  text-align: right;
+}
+.dash-head .head-status .stamp {
+  font-size: 11.5px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.dash-head .head-status .stamp svg {
+  width: 13px;
+  height: 13px;
+  opacity: 0.7;
+}
+@media (max-width: 640px) {
+  .dash-head .head-status {
+    align-items: flex-start;
+    text-align: left;
+  }
 }
 
 /* ---------- detalhe do edital: pipeline / kv / payload ---------- */
@@ -1001,6 +1088,81 @@ button {
   color: var(--err);
 }
 
+/* ---------- stat card premium (dashboard) — ADITIVO ----------
+   Eleva o StatCard sem tocar outras telas: o herois e o numero, o card
+   ganha um trilho de accent revelado no hover, lift sutil acelerado por
+   GPU e um fio de luz no topo. Apenas `.card.stat` (Dashboard) e afetado. */
+.card.stat {
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.4s var(--ease-spring), box-shadow 0.4s var(--ease-spring),
+    border-color 0.4s var(--ease-spring);
+}
+/* Trilho vertical de accent: oculto em repouso, revelado no hover.
+   Animado so via opacity (GPU), sem disparar layout. */
+.card.stat::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(180deg, var(--accent), transparent);
+  opacity: 0;
+  transition: opacity 0.4s var(--ease-spring);
+  pointer-events: none;
+}
+.card.stat:hover {
+  transform: translateY(-2px);
+  border-color: #33333e;
+  box-shadow: var(--shadow-card-hover), var(--hairline-top);
+}
+.card.stat:hover::before {
+  opacity: 0.85;
+}
+/* O label vira eyebrow editorial: caixa-alta, tracking amplo, discreto. */
+.card.stat .k {
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-size: 10.5px;
+  color: var(--faint);
+}
+.card.stat .k svg {
+  color: var(--muted);
+  opacity: 1;
+}
+/* Numero-heroi: tabular para nao "dancar", levemente maior, otico. */
+.card.stat .v {
+  font-size: 29px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- entrada escalonada do grid (dashboard) — ADITIVO ----------
+   Cada card entra com fade-up suave em cascata, lendo seu indice de --i.
+   Anima so transform+opacity (GPU). Respeita prefers-reduced-motion. */
+@keyframes stat-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.stat-rise > * {
+  opacity: 0;
+  animation: stat-rise-in 0.6s var(--ease-spring) both;
+  animation-delay: calc(var(--i, 0) * 65ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  .stat-rise > * {
+    opacity: 1;
+    animation: none;
+  }
+}
+
 /* ---------- section-title right slot ---------- */
 .section-title .right {
   margin-left: auto;
@@ -1080,9 +1242,13 @@ button {
 .link svg {
   width: 13px;
   height: 13px;
+  transition: transform 0.3s var(--ease-spring);
 }
 .link:hover {
   text-decoration: underline;
+}
+.link:hover svg {
+  transform: translateX(2px);
 }
 /* coluna de nome de arquivo: largura limitada + reticencias (title no hover) */
 .cell-arquivo {

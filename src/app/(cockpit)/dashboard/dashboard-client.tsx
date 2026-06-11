@@ -150,6 +150,30 @@ export function DashboardClient() {
 
   return (
     <section className="screen">
+      {/* ---- Cabecalho editorial: identidade da tela + status-resumo ---- */}
+      <header className="dash-head">
+        <div className="titles">
+          <p className="eyebrow">Cockpit de ingestão</p>
+          <h2>Visão geral da operação</h2>
+          <p className="lede">
+            Saúde do pipeline, substrato coletado e estado das fontes em um só lugar.
+          </p>
+        </div>
+        {!health.isError && (
+          <div className="head-status">
+            {health.isLoading ? (
+              <span className="skel skel-pill" />
+            ) : (
+              <StatusPill state={statusPill.state} label={statusPill.label} />
+            )}
+            <span className="stamp">
+              <Clock aria-hidden="true" />
+              Sincronizado {formatRelative(healthData?.ultimaSync)}
+            </span>
+          </div>
+        )}
+      </header>
+
       {isOnboarding && (
         <div className="banner">
           <Rocket aria-hidden="true" />
@@ -174,8 +198,9 @@ export function DashboardClient() {
           onRetry={() => health.refetch()}
         />
       ) : (
-        <div className="grid-dlh g4">
+        <div className="grid-dlh g4 stat-rise">
           <StatCard
+            index={0}
             icon={<Activity aria-hidden="true" />}
             label="Status da ingestão"
             pill
@@ -185,6 +210,7 @@ export function DashboardClient() {
             metaTone={statusMetaInfo.tone}
           />
           <StatCard
+            index={1}
             icon={<Layers aria-hidden="true" />}
             label="Substrato"
             loading={health.isLoading}
@@ -192,6 +218,7 @@ export function DashboardClient() {
             meta={`${formatNumber(totalAvisos)} avisos · ${formatNumber(totalProcessos)} processos`}
           />
           <StatCard
+            index={2}
             icon={<Clock aria-hidden="true" />}
             label="Última sincronização"
             loading={health.isLoading}
@@ -203,6 +230,7 @@ export function DashboardClient() {
             }
           />
           <StatCard
+            index={3}
             icon={<TriangleAlert aria-hidden="true" />}
             label="Itens com erro"
             loading={health.isLoading}
@@ -241,8 +269,8 @@ export function DashboardClient() {
           onRetry={() => fontes.refetch()}
         />
       ) : (
-        <div className="grid-dlh g4">
-          {fonteCards.map((fc) => {
+        <div className="grid-dlh g4 stat-rise">
+          {fonteCards.map((fc, i) => {
             const fonte = fontes.data?.find((f) => f.tipo === fc.tipo);
             const saude = derivarSaude(fonte?.estadoConexao, runs, fc.tipo, fc.temDado);
             const pill = conexaoDescriptor(saude);
@@ -251,6 +279,7 @@ export function DashboardClient() {
             return (
               <StatCard
                 key={fc.tipo}
+                index={i}
                 icon={fc.icon}
                 label={fc.label}
                 pill
@@ -280,8 +309,9 @@ export function DashboardClient() {
           onRetry={() => extracao.refetch()}
         />
       ) : (
-        <div className="grid-dlh g4">
+        <div className="grid-dlh g4 stat-rise">
           <StatCard
+            index={0}
             icon={<FileClock aria-hidden="true" />}
             label="Pendentes"
             loading={extracao.isLoading}
@@ -289,6 +319,7 @@ export function DashboardClient() {
             meta="Anexos na fila de extração"
           />
           <StatCard
+            index={1}
             icon={<FileCheck aria-hidden="true" />}
             label="Extraídos"
             loading={extracao.isLoading}
@@ -297,6 +328,7 @@ export function DashboardClient() {
             metaTone="up"
           />
           <StatCard
+            index={2}
             icon={<Copy aria-hidden="true" />}
             label="Herdados"
             loading={extracao.isLoading}
@@ -304,6 +336,7 @@ export function DashboardClient() {
             meta="Reaproveitados por dedup"
           />
           <StatCard
+            index={3}
             icon={<FileWarning aria-hidden="true" />}
             label="Falhas"
             loading={extracao.isLoading}
