@@ -31,7 +31,7 @@ import {
   type ConnectorConfig,
   type SourceConnector,
 } from "./effecti-connector.ts";
-import { type CollectedRecord } from "./collected.ts";
+import { type CollectedPessoa, type CollectedRecord } from "./collected.ts";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -490,6 +490,69 @@ export function mapRawProcesso(raw: unknown): CollectedRecord | null {
         "atualizadoEm",
       ]),
     ),
+    payload_bruto: stripAnexosBase64(obj),
+  };
+}
+
+/** Interpreta um booleano da API (boolean nativo ou string "true"/"false"). */
+function asBool(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    if (v === "true" || v === "sim" || v === "1") return true;
+    if (v === "false" || v === "nao" || v === "não" || v === "0") return false;
+  }
+  return null;
+}
+
+/** Retorna o valor quando e um objeto JSON simples (nao array); senao null. */
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+/**
+ * Normaliza uma pessoa bruta (GET /rest/pessoas) em CollectedPessoa. Pessoa e
+ * o cadastro unico do Nomus (cliente/lead/fornecedor/transportadora etc.),
+ * separado por `categorias` (15 booleans) — NAO ha `tipo`. `observacoes` e o
+ * texto livre do cliente, serializado pela API SO quando preenchido (a API
+ * omite chaves vazias). Descarta itens sem `id`. `payload_bruto` preserva o
+ * bruto integral (sem anexoBase64, mesma poda dos processos).
+ */
+export function mapRawPessoa(raw: unknown): CollectedPessoa | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const obj = raw as Record<string, unknown>;
+
+  const nomusId = firstString(obj, ["id", "nomus_id", "codigo"]);
+  if (!nomusId) return null;
+
+  return {
+    nomus_id: nomusId,
+    nome: firstString(obj, ["nome"]),
+    nome_razao_social: firstString(obj, ["nomeRazaoSocial", "razaoSocial"]),
+    codigo: firstString(obj, ["codigo"]),
+    cnpj: firstString(obj, ["cnpj", "cpfCnpj", "cpf"]),
+    tipo_pessoa: firstString(obj, ["tipoPessoa"]),
+    ativo: asBool(obj["ativo"]),
+    email: firstString(obj, ["email"]),
+    telefone: firstString(obj, ["telefone", "celular", "fone"]),
+    cep: firstString(obj, ["cep"]),
+    endereco: firstString(obj, ["endereco", "logradouro"]),
+    numero: firstString(obj, ["numero"]),
+    complemento: firstString(obj, ["complemento"]),
+    bairro_distrito: firstString(obj, ["bairroDistrito", "bairro"]),
+    municipio: firstString(obj, ["municipio", "cidade"]),
+    uf: firstString(obj, ["uf", "estado"]),
+    pais: firstString(obj, ["pais"]),
+    tipo_contribuinte_icms: firstString(obj, ["tipoContribuinteICMS"]),
+    observacoes: firstString(obj, ["observacoes", "observacao"]),
+    data_criacao: toIso(firstString(obj, ["dataCriacao", "data_criacao", "dataCadastro"])),
+    data_modificacao: toIso(
+      firstString(obj, ["dataModificacao", "data_modificacao", "dataAlteracao"]),
+    ),
+    categorias: asObject(obj["categorias"]),
+    analise_credito: asObject(obj["analiseCredito"]),
     payload_bruto: stripAnexosBase64(obj),
   };
 }

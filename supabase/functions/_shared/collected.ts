@@ -52,3 +52,53 @@ export interface CollectedRecord {
   /** Payload bruto integral do GET, preservado verbatim (nunca mutado). */
   payload_bruto: unknown;
 }
+
+/**
+ * Pessoa coletada do Nomus (recurso `pessoas` — cadastro unico de clientes,
+ * leads, fornecedores, transportadoras etc., separados por `categorias`).
+ *
+ * Diferente de CollectedRecord (processos), pessoa NAO tem `tipo`: a coleta
+ * nao usa allowlist; `categorias` (15 booleans) descreve o papel. `observacoes`
+ * e o texto livre do cliente, serializado pela API quando preenchido (a API
+ * OMITE chaves vazias). `payload_bruto` guarda o GET integral verbatim.
+ */
+export interface CollectedPessoa {
+  /** Chave natural de dedup (vem de `id` na API Nomus). Sempre presente. */
+  nomus_id: string;
+  /** Nome (pessoa fisica) ou nome fantasia. */
+  nome: string | null;
+  /** Razao social (nomeRazaoSocial). */
+  nome_razao_social: string | null;
+  /** Codigo do cadastro no Nomus. */
+  codigo: string | null;
+  /** CNPJ/CPF. */
+  cnpj: string | null;
+  /** Tipo de pessoa (Fisica/Juridica). */
+  tipo_pessoa: string | null;
+  /** Cadastro ativo. */
+  ativo: boolean | null;
+  email: string | null;
+  telefone: string | null;
+  cep: string | null;
+  endereco: string | null;
+  numero: string | null;
+  complemento: string | null;
+  bairro_distrito: string | null;
+  municipio: string | null;
+  uf: string | null;
+  pais: string | null;
+  /** Tipo de contribuinte ICMS. */
+  tipo_contribuinte_icms: string | null;
+  /** Texto livre do cliente — indexado nos embeddings. */
+  observacoes: string | null;
+  /** Data de criacao na API (ISO-8601) quando disponivel. */
+  data_criacao: string | null;
+  /** Data da ultima modificacao na API (ISO-8601) quando exposta. */
+  data_modificacao: string | null;
+  /** 15 booleans de papel (cliente, lead, fornecedor, ...). */
+  categorias: Record<string, unknown> | null;
+  /** Rotina de analise de credito (texto/dados). */
+  analise_credito: Record<string, unknown> | null;
+  /** Payload bruto integral do GET, preservado verbatim (nunca mutado). */
+  payload_bruto: unknown;
+}

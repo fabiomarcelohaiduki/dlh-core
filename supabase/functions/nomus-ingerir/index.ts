@@ -34,9 +34,11 @@ import { extractBearerToken } from "../_shared/auth.ts";
 import { timingSafeEqual } from "../_shared/crypto.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { getFonteByTipo, getServiceSecret } from "../_shared/vault.ts";
-import { mapRawProcesso, type NomusRecursoConfig } from "../_shared/nomus-connector.ts";
+import { mapRawPessoa, mapRawProcesso, type NomusRecursoConfig } from "../_shared/nomus-connector.ts";
+import type { CollectedPessoa, CollectedRecord } from "../_shared/collected.ts";
 import { createEmbeddingProvider } from "../_shared/embeddings.ts";
 import {
+  persistAndIndexPessoa,
   persistAndIndexRecord,
   type PersistContext,
   processoOrigemFina,
@@ -172,6 +174,32 @@ async function loadTiposAtivos(
 }
 
 /**
+ * Master switch dos recursos SEM allowlist de tipos (ex.: pessoas — o papel
+ * vem das `categorias`, nao de um `tipo`). Retorna false quando a config do
+ * recurso esta ausente ou `ativo===false`; qualquer outro caso (ativo true ou
+ * ausente DENTRO de um recurso ja seedado) segue ligado. A migration seeda
+ * `recursos.pessoas = {ativo:true}`, entao ausencia TOTAL = recurso desligado.
+ */
+async function loadRecursoAtivo(
+  service: ServiceClient,
+  fonteId: string,
+  recurso: string,
+): Promise<boolean> {
+  const { data, error } = await service
+    .from("config_ingestao")
+    .select("recursos")
+    .eq("fonte_id", fonteId)
+    .maybeSingle();
+  if (error) {
+    throw new HttpError(500, "config_query_failed", "falha ao consultar a config de ingestao");
+  }
+  const recursos = (data as { recursos: Record<string, unknown> | null } | null)?.recursos ?? null;
+  const raw = recursos?.[recurso];
+  if (!raw || typeof raw !== "object") return false;
+  return (raw as NomusRecursoConfig).ativo !== false;
+}
+
+/**
  * Marca d'agua (high-water mark) da coleta: maior nomus_id ja persistido,
  * comparado NUMERICAMENTE (a coluna e TEXT, entao MAX lexicografico erraria).
  * Delega para a funcao SQL public.nomus_max_nomus_id(). Retorna null quando o
@@ -179,6 +207,17 @@ async function loadTiposAtivos(
  */
 async function loadWatermark(service: ServiceClient): Promise<number | null> {
   const { data, error } = await service.rpc("nomus_max_nomus_id");
+  if (error) {
+    throw new HttpError(500, "watermark_query_failed", "falha ao consultar a marca d'agua");
+  }
+  if (data === null || data === undefined) return null;
+  const n = Number(data);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Marca d'agua do recurso `pessoas`: maior nomus_id de nomus_pessoas. */
+async function loadWatermarkPessoa(service: ServiceClient): Promise<number | null> {
+  const { data, error } = await service.rpc("nomus_max_pessoa_id");
   if (error) {
     throw new HttpError(500, "watermark_query_failed", "falha ao consultar a marca d'agua");
   }
@@ -321,7 +360,9 @@ async function handler(req: Request): Promise<Response> {
     // varrer todas as paginas. Nao toca execucoes nem fonte.
     // -----------------------------------------------------------------
     if (input.action === "watermark") {
-      const max = await loadWatermark(service);
+      const max = recurso === "pessoas"
+        ? await loadWatermarkPessoa(service)
+        : await loadWatermark(service);
       return jsonResponse({ max_nomus_id: max }, 200);
     }
 
@@ -502,7 +543,12 @@ async function handler(req: Request): Promise<Response> {
     // -----------------------------------------------------------------
     // Processa o LOTE recebido (trabalho limitado por invocacao).
     // -----------------------------------------------------------------
-    const tiposAtivos = await loadTiposAtivos(service, fonte.id, recurso);
+    // Recurso `pessoas` nao usa allowlist de tipos (o papel vem das categorias):
+    // o master switch e o booleano `ativo` do recurso. Demais recursos seguem a
+    // allowlist (loadTiposAtivos ja devolve [] quando ativo===false).
+    const isPessoa = recurso === "pessoas";
+    const recursoAtivo = isPessoa ? await loadRecursoAtivo(service, fonte.id, recurso) : true;
+    const tiposAtivos = isPessoa ? [] : await loadTiposAtivos(service, fonte.id, recurso);
     const env = getEnv();
     const embeddingProvider = env.embeddingsEndpoint ? createEmbeddingProvider() : undefined;
     const ctx: PersistContext = { execucaoId, recurso, tiposAtivos, embeddingProvider };
@@ -513,8 +559,16 @@ async function handler(req: Request): Promise<Response> {
     let erros = 0;
 
     for (const raw of input.processos) {
-      const record = mapRawProcesso(raw);
+      const record: CollectedRecord | CollectedPessoa | null = isPessoa
+        ? mapRawPessoa(raw)
+        : mapRawProcesso(raw);
       if (!record) {
+        ignorados += 1;
+        continue;
+      }
+      // Master switch do recurso pessoas: desligado => ignora o lote inteiro
+      // (defesa em profundidade, espelha o [] de loadTiposAtivos dos processos).
+      if (isPessoa && !recursoAtivo) {
         ignorados += 1;
         continue;
       }
@@ -538,7 +592,9 @@ async function handler(req: Request): Promise<Response> {
         continue;
       }
       try {
-        const outcome = await persistAndIndexRecord(service, ctx, record);
+        const outcome = isPessoa
+          ? await persistAndIndexPessoa(service, ctx, record as CollectedPessoa)
+          : await persistAndIndexRecord(service, ctx, record as CollectedRecord);
         if (outcome.acao === "ignorado") ignorados += 1;
         else if (outcome.acao === "inserido") novos += 1;
         else alterados += 1;
@@ -548,9 +604,9 @@ async function handler(req: Request): Promise<Response> {
           execucaoId,
           severidade: "media",
           etapa: "Persistencia",
-          origem: processoOrigemFina(record),
+          origem: isPessoa ? "pessoa" : processoOrigemFina(record as CollectedRecord),
           recurso,
-          mensagem: `falha ao processar processo ${record.nomus_id}: ${errorMessage(err)}`,
+          mensagem: `falha ao processar ${recurso} ${record.nomus_id}: ${errorMessage(err)}`,
         });
       }
     }

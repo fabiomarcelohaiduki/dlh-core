@@ -185,6 +185,7 @@ export function parseFonteAgendavelParam(value: string | null): FonteAgendavel {
 /** Allowlist de recursos da fonte multi-recurso (Nomus) — secao 2.4 da SPEC. */
 export const RECURSOS_PERMITIDOS = [
   "processos",
+  "pessoas",
   "cobranca",
   "propostas",
   "pedidos",

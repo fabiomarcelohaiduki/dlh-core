@@ -25,14 +25,14 @@
 // =====================================================================
 
 import { type SupabaseClient } from "@supabase/supabase-js";
-import { type CollectedRecord } from "./collected.ts";
+import { type CollectedPessoa, type CollectedRecord } from "./collected.ts";
 import { type NomusConnector } from "./nomus-connector.ts";
 import {
   EmbeddingError,
   type EmbeddingProvider,
   generateAndStoreMemoriaChunks,
 } from "./embeddings.ts";
-import { hashConteudoCanonico } from "./hash.ts";
+import { hashConteudoCanonico, hashTexto } from "./hash.ts";
 import { errorMessage, recordIngestErro } from "./ingest-errors.ts";
 import { captureException } from "./audit.ts";
 
@@ -259,6 +259,102 @@ export async function persistAndIndexRecord(
   return { acao, reindexado: true, registroId };
 }
 
+/**
+ * Persiste uma CollectedPessoa em nomus_pessoas com dedup por nomus_id e decide
+ * a reindexacao por hash do conteudo canonico da pessoa. Diferente dos
+ * processos, NAO ha allowlist por `tipo` (pessoa nao tem tipo): o master switch
+ * do recurso (`recursos.pessoas.ativo`) e checado na borda (Edge) antes do
+ * loop. Quando reindexa, regrava memoria_chunks (origem='pessoa') de forma
+ * idempotente. Lanca em falha (capturada pelo lote).
+ */
+export async function persistAndIndexPessoa(
+  db: SupabaseClient,
+  ctx: PersistContext,
+  pessoa: CollectedPessoa,
+): Promise<PersistOutcome> {
+  // 1. Hash do conteudo canonico da pessoa -> decide reindex.
+  const novoHash = hashPessoaConteudo(pessoa);
+
+  const { data: existing, error: selError } = await db
+    .from("nomus_pessoas")
+    .select("id, hash_conteudo")
+    .eq("nomus_id", pessoa.nomus_id)
+    .maybeSingle();
+  if (selError) {
+    throw new Error(`falha ao consultar pessoa existente: ${selError.message}`);
+  }
+
+  const reindexar = !existing ||
+    (existing as { hash_conteudo: string | null }).hash_conteudo !== novoHash;
+
+  // 2. Upsert do snapshot vigente (payload_bruto verbatim, nunca mutado).
+  const row: Record<string, unknown> = {
+    nomus_id: pessoa.nomus_id,
+    nome: pessoa.nome,
+    nome_razao_social: pessoa.nome_razao_social,
+    codigo: pessoa.codigo,
+    cnpj: pessoa.cnpj,
+    tipo_pessoa: pessoa.tipo_pessoa,
+    ativo: pessoa.ativo,
+    email: pessoa.email,
+    telefone: pessoa.telefone,
+    cep: pessoa.cep,
+    endereco: pessoa.endereco,
+    numero: pessoa.numero,
+    complemento: pessoa.complemento,
+    bairro_distrito: pessoa.bairro_distrito,
+    municipio: pessoa.municipio,
+    uf: pessoa.uf,
+    pais: pessoa.pais,
+    tipo_contribuinte_icms: pessoa.tipo_contribuinte_icms,
+    observacoes: pessoa.observacoes,
+    data_criacao: pessoa.data_criacao,
+    data_modificacao: pessoa.data_modificacao,
+    categorias: pessoa.categorias ?? null,
+    analise_credito: pessoa.analise_credito ?? null,
+    payload_bruto: pessoa.payload_bruto ?? {},
+    hash_conteudo: novoHash,
+  };
+  if (reindexar) row.status_indexacao = "pendente";
+
+  const { data: upserted, error: upError } = await db
+    .from("nomus_pessoas")
+    .upsert(row, { onConflict: "nomus_id", ignoreDuplicates: false })
+    .select("id")
+    .single();
+  if (upError || !upserted) {
+    throw new Error(`falha ao persistir pessoa: ${upError?.message ?? "sem id"}`);
+  }
+  const registroId = String((upserted as { id: string }).id);
+  const acao: PersistAcao = !existing ? "inserido" : (reindexar ? "atualizado" : "ignorado");
+
+  // 3. Reindexacao (apenas quando o conteudo mudou e ha provider configurado).
+  if (!reindexar) return { acao, reindexado: false, registroId };
+  if (!ctx.embeddingProvider) {
+    return { acao, reindexado: false, registroId };
+  }
+
+  try {
+    await setStatusIndexacaoPessoa(db, registroId, "em_andamento");
+    await generateAndStoreMemoriaChunks(
+      db,
+      {
+        origem: "pessoa",
+        tipo: "pessoa",
+        registroId,
+        verbatim: buildPessoaVerbatim(pessoa),
+        provider: ctx.embeddingProvider,
+      },
+    );
+    await setStatusIndexacaoPessoa(db, registroId, "concluida");
+  } catch (err) {
+    await setStatusIndexacaoPessoa(db, registroId, "erro");
+    throw err;
+  }
+
+  return { acao, reindexado: true, registroId };
+}
+
 // ---------------------------------------------------------------------
 // Processamento de UM bloco de paginas (checkpoint/retomada)
 // ---------------------------------------------------------------------
@@ -474,6 +570,58 @@ function slugTipo(tipo: string | null): string {
   return base || "processo";
 }
 
+const FIELD_SEP = "\u001f";
+
+/** Chaves de `categorias` (15 booleans) cujo valor e true (ex.: ['cliente','lead']). */
+function categoriasAtivas(categorias: Record<string, unknown> | null): string[] {
+  if (!categorias) return [];
+  return Object.entries(categorias)
+    .filter(([, v]) => v === true)
+    .map(([k]) => k);
+}
+
+/**
+ * Texto verbatim indexado de uma pessoa: nome, razao social, observacoes (texto
+ * livre do cliente), papeis ativos (categorias) e localizacao (municipio/uf).
+ * Vazio quando nenhum campo util existe.
+ */
+export function buildPessoaVerbatim(pessoa: CollectedPessoa): string {
+  const papeis = categoriasAtivas(pessoa.categorias);
+  const local = [pessoa.municipio, pessoa.uf]
+    .filter((v): v is string => typeof v === "string" && v.trim() !== "")
+    .join(" / ");
+  return [
+    pessoa.nome,
+    pessoa.nome_razao_social,
+    pessoa.observacoes,
+    papeis.length > 0 ? papeis.join(", ") : null,
+    local || null,
+  ]
+    .filter((v): v is string => typeof v === "string" && v.trim() !== "")
+    .join("\n\n");
+}
+
+/**
+ * Hash do conteudo canonico da pessoa (decide reindexacao). Inclui os campos
+ * textuais relevantes + categorias/analise_credito serializados, em ORDEM FIXA
+ * com separador estavel. Alterar qualquer um altera o hash.
+ */
+function hashPessoaConteudo(pessoa: CollectedPessoa): string {
+  const canonical = [
+    pessoa.nome ?? "",
+    pessoa.nome_razao_social ?? "",
+    pessoa.observacoes ?? "",
+    pessoa.email ?? "",
+    pessoa.telefone ?? "",
+    pessoa.municipio ?? "",
+    pessoa.uf ?? "",
+    pessoa.ativo === null ? "" : String(pessoa.ativo),
+    pessoa.categorias ? JSON.stringify(pessoa.categorias) : "",
+    pessoa.analise_credito ? JSON.stringify(pessoa.analise_credito) : "",
+  ].join(FIELD_SEP);
+  return hashTexto(canonical);
+}
+
 // ---------------------------------------------------------------------
 // Helpers de estado / execucao
 // ---------------------------------------------------------------------
@@ -572,6 +720,24 @@ async function setStatusIndexacao(
     .eq("id", registroId);
   if (error) {
     console.error("[nomus-pipeline] falha ao atualizar status_indexacao", {
+      registroId,
+      status,
+      error: error.message,
+    });
+  }
+}
+
+async function setStatusIndexacaoPessoa(
+  db: SupabaseClient,
+  registroId: string,
+  status: "pendente" | "em_andamento" | "concluida" | "erro",
+): Promise<void> {
+  const { error } = await db
+    .from("nomus_pessoas")
+    .update({ status_indexacao: status })
+    .eq("id", registroId);
+  if (error) {
+    console.error("[nomus-pipeline] falha ao atualizar status_indexacao (pessoa)", {
       registroId,
       status,
       error: error.message,
