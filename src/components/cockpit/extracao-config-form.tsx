@@ -25,12 +25,78 @@ const FONTES: ReadonlyArray<{ value: FonteExtracao; label: string }> = [
   { value: "gmail", label: "Gmail" },
 ];
 
+/**
+ * Extensoes que o extrator (extrator.mjs) processa, agrupadas para o painel.
+ * `ativa: false` = chip desabilitado (cinza): formato ainda nao suportado pelo
+ * runner (RAR/7Z exigem 7zip-bin, adiados). Os tokens batem 1:1 com o dispatch
+ * do extrator; a allowlist salva e EXATAMENTE o conjunto marcado (modo
+ * explicito — nunca null/todas), entao um formato desmarcado nao e extraido.
+ */
+const GRUPOS_EXTENSOES: ReadonlyArray<{
+  grupo: string;
+  itens: ReadonlyArray<{ value: string; ativa?: boolean }>;
+}> = [
+  {
+    grupo: "Documentos",
+    itens: [
+      { value: "pdf" },
+      { value: "doc" },
+      { value: "docx" },
+      { value: "rtf" },
+      { value: "odt" },
+    ],
+  },
+  {
+    grupo: "Planilhas",
+    itens: [{ value: "xls" }, { value: "xlsx" }, { value: "csv" }, { value: "tsv" }],
+  },
+  { grupo: "Apresentações", itens: [{ value: "ppt" }, { value: "pptx" }] },
+  {
+    grupo: "Texto e marcação",
+    itens: [
+      { value: "txt" },
+      { value: "md" },
+      { value: "markdown" },
+      { value: "json" },
+      { value: "log" },
+      { value: "yaml" },
+      { value: "yml" },
+      { value: "xml" },
+      { value: "html" },
+      { value: "htm" },
+    ],
+  },
+  {
+    grupo: "Imagens (OCR)",
+    itens: [
+      { value: "png" },
+      { value: "jpg" },
+      { value: "jpeg" },
+      { value: "tif" },
+      { value: "tiff" },
+      { value: "gif" },
+      { value: "bmp" },
+      { value: "webp" },
+    ],
+  },
+  {
+    grupo: "Compactados",
+    itens: [{ value: "zip" }, { value: "rar", ativa: false }, { value: "7z", ativa: false }],
+  },
+];
+
+/** Tokens cujo chip pode ser marcado (formato suportado hoje). */
+const EXTENSOES_ATIVAS: readonly string[] = GRUPOS_EXTENSOES.flatMap((g) =>
+  g.itens.filter((i) => i.ativa !== false).map((i) => i.value),
+);
+const EXTENSOES_ATIVAS_SET = new Set(EXTENSOES_ATIVAS);
+
 const BYTES_POR_MIB = 1024 * 1024;
 
 /**
  * Schema cliente (espelha extracaoConfigSchema do backend, mas em UNIDADES de
  * exibicao: MiB e segundos). A conversao para bytes/ms acontece no onSubmit.
- * `extensoes` e um texto livre separado por virgula; vazio = todas.
+ * `extensoes` e a allowlist explicita das marcadas (>= 1, nunca vazia).
  */
 const cfgSchema = z.object({
   ocrEstrategia: z.enum(["auto", "nunca", "sempre"]),
@@ -49,7 +115,9 @@ const cfgSchema = z.object({
     .int("Use um valor inteiro.")
     .min(1, "Mínimo 1 segundo.")
     .max(1800, "Máximo 1800 s (30 min)."),
-  extensoes: z.string(),
+  extensoes: z
+    .array(z.string())
+    .min(1, "Selecione ao menos uma extensão para extrair."),
   fontes: z
     .array(z.enum(["nomus", "effecti", "drive", "gmail"]))
     .min(1, "Selecione ao menos uma fonte para extrair."),
@@ -74,7 +142,10 @@ function toDefaults(initial: ConfigExtracaoState): CfgValues {
     ocrIdioma: initial.ocrIdioma,
     tamanhoMaxMib: Math.max(1, Math.round(initial.tamanhoMaxBytes / BYTES_POR_MIB)),
     timeoutSegundos: Math.max(1, Math.round(initial.timeoutMs / 1000)),
-    extensoes: (initial.extensoesHabilitadas ?? []).join(", "),
+    // null (= todas, legado) -> marca todas as ativas; array salvo -> so as ativas.
+    extensoes: (initial.extensoesHabilitadas ?? EXTENSOES_ATIVAS)
+      .map((e) => e.toLowerCase().replace(/^\./, ""))
+      .filter((e) => EXTENSOES_ATIVAS_SET.has(e)),
     // null = todas: marca todas as fontes conhecidas.
     fontes: initial.fontesHabilitadas ?? FONTES.map((f) => f.value),
     loteTamanho: initial.loteTamanho,
@@ -86,15 +157,6 @@ function toDefaults(initial: ConfigExtracaoState): CfgValues {
 function parseFontes(sel: FonteExtracao[]): FonteExtracao[] | null {
   const dedup = Array.from(new Set(sel));
   return dedup.length >= FONTES.length ? null : dedup;
-}
-
-/** Texto livre -> allowlist normalizada (sem ponto, minúsculas, dedup). Vazio = null. */
-function parseExtensoes(raw: string): string[] | null {
-  const itens = raw
-    .split(/[\s,;]+/)
-    .map((e) => e.trim().toLowerCase().replace(/^\./, ""))
-    .filter((e) => e.length > 0);
-  return itens.length > 0 ? Array.from(new Set(itens)) : null;
 }
 
 /**
@@ -122,6 +184,7 @@ export function ExtracaoConfigForm({ initial }: { initial: ConfigExtracaoState }
   });
 
   const fontesSel = watch("fontes");
+  const extensoesSel = watch("extensoes");
   const ocrDesligado = watch("ocrEstrategia") === "nunca";
 
   function toggleFonte(value: FonteExtracao, checked: boolean) {
@@ -129,6 +192,13 @@ export function ExtracaoConfigForm({ initial }: { initial: ConfigExtracaoState }
       ? Array.from(new Set([...fontesSel, value]))
       : fontesSel.filter((v) => v !== value);
     setValue("fontes", next, { shouldDirty: true, shouldValidate: true });
+  }
+
+  function toggleExtensao(value: string, checked: boolean) {
+    const next = checked
+      ? Array.from(new Set([...extensoesSel, value]))
+      : extensoesSel.filter((v) => v !== value);
+    setValue("extensoes", next, { shouldDirty: true, shouldValidate: true });
   }
 
   async function onSubmit(values: CfgValues) {
@@ -139,7 +209,7 @@ export function ExtracaoConfigForm({ initial }: { initial: ConfigExtracaoState }
         ocrIdioma: values.ocrIdioma,
         tamanhoMaxBytes: values.tamanhoMaxMib * BYTES_POR_MIB,
         timeoutMs: values.timeoutSegundos * 1000,
-        extensoesHabilitadas: parseExtensoes(values.extensoes),
+        extensoesHabilitadas: values.extensoes,
         fontesHabilitadas: parseFontes(values.fontes),
         loteTamanho: values.loteTamanho,
         pausaLoteMs: values.pausaLoteMs,
@@ -247,16 +317,42 @@ export function ExtracaoConfigForm({ initial }: { initial: ConfigExtracaoState }
       </div>
 
       <div className={cn("field", errors.extensoes && "invalid")}>
-        <label htmlFor="ex-ext">Extensões habilitadas</label>
-        <input
-          type="text"
-          id="ex-ext"
-          placeholder="pdf, docx, xlsx, png — vazio = todas"
-          aria-invalid={Boolean(errors.extensoes)}
-          {...register("extensoes")}
-        />
+        <label>Extensões habilitadas</label>
+        {GRUPOS_EXTENSOES.map((g) => (
+          <div key={g.grupo} style={{ marginTop: 10 }}>
+            <div className="helper" style={{ marginBottom: 6, fontWeight: 600 }}>
+              {g.grupo}
+            </div>
+            <div className="chk-grid" role="group" aria-label={g.grupo}>
+              {g.itens.map((item) => {
+                const inativa = item.ativa === false;
+                const on = !inativa && extensoesSel.includes(item.value);
+                return (
+                  <label
+                    key={item.value}
+                    className={cn("chk", on && "on", inativa && "disabled")}
+                    style={inativa ? { opacity: 0.45, cursor: "not-allowed" } : undefined}
+                    title={inativa ? "Formato ainda não suportado pelo extrator." : undefined}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      disabled={inativa}
+                      onChange={(e) => toggleExtensao(item.value, e.target.checked)}
+                    />
+                    <div className="t">.{item.value}</div>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        <div className="err-msg">
+          <TriangleAlert aria-hidden="true" />
+          {errors.extensoes?.message ?? "Selecione ao menos uma extensão."}
+        </div>
         <div className="helper">
-          Allowlist separada por vírgula (sem ponto). Deixe vazio para extrair todas as extensões.
+          Só os tipos marcados entram na fila de extração. RAR e 7z ainda não são suportados.
         </div>
       </div>
 
