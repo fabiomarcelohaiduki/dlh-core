@@ -2212,9 +2212,9 @@ select:focus {
   align-items: flex-start;
   gap: 10px;
 }
-/* Segmented control: segmentos unidos sobre fundo afundado, o ativo "elevado"
-   (fundo claro + sombra). Usado no seletor de fonte do disparo e no filtro de
-   origem do historico, para os dois cards ficarem visualmente iguais. */
+/* Segmented control: segmentos unidos sobre fundo afundado, o ativo destacado
+   em laranja (accent), igual aos filtros das telas. Usado nos seletores de
+   fonte/recurso do disparo (Execucoes e Extracao). */
 .segmented {
   gap: 0;
   padding: 3px;
@@ -2244,10 +2244,10 @@ select:focus {
 .segmented > .btn-primary:hover,
 .segmented > .btn-primary:active,
 .segmented > .btn-primary:focus-visible {
-  background: var(--surface);
-  color: var(--fg);
+  background: linear-gradient(180deg, #e2a44a 0%, var(--accent) 58%, #cf8e32 100%);
+  color: #1a140a;
   border-color: transparent;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), var(--hairline-control);
+  box-shadow: var(--shadow-primary);
 }
 /* Permite que multiplos grupos de filtro quebrem linha sem estourar. */
 .section-title .right {

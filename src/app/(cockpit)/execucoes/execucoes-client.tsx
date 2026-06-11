@@ -38,6 +38,12 @@ const FONTE_DISPARO_OPCOES: { value: FonteTipo; label: string }[] = [
   { value: "drive", label: "Drive" },
 ];
 
+// Nomus e a unica fonte com 2 recursos -> sub-seletor contextual no disparo.
+const NOMUS_RECURSO_OPCOES: { value: string; label: string }[] = [
+  { value: "processos", label: "Processos" },
+  { value: "pessoas", label: "Pessoas" },
+];
+
 /** Recursos distintos presentes na lista (origem-aware) para o RecursoFiltro. */
 function recursosDisponiveis(items: Execucao[]): string[] {
   const set = new Set<string>();
@@ -80,9 +86,14 @@ export function ExecucoesClient() {
   const nomusId = fontes.data?.find((f) => f.tipo === "nomus")?.id ?? null;
   const gmailId = fontes.data?.find((f) => f.tipo === "gmail")?.id ?? null;
 
-  // Janela do recurso processos (mesma origem do card) p/ o rotulo do full.
+  // Nomus tem 2 recursos -> sub-seletor contextual escolhe qual disparar.
+  // A janela vem do recurso selecionado (pessoas nao tem janela -> null).
   const nomusConfig = useIngestaoConfig("nomus");
-  const nomusJanelaDias = nomusConfig.data?.recursos?.processos?.janelaDias ?? null;
+  const [nomusRecurso, setNomusRecurso] = useState<string>("processos");
+  const nomusJanelaDias =
+    (nomusRecurso === "pessoas"
+      ? nomusConfig.data?.recursos?.pessoas?.janelaDias
+      : nomusConfig.data?.recursos?.processos?.janelaDias) ?? null;
 
   // Janela deslizante do Effecti (top-level) p/ a legenda do botao de coleta.
   const effectiConfig = useIngestaoConfig("effecti");
@@ -90,7 +101,12 @@ export function ExecucoesClient() {
 
   const disparoForm =
     fonteDisparo === "nomus" ? (
-      <NomusDisparoForm fonteId={nomusId} janelaDias={nomusJanelaDias} bare />
+      <NomusDisparoForm
+        fonteId={nomusId}
+        recurso={nomusRecurso}
+        janelaDias={nomusJanelaDias}
+        bare
+      />
     ) : fonteDisparo === "gmail" ? (
       <GmailDisparoForm fonteId={gmailId} bare />
     ) : fonteDisparo === "drive" ? (
@@ -170,6 +186,28 @@ export function ExecucoesClient() {
             );
           })}
         </div>
+        {fonteDisparo === "nomus" && (
+          <div
+            className="filter-group segmented"
+            role="group"
+            aria-label="Recurso do Nomus"
+          >
+            {NOMUS_RECURSO_OPCOES.map((opt) => {
+              const active = nomusRecurso === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className={cn("btn", "btn-sm", active && "btn-primary")}
+                  aria-pressed={active}
+                  onClick={() => setNomusRecurso(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
         <div style={{ marginLeft: "auto" }}>{disparoForm}</div>
       </div>
 
