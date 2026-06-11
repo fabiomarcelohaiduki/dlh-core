@@ -45,6 +45,17 @@
   --hairline-top: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   /* Curva de mola padrao para micro-movimento (sem linear/ease-in-out). */
   --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* --- Etapa formularios: profundidade de controles (ADITIVO) --- */
+  /* Fio de luz no topo de botoes/inputs (borda superior usinada). */
+  --hairline-control: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  /* Profundidade do botao primario dourado: brilho interno + assentamento. */
+  --shadow-primary: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 16px -10px rgba(217, 154, 60, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  --shadow-primary-hover: 0 2px 4px rgba(0, 0, 0, 0.32), 0 10px 22px -10px rgba(217, 154, 60, 0.62),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  /* Anel de foco de teclado (acessibilidade) coerente com o accent. */
+  --focus-ring: 0 0 0 3px var(--accent-soft), 0 0 0 1px var(--accent-line);
 }
 
 * {
@@ -106,15 +117,25 @@ button {
   font-size: 13.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+  box-shadow: var(--hairline-control);
+  transition: background 0.18s var(--ease-spring), border-color 0.18s var(--ease-spring),
+    box-shadow 0.18s var(--ease-spring), transform 0.16s var(--ease-spring);
   white-space: nowrap;
 }
 .btn:hover {
   background: var(--surface-3);
-  border-color: #33333e;
+  border-color: #3a3a46;
+  transform: translateY(-1px);
 }
 .btn:active {
-  transform: translateY(1px);
+  transform: translateY(0);
+  box-shadow: var(--hairline-control), inset 0 1px 3px rgba(0, 0, 0, 0.28);
+}
+/* Foco de teclado visivel (acessibilidade), discreto no hover de mouse. */
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--hairline-control), var(--focus-ring);
+  border-color: var(--accent-line);
 }
 .btn svg {
   width: 16px;
@@ -122,22 +143,38 @@ button {
   flex: none;
 }
 .btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: linear-gradient(180deg, #e2a44a 0%, var(--accent) 58%, #cf8e32 100%);
+  border-color: #b67e2b;
   color: #1a140a;
   font-weight: 600;
+  box-shadow: var(--shadow-primary);
 }
 .btn-primary:hover {
-  background: #e6a948;
-  border-color: #e6a948;
+  background: linear-gradient(180deg, #efb257 0%, #e6a948 60%, #d6982f 100%);
+  border-color: #c98c30;
+  box-shadow: var(--shadow-primary-hover);
+}
+.btn-primary:active {
+  background: linear-gradient(180deg, #d99a3c 0%, #cf8e32 100%);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 1px 3px rgba(120, 70, 10, 0.4);
+}
+.btn-primary:focus-visible {
+  box-shadow: var(--shadow-primary), 0 0 0 3px var(--accent-soft), 0 0 0 1px rgba(217, 154, 60, 0.7);
+  border-color: #b67e2b;
 }
 .btn-ghost {
   background: transparent;
   border-color: transparent;
+  box-shadow: none;
 }
 .btn-ghost:hover {
   background: var(--surface-2);
   border-color: var(--border);
+  transform: none;
+}
+.btn-ghost:active {
+  background: var(--surface-2);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.22);
 }
 .btn-sm {
   height: 30px;
@@ -147,6 +184,14 @@ button {
 .btn[disabled] {
   opacity: 0.45;
   cursor: not-allowed;
+  box-shadow: var(--hairline-control);
+  transform: none;
+}
+.btn[disabled]:hover {
+  transform: none;
+}
+.btn-primary[disabled] {
+  box-shadow: var(--shadow-primary);
 }
 .btn .spin {
   animation: spin 1s linear infinite;
@@ -1161,6 +1206,16 @@ button {
     opacity: 1;
     animation: none;
   }
+  /* Etapa formularios: anula lift/translate e entradas animadas dos controles. */
+  .btn:hover,
+  .btn:active,
+  .chk:hover,
+  .chk:active {
+    transform: none;
+  }
+  .save-note {
+    animation: none;
+  }
 }
 
 /* ---------- section-title right slot ---------- */
@@ -1475,10 +1530,13 @@ button {
   display: block;
   font-size: 12.5px;
   font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fg);
   margin-bottom: 7px;
 }
 .field .helper {
   font-size: 12px;
+  line-height: 1.5;
   color: var(--faint);
   margin-top: 6px;
 }
@@ -1502,6 +1560,12 @@ button {
 .field.invalid select {
   border-color: var(--err);
 }
+.field.invalid input:focus,
+.field.invalid select:focus,
+.field.invalid textarea:focus {
+  border-color: var(--err);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1), 0 0 0 3px var(--err-bg);
+}
 
 input[type="text"],
 input[type="number"],
@@ -1521,7 +1585,19 @@ textarea {
   font-family: inherit;
   font-size: 13.5px;
   outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+  transition: border-color 0.18s var(--ease-spring), box-shadow 0.18s var(--ease-spring),
+    background 0.18s var(--ease-spring);
+}
+input[type="text"]:hover,
+input[type="number"]:hover,
+input[type="password"]:hover,
+input[type="email"]:hover,
+input[type="time"]:hover,
+input[type="date"]:hover,
+select:hover,
+textarea:hover {
+  border-color: #34343f;
 }
 input[type="time"],
 input[type="date"] {
@@ -1551,11 +1627,15 @@ input:focus,
 select:focus,
 textarea:focus {
   border-color: var(--accent-line);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1), 0 0 0 3px var(--accent-soft);
 }
 input[readonly] {
   color: var(--muted);
   cursor: default;
+  box-shadow: none;
+}
+input[readonly]:hover {
+  border-color: var(--border);
 }
 input[readonly]:focus {
   border-color: var(--border);
@@ -1568,6 +1648,10 @@ select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239b9ba5' stroke-width='2.2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
+}
+/* Seta dourada quando o select esta em foco (afordancia coerente com o accent). */
+select:focus {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23d99a3c' stroke-width='2.2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
 }
 
 .input-affix {
@@ -1602,11 +1686,20 @@ select {
   padding: 11px 13px;
   cursor: pointer;
   background: var(--surface-2);
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color 0.18s var(--ease-spring), background 0.18s var(--ease-spring),
+    box-shadow 0.18s var(--ease-spring), transform 0.16s var(--ease-spring);
   user-select: none;
 }
 .chk:hover {
-  border-color: #33333e;
+  border-color: #3a3a46;
+  transform: translateY(-1px);
+}
+.chk:active {
+  transform: translateY(0);
+}
+.chk:focus-within {
+  border-color: var(--accent-line);
+  box-shadow: var(--focus-ring);
 }
 .chk input {
   width: 16px;
@@ -1627,10 +1720,19 @@ select {
 .chk.disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  transform: none;
+}
+.chk.disabled:hover {
+  transform: none;
+  border-color: var(--border);
 }
 .chk.on {
   border-color: var(--accent-line);
   background: var(--accent-soft);
+  box-shadow: var(--hairline-control), 0 0 0 1px rgba(217, 154, 60, 0.16) inset;
+}
+.chk.on:hover {
+  border-color: var(--accent);
 }
 
 .form-card {
@@ -1673,6 +1775,18 @@ select {
   margin: 24px 0 16px;
   padding-bottom: 14px;
   border-bottom: 1px solid var(--border);
+  position: relative;
+}
+/* Tick de accent ancorando o cabecalho do painel (idioma do section-title). */
+.cfg-panel-head::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 48px;
+  height: 1px;
+  background: var(--accent);
+  opacity: 0.6;
 }
 .form-foot {
   display: flex;
@@ -1690,10 +1804,23 @@ select {
 }
 .save-note {
   font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
   color: var(--ok);
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  animation: save-note-in 0.3s var(--ease-spring) both;
+}
+@keyframes save-note-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 .save-note svg {
   width: 15px;
@@ -1847,20 +1974,33 @@ select {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 .segmented > .btn {
   border-color: transparent;
   background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  transition: background 0.18s var(--ease-spring), color 0.18s var(--ease-spring),
+    box-shadow 0.18s var(--ease-spring);
 }
 .segmented > .btn:hover {
-  background: var(--surface);
+  background: rgba(255, 255, 255, 0.035);
   border-color: transparent;
+  color: var(--fg);
+  transform: none;
+}
+.segmented > .btn:active {
+  transform: none;
 }
 .segmented > .btn-primary,
-.segmented > .btn-primary:hover {
+.segmented > .btn-primary:hover,
+.segmented > .btn-primary:active,
+.segmented > .btn-primary:focus-visible {
   background: var(--surface);
   color: var(--fg);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  border-color: transparent;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), var(--hairline-control);
 }
 /* Permite que multiplos grupos de filtro quebrem linha sem estourar. */
 .section-title .right {
