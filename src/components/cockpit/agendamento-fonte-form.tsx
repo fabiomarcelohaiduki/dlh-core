@@ -98,6 +98,23 @@ export function AgendamentoFonteForm({
 
   const ativo = watch("ativo");
   const frequencia = watch("frequencia");
+  const horario = watch("horarioReferencia");
+  const diaSemana = watch("diaSemana");
+  const diaMes = watch("diaMes");
+
+  // Resumo legivel de QUANDO a coleta roda. Evita a confusao do campo Horario
+  // na frequencia horaria (onde a hora e ignorada e so o minuto conta).
+  const [hh, mm] = (horario ?? "").split(":");
+  const min = mm ?? "00";
+  const hora = `${hh ?? "00"}:${min}`;
+  const resumo =
+    frequencia === "horaria"
+      ? `Coleta a cada hora, no minuto :${min}.`
+      : frequencia === "diaria"
+        ? `Coleta todo dia às ${hora}.`
+        : frequencia === "semanal"
+          ? `Coleta toda semana — ${DIAS_SEMANA.find((d) => d.value === diaSemana)?.label ?? "—"}, às ${hora}.`
+          : `Coleta todo mês — dia ${diaMes}, às ${hora}.`;
 
   async function onSubmit(values: AgValues) {
     setFeedback(null);
@@ -222,6 +239,13 @@ export function AgendamentoFonteForm({
           <div className="helper">De 1 a 28 (evita meses sem o dia 29/30/31).</div>
         </div>
       )}
+
+      <div
+        className="resumo-agendamento"
+        style={{ marginTop: 14, fontSize: 12, color: "var(--accent)" }}
+      >
+        {resumo}
+      </div>
         </>
       )}
 
