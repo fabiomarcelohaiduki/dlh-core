@@ -413,6 +413,9 @@ button {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* Fio de luz interno na borda direita: separa a sidebar do conteudo com a
+     mesma linguagem fisica usinada dos cards, sem peso de sombra. */
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.018);
 }
 .side-head {
   padding: 18px 18px 14px;
@@ -430,6 +433,8 @@ button {
   display: grid;
   place-items: center;
   color: var(--accent);
+  /* Fio de luz no topo do glyph: hardware usinado, fonte de luz vinda de cima. */
+  box-shadow: var(--hairline-top), 0 0 18px -8px rgba(217, 154, 60, 0.5);
 }
 .side-head .glyph svg {
   width: 16px;
@@ -450,14 +455,15 @@ button {
   padding: 14px 12px 4px;
 }
 .nav-group .label {
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
   color: var(--faint);
-  padding: 0 8px 8px;
+  padding: 0 8px 9px;
 }
 .nav-link {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 11px;
@@ -471,23 +477,51 @@ button {
   font-weight: 500;
   cursor: pointer;
   text-align: left;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background 0.2s var(--ease-spring), color 0.2s var(--ease-spring);
   margin-bottom: 1px;
   text-decoration: none;
+}
+/* Barra de accent a esquerda: ancora o item ativo sem deslocar o layout.
+   Vive como pseudo-elemento, anima por transform/opacity (GPU). */
+.nav-link::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 50%;
+  width: 3px;
+  height: 15px;
+  border-radius: 2px;
+  background: var(--accent);
+  transform: translateY(-50%) scaleY(0);
+  opacity: 0;
+  transition: transform 0.24s var(--ease-spring), opacity 0.24s var(--ease-spring);
 }
 .nav-link svg {
   width: 17px;
   height: 17px;
   flex: none;
   opacity: 0.85;
+  transition: opacity 0.2s var(--ease-spring), transform 0.2s var(--ease-spring);
 }
 .nav-link:hover {
   background: var(--surface-2);
   color: var(--fg);
 }
+.nav-link:hover svg {
+  opacity: 1;
+}
+.nav-link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  color: var(--fg);
+}
 .nav-link.active {
   background: var(--accent-soft);
   color: var(--accent);
+}
+.nav-link.active::before {
+  transform: translateY(-50%) scaleY(1);
+  opacity: 0.9;
 }
 .nav-link.active svg {
   opacity: 1;
@@ -496,6 +530,7 @@ button {
   margin-left: auto;
   font-size: 11px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   background: var(--err-bg);
   color: var(--err);
   border: 1px solid rgba(221, 107, 98, 0.24);
@@ -505,6 +540,7 @@ button {
   display: grid;
   place-items: center;
   padding: 0 5px;
+  box-shadow: 0 0 0 3px var(--err-bg);
 }
 .side-foot {
   margin-top: auto;
@@ -560,9 +596,15 @@ button {
   border-radius: var(--r-sm);
   display: grid;
   place-items: center;
+  transition: background 0.18s var(--ease-spring), color 0.18s var(--ease-spring);
 }
 .user-row button:hover {
   background: var(--surface-2);
+  color: var(--fg);
+}
+.user-row button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
   color: var(--fg);
 }
 .user-row button svg {
@@ -583,14 +625,24 @@ button {
   display: grid;
   place-items: center;
   flex: none;
+  transition: background 0.18s var(--ease-spring), color 0.18s var(--ease-spring);
 }
 .side-collapse:hover {
   background: var(--surface-2);
   color: var(--fg);
 }
+.side-collapse:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  color: var(--fg);
+}
 .side-collapse svg {
   width: 16px;
   height: 16px;
+  transition: transform 0.28s var(--ease-spring);
+}
+.side-collapse:hover svg {
+  transform: translateX(-1px);
 }
 
 /*
@@ -623,6 +675,11 @@ button {
     padding: 9px 0;
     gap: 0;
   }
+  /* No modo recolhido a barra lateral nao cabe no link centralizado: o estado
+     ativo ja se le pelo fundo accent-soft + cor do icone. */
+  .side.is-collapsed .nav-link::before {
+    display: none;
+  }
   /* Badge vira um ponto sobre o icone no modo recolhido. */
   .side.is-collapsed .nav-badge {
     position: absolute;
@@ -635,6 +692,7 @@ button {
     padding: 0;
     font-size: 0;
     border-radius: 50%;
+    box-shadow: 0 0 0 2px var(--surface);
   }
   .side.is-collapsed .nav-link {
     position: relative;
@@ -656,9 +714,12 @@ button {
   position: sticky;
   top: 0;
   z-index: 5;
-  background: rgba(11, 11, 14, 0.82);
-  backdrop-filter: blur(10px);
+  background: rgba(11, 11, 14, 0.78);
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
   border-bottom: 1px solid var(--border);
+  /* Fio de luz no rodape da barra: separa do conteudo sem dobrar a hairline. */
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.02);
   padding: 0 var(--sp);
   height: 58px;
   display: flex;
@@ -675,11 +736,12 @@ button {
 .crumb b {
   color: var(--fg);
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 .crumb svg {
   width: 14px;
   height: 14px;
-  opacity: 0.5;
+  opacity: 0.45;
 }
 .topbar .right {
   margin-left: auto;
@@ -706,6 +768,7 @@ button {
   border-radius: 50%;
   background: var(--idle);
   box-shadow: 0 0 0 3px var(--idle-bg);
+  transition: background 0.24s var(--ease-spring), box-shadow 0.24s var(--ease-spring);
 }
 .conn.ok .dot {
   background: var(--ok);
@@ -718,6 +781,8 @@ button {
 .conn.run .dot {
   background: var(--run);
   box-shadow: 0 0 0 3px var(--run-bg);
+  /* Coleta ativa: pulso sutil para sinalizar atividade ao vivo. */
+  animation: pulse 1.6s ease-in-out infinite;
 }
 .conn.err .dot {
   background: var(--err);
@@ -1216,6 +1281,20 @@ button {
   .save-note {
     animation: none;
   }
+  /* Etapa chrome (sidebar + topbar): a barra do item ativo aparece sem
+     animar, o pulso do dot de coleta para, e o caret do collapse fica fixo. */
+  .nav-link.active::before {
+    transition: none;
+  }
+  .conn.run .dot {
+    animation: none;
+  }
+  .side-collapse:hover svg {
+    transform: none;
+  }
+  .menu-btn:active {
+    transform: none;
+  }
 }
 
 /* ---------- section-title right slot ---------- */
@@ -1457,7 +1536,7 @@ button {
     width: 236px;
     z-index: 30;
     transform: translateX(-100%);
-    transition: transform 0.25s ease;
+    transition: transform 0.34s var(--ease-spring);
   }
   .side.open {
     transform: none;
@@ -1501,6 +1580,20 @@ button {
   place-items: center;
   cursor: pointer;
   color: var(--fg);
+  box-shadow: var(--hairline-control);
+  transition: background 0.18s var(--ease-spring), border-color 0.18s var(--ease-spring),
+    transform 0.16s var(--ease-spring);
+}
+.menu-btn:hover {
+  background: var(--surface-3);
+  border-color: var(--accent-line);
+}
+.menu-btn:active {
+  transform: scale(0.96);
+}
+.menu-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--hairline-control), var(--focus-ring);
 }
 .menu-btn svg {
   width: 18px;
@@ -1511,6 +1604,8 @@ button {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
   z-index: 25;
 }
 @media (max-width: 640px) {
