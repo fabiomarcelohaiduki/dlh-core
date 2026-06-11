@@ -226,6 +226,29 @@ async function loadWatermarkPessoa(service: ServiceClient): Promise<number | nul
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Marca d'agua POR DATA do recurso `pessoas`: maior data_modificacao ja
+ * persistida (ISO com timezone, ex.: '2026-06-11T12:56:29-03:00'). O coletor
+ * de nuvem usa isto para a 2a passada do incremental — pegar EDICOES de
+ * pessoas antigas via filtro RSQL server-side (?query=dataModificacao>...),
+ * que o corte por nomus_id sozinho nunca alcanca. Retorna null quando ainda
+ * nao ha nenhuma pessoa com data_modificacao (coletor pula a 2a passada).
+ */
+async function loadWatermarkDataPessoa(service: ServiceClient): Promise<string | null> {
+  const { data, error } = await service
+    .from("nomus_pessoas")
+    .select("data_modificacao")
+    .not("data_modificacao", "is", null)
+    .order("data_modificacao", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    throw new HttpError(500, "watermark_query_failed", "falha ao consultar a marca d'agua por data");
+  }
+  const v = (data as { data_modificacao: string | null } | null)?.data_modificacao ?? null;
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+
 /** Janela (floor) POR RECURSO: corte de partida independente por modulo. */
 interface RecursoFloor {
   /** Corte por nomus_id (modulos sequenciais por id, ex.: processos>=25000). */
@@ -360,9 +383,15 @@ async function handler(req: Request): Promise<Response> {
     // varrer todas as paginas. Nao toca execucoes nem fonte.
     // -----------------------------------------------------------------
     if (input.action === "watermark") {
-      const max = recurso === "pessoas"
-        ? await loadWatermarkPessoa(service)
-        : await loadWatermark(service);
+      if (recurso === "pessoas") {
+        const [max, maxData] = await Promise.all([
+          loadWatermarkPessoa(service),
+          loadWatermarkDataPessoa(service),
+        ]);
+        // max_data_modificacao habilita a 2a passada (modificados) no runner.
+        return jsonResponse({ max_nomus_id: max, max_data_modificacao: maxData }, 200);
+      }
+      const max = await loadWatermark(service);
       return jsonResponse({ max_nomus_id: max }, 200);
     }
 

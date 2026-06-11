@@ -142,14 +142,19 @@ function peekTempoAteLiberar(text) {
   return null;
 }
 
-/** Busca UMA pagina com retry/backoff. Retorna o array de processos da pagina. */
-async function fetchPagina(pagina) {
+/**
+ * Busca UMA pagina com retry/backoff. Retorna o array de processos da pagina.
+ * `query` (opcional) injeta um filtro RSQL server-side no Nomus (ex.:
+ * "dataModificacao>2026-06-10" na 2a passada do incremental de pessoas).
+ */
+async function fetchPagina(pagina, query) {
   // O endpoint deriva do recurso (NOMUS_RECURSO). Com o default "processos" a
   // URL e identica a de sempre (/rest/processos). Costura para o 2o modulo:
   // ATENCAO, antes de ligar um novo recurso confirme o path real do Nomus
   // (assumimos a convencao REST /rest/<recurso>) E adicione o mapper proprio
   // no Edge (mapRawProcesso so conhece processos).
-  const url = `${BASE}/rest/${encodeURIComponent(RECURSO)}?pagina=${pagina}`;
+  const qs = query ? `&query=${encodeURIComponent(query)}` : "";
+  const url = `${BASE}/rest/${encodeURIComponent(RECURSO)}?pagina=${pagina}${qs}`;
   let attempt = 0;
 
   while (true) {
@@ -417,6 +422,48 @@ async function coletarIncremental(watermark) {
   return processos;
 }
 
+/**
+ * Corte da 2a passada (modificados): data da marca d'agua MENOS 1 dia, em
+ * 'YYYY-MM-DD'. A sobreposicao de 1 dia cobre fuso/borda do dia (a marca vem
+ * como timestamptz e pode voltar em UTC); reprocessar 1 dia e barato porque o
+ * Edge deduplica por hash (registro inalterado vira 'ignorado').
+ */
+function corteModificados(iso) {
+  const m = String(iso).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  return dt.toISOString().slice(0, 10);
+}
+
+/**
+ * Coleta MODIFICADOS (2a passada do incremental, so pessoas): usa o filtro
+ * RSQL server-side do Nomus (?query=dataModificacao>{corte}) para pegar
+ * EDICOES de registros antigos — que o corte por id (1a passada) nunca
+ * alcanca, pois reescrevem um id ja conhecido. Varre paginas ate esvaziar.
+ * Registros nunca modificados tem dataModificacao=null e ja sao excluidos
+ * pelo filtro (so importam para a 1a passada, por id).
+ */
+async function coletarModificados(corte) {
+  const filtro = `dataModificacao>${corte}`;
+  const registros = [];
+  let chamadasNoLote = 0;
+
+  for (let pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
+    const lista = await fetchPagina(pagina, filtro);
+    if (lista.length === 0) break; // pagina vazia encerra a varredura.
+    for (const p of lista) registros.push(p);
+    console.error(`[modificados pagina ${pagina}] +${lista.length} (acumulado ${registros.length})`);
+
+    chamadasNoLote += 1;
+    if (chamadasNoLote >= TAMANHO_LOTE) {
+      chamadasNoLote = 0;
+      await delay(PAUSA_LOTE_MS);
+    }
+  }
+  return registros;
+}
+
 const INGERIR_URL = `${SUPABASE_URL}/functions/v1/nomus-ingerir`;
 
 function ingerirHeaders() {
@@ -449,16 +496,23 @@ async function postLote(body) {
 }
 
 /**
- * Le a MARCA D'AGUA no Edge (action: "watermark"): maior nomus_id ja
- * persistido. Retorna number ou null (banco vazio => coleta full).
+ * Le a MARCA D'AGUA no Edge (action: "watermark"). Retorna { id, marcaData }:
+ *  - id        = maior nomus_id ja persistido (number | null; null = banco
+ *                vazio => coleta full).
+ *  - marcaData = maior data_modificacao ja persistida (ISO | null), so para
+ *                pessoas — habilita a 2a passada (modificados). Ausente/null
+ *                nos demais recursos (sem coluna de modificacao confiavel).
  */
 async function fetchWatermark() {
   const r = await postLote({ action: "watermark", recurso: RECURSO });
   if (!r.ok) fail(`falha ao obter a marca d'agua (${r.status}): ${r.text.slice(0, 300)}`, 1);
   const raw = r.json?.max_nomus_id;
-  if (raw === null || raw === undefined) return null;
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : null;
+  const id = raw === null || raw === undefined || !Number.isFinite(Number(raw))
+    ? null
+    : Number(raw);
+  const md = r.json?.max_data_modificacao;
+  const marcaData = typeof md === "string" && md.length > 0 ? md : null;
+  return { id, marcaData };
 }
 
 /**
@@ -573,16 +627,38 @@ if (MODO === "full") {
   );
   resumo = await coletarEEnviarFull(desde, dataCorte);
 } else {
-  const watermark = await fetchWatermark();
+  const { id: watermark, marcaData } = await fetchWatermark();
   if (watermark === null) {
     const desde = await fetchRetomar();
     console.log(`Modo incremental, banco vazio: varredura completa por pagina (desde ${desde}).`);
     resumo = await coletarEEnviarFull(desde);
   } else {
-    console.log(`Modo incremental: coletando processos com id > ${watermark}.`);
-    const processos = await coletarIncremental(watermark);
-    console.log(`Coletados ${processos.length} novos em ${Date.now() - startedAt}ms.`);
-    resumo = await pushEmLotes(processos);
+    // 1a passada: NOVOS por id > marca (pega ineditos, inclusive de data null).
+    console.log(`Modo incremental: coletando ${RECURSO} com id > ${watermark}.`);
+    const novos = await coletarIncremental(watermark);
+
+    // 2a passada (so pessoas): MODIFICADOS por dataModificacao > marca, via
+    // filtro RSQL server-side. Pega EDICOES de ids antigos que a 1a passada
+    // nunca alcanca. Une por id (Map) — o Edge ainda deduplica por hash.
+    const corte = RECURSO === "pessoas" && marcaData ? corteModificados(marcaData) : null;
+    let registros = novos;
+    if (corte) {
+      console.log(`2a passada (modificados): dataModificacao > ${corte}.`);
+      const modificados = await coletarModificados(corte);
+      // Chave = id CRU (string): idNum() vira NaN p/ id ausente e NaN colapsa
+      // no Map (SameValueZero) -> usar o id cru preserva registros distintos.
+      const porId = new Map();
+      for (const p of novos) porId.set(String(p?.id), p);
+      for (const p of modificados) porId.set(String(p?.id), p);
+      registros = [...porId.values()];
+      console.log(
+        `Coletados ${novos.length} novos + ${modificados.length} modificados ` +
+          `= ${registros.length} unicos em ${Date.now() - startedAt}ms.`,
+      );
+    } else {
+      console.log(`Coletados ${novos.length} novos em ${Date.now() - startedAt}ms.`);
+    }
+    resumo = await pushEmLotes(registros);
   }
 }
 console.log(`Concluido em ${Date.now() - startedAt}ms.`);

@@ -150,14 +150,26 @@ export function indexacaoDescriptor(status: string | null): PillDescriptor {
  * Nomus), entao comparar por origem dava falso negativo (Nomus nao travava)
  * e falso positivo (coleta do Nomus travava o botao do Effecti). Sem fonteId
  * (ainda hidratando) nao trava nada.
+ *
+ * `recurso` (opcional) ESTREITA o indicador ao recurso do card: o backend
+ * tranca por (fonte_id, recurso) — processos e pessoas coletam em paralelo —
+ * entao, sem este filtro, a coleta de um recurso acende o indicador do card
+ * do outro (mesmo fonte_id). Omitido (Effecti/Gmail, recurso unico) mantem o
+ * comportamento so-por-fonte.
  */
 export function hasRunningExecucao(
   items: Execucao[] | undefined,
   fonteId: string | null | undefined,
+  recurso?: string | null,
 ): boolean {
   if (!fonteId) return false;
   return Boolean(
-    items?.some((e) => e.status === "em_andamento" && e.fonteId === fonteId),
+    items?.some(
+      (e) =>
+        e.status === "em_andamento" &&
+        e.fonteId === fonteId &&
+        (recurso == null || e.recurso === recurso),
+    ),
   );
 }
 
