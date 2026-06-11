@@ -6,11 +6,14 @@
 // (novos/alterados/total_processar/processados_sucesso/processados_erro/
 // pendentes); o Realtime de execucoes reflete o progresso ao vivo no front.
 //
-// Etapas por item: coleta -> tratamento -> indexacao -> persistencia.
+// Etapas por item: coleta -> indexacao -> persistencia.
 //   - coleta:      conector Effecti (paginacao/backoff/sync incremental).
-//   - tratamento:  download + extracao verbatim dos arquivos (OCR fallback).
 //   - indexacao:   chunking + embeddings plugaveis (bge-m3, vector(1024)).
 //   - persistencia: upsert do aviso (dedupe effecti_id) + contadores.
+//
+// A etapa de tratamento (download + extracao verbatim de arquivos) foi
+// APOSENTADA da pipeline do Edge: a extracao de documentos migrou para o
+// pipeline proprio (Tika no runner), seguindo a decisao de NAO guardar binario.
 //
 // Falha por item e ISOLADA: vira erro do item em erros_ingestao e NAO derruba
 // o lote (RNF-05). Falha total (zero itens / erro de coleta) finaliza a
@@ -22,7 +25,6 @@
 import { type SupabaseClient } from "@supabase/supabase-js";
 import { type CollectedAviso, type SourceConnector } from "./effecti-connector.ts";
 import { EmbeddingError, type EmbeddingProvider, generateAndStoreChunks } from "./embeddings.ts";
-import { extractFileLinks, processAvisoFiles, type TextExtractor } from "./file-processing.ts";
 import { errorMessage, recordIngestErro } from "./ingest-errors.ts";
 import { hashTexto } from "./hash.ts";
 import { maybeNotifyHealthcheckFalha, notifySyncFailure } from "./notify.ts";
@@ -38,9 +40,6 @@ export interface PipelineDeps {
   connector: SourceConnector;
   /** Opcional: ausente no v0 (ingestao so dos avisos, sem embeddings). */
   embeddingProvider?: EmbeddingProvider;
-  /** Opcional: ausente no v0 (sem download/parse de editais). */
-  textExtractor?: TextExtractor;
-  fetchImpl?: typeof fetch;
 }
 
 export interface PipelineParams {
@@ -141,24 +140,6 @@ export async function runPipeline(
       else if (status === "alterado") result.alterados += 1;
       // status === "ignorado" (hash igual) ou legado (hash NULL populado): nao
       // conta como alterado -> espelha o Nomus, evita inflar ALTERADOS a cada ciclo.
-
-      // Tratamento de arquivos (download + extracao verbatim, OCR fallback).
-      // Etapa OPCIONAL: so roda quando ha extrator configurado. No v0 ingere-se
-      // apenas os avisos; o parse de editais e fase futura.
-      if (deps.textExtractor) {
-        await updateExecucao(db, params.execucaoId, { etapa_atual: "tratamento" });
-        const files = extractFileLinks(aviso.payloadBruto);
-        if (files.length > 0) {
-          await processAvisoFiles(db, {
-            avisoId,
-            execucaoId: params.execucaoId,
-            files,
-            extractor: deps.textExtractor,
-            fetchImpl: deps.fetchImpl,
-            signal: params.signal,
-          });
-        }
-      }
 
       // Indexacao: chunking + embeddings do verbatim integro.
       // Etapa OPCIONAL: so roda quando ha provider de embeddings configurado.

@@ -1,44 +1,31 @@
 // =====================================================================
 // _shared/file-processing.ts
-// Tratamento de arquivos de edital (US-19, RF-33, RF-36, RNF-05).
+// Interface de tratamento de arquivos de edital (US-19, RF-33, RF-36).
 //
-// Fluxo por arquivo (a partir do link no payload do aviso):
-//   1. Download do binario por link (links Effecti podem expirar; por isso o
-//      binario e PRESERVADO no Storage privado para recuperabilidade).
-//   2. Upload em bucket privado do Supabase Storage -> aviso_arquivos.storage_path.
-//   3. Extracao de texto VERBATIM por tipo (PDF nativo, DOC/DOCX, ZIP/RAR);
-//      OCR APENAS como fallback quando nao ha camada de texto.
-//   4. Grava aviso_arquivos.texto_extraido integro + status_tratamento
-//      (ok | erro | nao_suportado).
+// Expoe DUAS pecas reutilizaveis, agnosticas de fonte:
+//   1. extractFileLinks(payload): varre o payload bruto do aviso e devolve os
+//      links de arquivos candidatos (dedupe por URL).
+//   2. TextExtractor / ServiceTextExtractor / createTextExtractor: contrato do
+//      motor de extracao verbatim (PDF/DOC/...; OCR como fallback), delegado a
+//      um servico self-hosted via HTTP (engine trocavel).
 //
-// Extensao nao suportada ou falha gera erro VISIVEL em erros_ingestao sem
-// travar o lote (RNF-05): cada arquivo e isolado em try/catch.
-//
-// O motor de extracao/OCR e PLUGAVEL (servico self-hosted via HTTP), mantendo
-// a Edge Function leve e o engine (Tika/unstructured/tesseract) trocavel.
+// A trilha v0 (download do binario + preservacao no Storage privado +
+// persistencia em aviso_arquivos) foi APOSENTADA: a decisao 2026-06-08 e NAO
+// guardar binario, so o conteudo extraido. O pipeline de documentos (Tika no
+// runner) substitui aquela trilha; aqui fica apenas a interface reutilizavel.
 // =====================================================================
 
-import { type SupabaseClient } from "@supabase/supabase-js";
 import { getEnv } from "./env.ts";
-import { errorMessage, recordIngestErro } from "./ingest-errors.ts";
+import { errorMessage } from "./ingest-errors.ts";
 
 // ---------------------------------------------------------------------
 // Tipos publicos
 // ---------------------------------------------------------------------
 
-export type StatusTratamento = "ok" | "erro" | "nao_suportado";
-
 /** Arquivo candidato extraido do payload do aviso. */
 export interface FileToProcess {
   url: string;
   nomeArquivo: string | null;
-}
-
-export interface FileProcessingSummary {
-  total: number;
-  ok: number;
-  erro: number;
-  naoSuportado: number;
 }
 
 /** Extensoes com camada de texto extraivel diretamente (sem OCR). */
@@ -53,28 +40,11 @@ const SUPPORTED_EXTENSIONS = new Set<string>([
   ...ARCHIVE_EXTENSIONS,
 ]);
 
-const DOWNLOAD_TIMEOUT_MS = 60_000;
 const EXTRACTION_TIMEOUT_MS = 120_000;
-/** Limite defensivo de tamanho de download (evita OOM na Edge Function). */
-const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024;
 
 // ---------------------------------------------------------------------
 // Erros tipados do tratamento (causa conhecida)
 // ---------------------------------------------------------------------
-
-export class UnsupportedFileError extends Error {
-  constructor(public readonly extensao: string) {
-    super(`extensao nao suportada: ${extensao || "(desconhecida)"}`);
-    this.name = "UnsupportedFileError";
-  }
-}
-
-export class FileDownloadError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "FileDownloadError";
-  }
-}
 
 export class ExtractionError extends Error {
   constructor(message: string) {
@@ -210,221 +180,6 @@ export function createTextExtractor(config: {
 }
 
 // ---------------------------------------------------------------------
-// Orquestracao do tratamento de arquivos de um aviso
-// ---------------------------------------------------------------------
-
-export interface ProcessFilesParams {
-  avisoId: string;
-  execucaoId?: string | null;
-  files: FileToProcess[];
-  extractor: TextExtractor;
-  /** Cliente service_role (escrita em aviso_arquivos/Storage server-side). */
-  fetchImpl?: typeof fetch;
-  bucket?: string;
-  signal?: AbortSignal;
-}
-
-/**
- * Processa todos os arquivos de um aviso. Cada arquivo e ISOLADO: falha de um
- * vira status_tratamento + erros_ingestao e NAO interrompe os demais (RNF-05).
- */
-export async function processAvisoFiles(
-  db: SupabaseClient,
-  params: ProcessFilesParams,
-): Promise<FileProcessingSummary> {
-  const env = getEnv();
-  const bucket = params.bucket ?? env.editaisBucket;
-  const fetchImpl = params.fetchImpl ?? globalThis.fetch.bind(globalThis);
-
-  const summary: FileProcessingSummary = { total: 0, ok: 0, erro: 0, naoSuportado: 0 };
-
-  for (const file of params.files) {
-    if (params.signal?.aborted) break;
-    summary.total += 1;
-    const extension = resolveExtension(file);
-
-    try {
-      // Extensao nao suportada: registra antes de qualquer download.
-      if (!SUPPORTED_EXTENSIONS.has(extension)) {
-        throw new UnsupportedFileError(extension);
-      }
-
-      const { bytes, contentType } = await downloadBinary(
-        fetchImpl,
-        file.url,
-        params.signal,
-      );
-
-      // Preserva o binario no Storage privado (recuperabilidade - RF-33).
-      const storagePath = buildStoragePath(params.avisoId, extension);
-      const { error: upError } = await db.storage
-        .from(bucket)
-        .upload(storagePath, bytes, {
-          contentType: contentType ?? "application/octet-stream",
-          upsert: true,
-        });
-      if (upError) {
-        throw new FileDownloadError(`falha ao salvar binario no Storage: ${upError.message}`);
-      }
-
-      // Linha base do arquivo (status definitivo apos a extracao).
-      const arquivoId = await upsertArquivoRow(db, {
-        avisoId: params.avisoId,
-        nomeArquivo: file.nomeArquivo,
-        extensao: extension,
-        tamanhoBytes: bytes.byteLength,
-        storagePath,
-      });
-
-      // Extracao verbatim por tipo (OCR so como fallback).
-      const result = await params.extractor.extract({
-        bytes,
-        extension,
-        nomeArquivo: file.nomeArquivo,
-        signal: params.signal,
-      });
-
-      await finalizeArquivoRow(db, arquivoId, {
-        textoExtraido: result.texto,
-        statusTratamento: "ok",
-      });
-      summary.ok += 1;
-    } catch (err) {
-      const status: StatusTratamento = err instanceof UnsupportedFileError
-        ? "nao_suportado"
-        : "erro";
-
-      if (status === "nao_suportado") summary.naoSuportado += 1;
-      else summary.erro += 1;
-
-      // Tenta registrar a linha do arquivo com o status de falha (visibilidade
-      // na tela de detalhe), best-effort.
-      await safeUpsertArquivoFailure(db, {
-        avisoId: params.avisoId,
-        nomeArquivo: file.nomeArquivo,
-        extensao: extension,
-        statusTratamento: status,
-      });
-
-      // Erro VISIVEL em erros_ingestao sem travar o lote (RNF-05).
-      await recordIngestErro(db, {
-        execucaoId: params.execucaoId ?? null,
-        avisoId: params.avisoId,
-        severidade: status === "nao_suportado" ? "baixa" : "media",
-        etapa: "Tratamento",
-        mensagem: status === "nao_suportado"
-          ? `arquivo nao suportado (${extension || "sem extensao"}): ${
-            file.nomeArquivo ?? file.url
-          }`
-          : `falha no tratamento do arquivo ${file.nomeArquivo ?? file.url}: ${errorMessage(err)}`,
-      });
-    }
-  }
-
-  return summary;
-}
-
-// ---------------------------------------------------------------------
-// Re-extracao a partir do binario preservado no Storage (reprocesso por item)
-// ---------------------------------------------------------------------
-
-export interface ReextractParams {
-  avisoId: string;
-  extractor: TextExtractor;
-  bucket?: string;
-  signal?: AbortSignal;
-}
-
-/**
- * Re-extrai o texto verbatim dos arquivos de um aviso A PARTIR DO BINARIO ja
- * preservado no Storage (links Effecti podem ter expirado). Usado pelo
- * reprocesso por item. Cada arquivo e isolado (RNF-05). Retorna o resumo.
- */
-export async function reextractAvisoFiles(
-  db: SupabaseClient,
-  params: ReextractParams,
-): Promise<FileProcessingSummary> {
-  const bucket = params.bucket ?? getEnv().editaisBucket;
-  const summary: FileProcessingSummary = { total: 0, ok: 0, erro: 0, naoSuportado: 0 };
-
-  const { data, error } = await db
-    .from("aviso_arquivos")
-    .select("id, nome_arquivo, extensao, storage_path")
-    .eq("aviso_id", params.avisoId);
-
-  if (error) {
-    throw new ExtractionError(`falha ao listar arquivos do aviso: ${error.message}`);
-  }
-
-  const rows = (data ?? []) as Array<{
-    id: string;
-    nome_arquivo: string | null;
-    extensao: string | null;
-    storage_path: string | null;
-  }>;
-
-  for (const row of rows) {
-    if (params.signal?.aborted) break;
-    summary.total += 1;
-    const extension = (row.extensao ?? "").toLowerCase();
-
-    try {
-      if (!row.storage_path) {
-        throw new ExtractionError("binario indisponivel no Storage (storage_path ausente)");
-      }
-      if (!SUPPORTED_EXTENSIONS.has(extension)) {
-        throw new UnsupportedFileError(extension);
-      }
-
-      const { data: blob, error: dlError } = await db.storage
-        .from(bucket)
-        .download(row.storage_path);
-      if (dlError || !blob) {
-        throw new ExtractionError(
-          `falha ao baixar binario do Storage: ${dlError?.message ?? "vazio"}`,
-        );
-      }
-      const bytes = new Uint8Array(await blob.arrayBuffer());
-
-      const result = await params.extractor.extract({
-        bytes,
-        extension,
-        nomeArquivo: row.nome_arquivo,
-        signal: params.signal,
-      });
-
-      await finalizeArquivoRow(db, row.id, {
-        textoExtraido: result.texto,
-        statusTratamento: "ok",
-      });
-      summary.ok += 1;
-    } catch (err) {
-      const status: StatusTratamento = err instanceof UnsupportedFileError
-        ? "nao_suportado"
-        : "erro";
-      if (status === "nao_suportado") summary.naoSuportado += 1;
-      else summary.erro += 1;
-
-      await db
-        .from("aviso_arquivos")
-        .update({ status_tratamento: status })
-        .eq("id", row.id);
-
-      await recordIngestErro(db, {
-        avisoId: params.avisoId,
-        severidade: status === "nao_suportado" ? "baixa" : "media",
-        etapa: "Tratamento",
-        mensagem: `falha na re-extracao do arquivo ${row.nome_arquivo ?? row.id}: ${
-          errorMessage(err)
-        }`,
-      });
-    }
-  }
-
-  return summary;
-}
-
-// ---------------------------------------------------------------------
 // Extracao de links de arquivo a partir do payload do aviso
 // ---------------------------------------------------------------------
 
@@ -501,120 +256,6 @@ function looksLikeFile(url: string): boolean {
 // Helpers internos
 // ---------------------------------------------------------------------
 
-async function downloadBinary(
-  fetchImpl: typeof fetch,
-  url: string,
-  signal?: AbortSignal,
-): Promise<{ bytes: Uint8Array; contentType: string | null }> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
-  const onExternalAbort = () => controller.abort();
-  signal?.addEventListener("abort", onExternalAbort, { once: true });
-
-  try {
-    const res = await fetchImpl(url, { method: "GET", signal: controller.signal });
-    if (!res.ok) {
-      throw new FileDownloadError(`download falhou (${res.status}) em ${url}`);
-    }
-    const buffer = await res.arrayBuffer();
-    if (buffer.byteLength > MAX_DOWNLOAD_BYTES) {
-      throw new FileDownloadError(
-        `arquivo excede o limite de ${MAX_DOWNLOAD_BYTES} bytes`,
-      );
-    }
-    return {
-      bytes: new Uint8Array(buffer),
-      contentType: res.headers.get("Content-Type"),
-    };
-  } catch (err) {
-    if (err instanceof FileDownloadError) throw err;
-    if (isAbortError(err)) {
-      throw new FileDownloadError(`tempo de download excedido em ${url}`);
-    }
-    throw new FileDownloadError(`falha de rede ao baixar ${url}: ${errorMessage(err)}`);
-  } finally {
-    clearTimeout(timeoutId);
-    signal?.removeEventListener("abort", onExternalAbort);
-  }
-}
-
-async function upsertArquivoRow(
-  db: SupabaseClient,
-  params: {
-    avisoId: string;
-    nomeArquivo: string | null;
-    extensao: string;
-    tamanhoBytes: number;
-    storagePath: string;
-  },
-): Promise<string> {
-  const { data, error } = await db
-    .from("aviso_arquivos")
-    .insert({
-      aviso_id: params.avisoId,
-      nome_arquivo: params.nomeArquivo,
-      extensao: params.extensao,
-      tamanho_bytes: params.tamanhoBytes,
-      storage_path: params.storagePath,
-      status_tratamento: null,
-    })
-    .select("id")
-    .single();
-
-  if (error || !data) {
-    throw new ExtractionError(`falha ao registrar aviso_arquivos: ${error?.message ?? "sem id"}`);
-  }
-  return String((data as { id: string }).id);
-}
-
-async function finalizeArquivoRow(
-  db: SupabaseClient,
-  arquivoId: string,
-  params: { textoExtraido: string; statusTratamento: StatusTratamento },
-): Promise<void> {
-  const { error } = await db
-    .from("aviso_arquivos")
-    .update({
-      texto_extraido: params.textoExtraido,
-      status_tratamento: params.statusTratamento,
-    })
-    .eq("id", arquivoId);
-  if (error) {
-    throw new ExtractionError(`falha ao gravar texto extraido: ${error.message}`);
-  }
-}
-
-/** Best-effort: registra a linha do arquivo com status de falha. */
-async function safeUpsertArquivoFailure(
-  db: SupabaseClient,
-  params: {
-    avisoId: string;
-    nomeArquivo: string | null;
-    extensao: string;
-    statusTratamento: StatusTratamento;
-  },
-): Promise<void> {
-  try {
-    await db.from("aviso_arquivos").insert({
-      aviso_id: params.avisoId,
-      nome_arquivo: params.nomeArquivo,
-      extensao: params.extensao || null,
-      status_tratamento: params.statusTratamento,
-    });
-  } catch (err) {
-    console.error("[file-processing] falha ao registrar arquivo com erro", {
-      avisoId: params.avisoId,
-      err: errorMessage(err),
-    });
-  }
-}
-
-function resolveExtension(file: FileToProcess): string {
-  return (
-    extensionFromPath(file.nomeArquivo ?? "") ?? extensionFromPath(file.url) ?? ""
-  );
-}
-
 function extensionFromPath(path: string): string | null {
   try {
     const clean = path.split("?")[0].split("#")[0];
@@ -635,11 +276,6 @@ function fileNameFromUrl(url: string): string | null {
   } catch {
     return null;
   }
-}
-
-function buildStoragePath(avisoId: string, extension: string): string {
-  const suffix = extension ? `.${extension}` : "";
-  return `${avisoId}/${crypto.randomUUID()}${suffix}`;
 }
 
 function parseExtractionText(payload: unknown): string {

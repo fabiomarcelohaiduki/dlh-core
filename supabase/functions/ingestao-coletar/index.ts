@@ -36,7 +36,6 @@ import { getFonteByTipo, getFonteSecret } from "../_shared/vault.ts";
 import { createConnector } from "../_shared/effecti-connector.ts";
 import { type NomusConnector, type NomusRecursoConfig } from "../_shared/nomus-connector.ts";
 import { createEmbeddingProvider } from "../_shared/embeddings.ts";
-import { createTextExtractor } from "../_shared/file-processing.ts";
 import { runPipeline } from "../_shared/pipeline.ts";
 import {
   buildInitialCheckpoint,
@@ -184,10 +183,9 @@ async function handleEffecti(
   });
   const env = getEnv();
   const embeddingProvider = env.embeddingsEndpoint ? createEmbeddingProvider() : undefined;
-  const textExtractor = env.fileExtractionEndpoint ? createTextExtractor() : undefined;
 
   const pipelinePromise = runPipeline(
-    { db: service, connector, embeddingProvider, textExtractor },
+    { db: service, connector, embeddingProvider },
     { execucaoId, sinceDate, modalidades, portais },
   )
     .then(async () => {

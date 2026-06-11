@@ -1,9 +1,11 @@
 // =====================================================================
 // Edge Function: substrato-reindexar -> POST /substrato/avisos/:id/reindexar
 // Reprocessa APENAS um item (US-08/US-16):
-//   - re-extracao do texto verbatim a partir do binario preservado no Storage
-//     (links Effecti podem expirar) e/ou
 //   - reindexacao dos embeddings do conteudo verbatim integro.
+//
+// NB: a re-extracao de arquivos a partir do binario no Storage foi aposentada
+// junto com a trilha v0 (decisao 2026-06-08: NAO guardar binario). O reprocesso
+// reindexa o verbatim ja persistido no aviso.
 //
 //   - Atualiza erros_ingestao.status_reprocesso evitando disparo duplicado
 //     para o mesmo item (marca 'em_andamento' -> 'resolvido'/'erro').
@@ -18,7 +20,6 @@ import { requireAuthorizedUser } from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 import { createEmbeddingProvider, generateAndStoreChunks } from "../_shared/embeddings.ts";
-import { createTextExtractor, reextractAvisoFiles } from "../_shared/file-processing.ts";
 import { errorMessage } from "../_shared/ingest-errors.ts";
 import type { ReprocessarResponse } from "../_shared/types.ts";
 
@@ -105,14 +106,10 @@ async function handler(req: Request): Promise<Response> {
       .update({ status_reprocesso: "em_andamento" })
       .eq("aviso_id", avisoId);
 
-    const textExtractor = createTextExtractor();
     const embeddingProvider = createEmbeddingProvider();
 
     try {
-      // 1) Re-extracao verbatim a partir do binario no Storage (se houver).
-      await reextractAvisoFiles(service, { avisoId, extractor: textExtractor });
-
-      // 2) Reindexacao dos embeddings do verbatim integro.
+      // Reindexacao dos embeddings do verbatim integro.
       await service.from("avisos").update({ status_indexacao: "em_andamento" }).eq("id", avisoId);
       await generateAndStoreChunks(service, {
         avisoId,
