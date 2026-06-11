@@ -63,6 +63,12 @@ export interface CollectedAviso {
   dataInicial: string | null;
   dataFinal: string | null;
   origem: string | null;
+  // Estado do aviso na plataforma Effecti (vem no proprio payload da listagem):
+  // favorito = marcado de interesse; naLixeira = descartado. null = ausente no
+  // payload. So LEITURA por ora (espelho do Effecti); o fluxo bidirecional
+  // IA<->humano fica para o futuro.
+  favorito: boolean | null;
+  naLixeira: boolean | null;
 }
 
 export interface CollectOptions {
@@ -462,6 +468,8 @@ interface AvisoUpsertRow {
   data_inicial: string | null;
   data_final: string | null;
   origem: string | null;
+  favorito: boolean | null;
+  na_lixeira: boolean | null;
   execucao_origem_id: string | null;
   conteudo_hash: string;
 }
@@ -572,6 +580,8 @@ async function upsertBatch(
       data_inicial: i.dataInicial,
       data_final: i.dataFinal,
       origem: i.origem,
+      favorito: i.favorito,
+      na_lixeira: i.naLixeira,
       execucao_origem_id: execucaoId,
       conteudo_hash: hash,
     });
@@ -601,6 +611,19 @@ async function upsertBatch(
 function asString(value: unknown): string | null {
   if (typeof value === "string" && value.trim() !== "") return value;
   if (typeof value === "number") return String(value);
+  return null;
+}
+
+// Booleano tolerante: aceita bool nativo, "true"/"false" e 1/0. Ausente ou
+// nao reconhecido -> null (preserva a distincao "nao veio" de "veio false").
+function asBoolean(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1 ? true : value === 0 ? false : null;
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    if (v === "true" || v === "1") return true;
+    if (v === "false" || v === "0") return false;
+  }
   return null;
 }
 
@@ -655,6 +678,8 @@ function mapRawAviso(raw: unknown): CollectedAviso | null {
       firstString(obj, ["data_final", "dataFinal", "dataFinalProposta", "endDate"]),
     ),
     origem: firstString(obj, ["origem", "source", "portal"]),
+    favorito: asBoolean(obj["favorito"]),
+    naLixeira: asBoolean(obj["naLixeira"]),
   };
 }
 

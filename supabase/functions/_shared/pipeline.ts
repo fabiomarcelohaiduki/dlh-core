@@ -319,6 +319,11 @@ function buildRow(aviso: CollectedAviso, execucaoId: string, hash: string) {
     data_inicial: aviso.dataInicial,
     data_final: aviso.dataFinal,
     origem: aviso.origem,
+    // Espelho do estado na Effecti (so leitura). Fora do hash canonico de
+    // proposito: mudar favorito NAO conta como 'alterado'. So e gravado quando
+    // a linha ja vai ser escrita (insert, ou update por mudanca de negocio).
+    favorito: aviso.favorito,
+    na_lixeira: aviso.naLixeira,
     execucao_origem_id: execucaoId,
     status_indexacao: "pendente" as StatusIndexacao,
   };
