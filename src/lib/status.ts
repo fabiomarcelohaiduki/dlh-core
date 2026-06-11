@@ -105,7 +105,9 @@ export function origemLabel(key: OrigemKey): string {
 
 /**
  * True quando a execucao em erro esgotou as retomadas automaticas e aguarda
- * acao manual ('Retomar'): so vale para fontes em blocos (Nomus, com cursor).
+ * acao manual ('Retomar'): vale para as fontes coletadas em blocos com cursor
+ * (Nomus e, desde 11/06, Effecti). O checkpoint de ambas traz fase e
+ * tentativasRetomada; legados sem checkpoint nunca exibem a acao.
  */
 export function precisaRetomadaManual(execucao: Execucao): boolean {
   if (execucao.status !== "erro") return false;

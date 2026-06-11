@@ -97,7 +97,8 @@ function StatusCell({
 }) {
   const desc = execucaoDescriptor(execucao);
   const processing = execucao.status === "em_andamento";
-  // Acao manual: execucao em erro que esgotou as retomadas automaticas (Nomus).
+  // Acao manual: execucao em erro que esgotou as retomadas automaticas das
+  // fontes em blocos (Nomus e Effecti).
   const manualResume = Boolean(onRetomar) && precisaRetomadaManual(execucao);
 
   return (
@@ -107,22 +108,25 @@ function StatusCell({
         <span className="sub">etapa: {execucao.etapaAtual}</span>
       ) : null}
       {manualResume ? (
-        <button
-          type="button"
-          className="btn btn-sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            onRetomar?.(execucao);
-          }}
-          disabled={retomando}
-        >
-          {retomando ? (
-            <Loader2 className="spin" aria-hidden="true" />
-          ) : (
-            <RotateCcw aria-hidden="true" />
-          )}
-          Retomar
-        </button>
+        <>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRetomar?.(execucao);
+            }}
+            disabled={retomando}
+          >
+            {retomando ? (
+              <Loader2 className="spin" aria-hidden="true" />
+            ) : (
+              <RotateCcw aria-hidden="true" />
+            )}
+            Retomar
+          </button>
+          <span className="sub">Continua do ponto onde parou.</span>
+        </>
       ) : null}
     </div>
   );
@@ -158,9 +162,9 @@ function SkeletonRows({ cols, rows = 5 }: { cols: number; rows?: number }) {
  *    checkpoint.pagina_atual).
  *
  * Na variante `execucoes` ganha colunas origem/recurso e a barra de progresso;
- * execucoes em erro que esgotaram a retomada automatica (Nomus) expoem a acao
- * manual `Retomar`. Linhas com status `erro` ficam clicaveis (navegacao para
- * /erros) quando `onErroClick` e informado.
+ * execucoes em erro que esgotaram a retomada automatica (Nomus e Effecti)
+ * expoem a acao manual `Retomar`. Linhas com status `erro` ficam clicaveis
+ * (navegacao para /erros) quando `onErroClick` e informado.
  */
 export function RunsTable({
   runs,
