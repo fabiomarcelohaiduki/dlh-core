@@ -342,7 +342,10 @@ export function FontesCredenciais({
             subtitle="Pastas administradas para extração de documentos."
             onClose={() => toggle("drive")}
           />
-          <AgendamentoFonteForm initial={driveAgendamento} />
+          <AgendamentoFonteForm
+            initial={driveAgendamento}
+            nota="A cada execução re-lista as pastas ativas e enfileira arquivos novos e editados para extração."
+          />
           <DriveDisparoForm />
           <DrivePastasForm initial={drivePastas} />
         </div>

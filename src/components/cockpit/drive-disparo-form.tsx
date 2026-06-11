@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { Check, Loader2, Play, TriangleAlert } from "lucide-react";
 import { useDispararDrive } from "@/hooks/use-admin";
 import { ApiError } from "@/lib/api/client";
@@ -43,16 +43,35 @@ export function DriveDisparoForm({ bare = false }: { bare?: boolean }) {
 
   const ocupado = disparar.isPending;
 
+  // Legenda fixa sob o botao. O Drive nao tem janela/marca d'agua: re-lista as
+  // pastas ativas inteiras e deduplica por file_id. Edicoes entram porque a
+  // assinatura de versao (md5/modifiedTime) reabre o vinculo p/ re-extracao.
+  // Mesmo formato do helper de campo (espelha o cmp-effecti/nomus-disparo-form).
+  const capStyle: CSSProperties = {
+    fontSize: 12,
+    lineHeight: 1.5,
+    color: "var(--faint)",
+    maxWidth: 240,
+  };
+  const caption =
+    "Re-lista as pastas ativas e enfileira arquivos novos e editados para extração.";
+
   const body = (
-    <div className="form-foot" style={{ marginTop: 0, flexWrap: "wrap" }}>
-      <button className="btn btn-primary" type="button" onClick={executar} disabled={ocupado}>
-        {ocupado ? (
-          <Loader2 className="spin" aria-hidden="true" />
-        ) : (
-          <Play aria-hidden="true" />
-        )}
-        <span>{ocupado ? "Disparando…" : "Coletar Drive agora"}</span>
-      </button>
+    <div
+      className="form-foot"
+      style={{ marginTop: 0, flexWrap: "wrap", alignItems: "flex-start" }}
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <button className="btn btn-primary" type="button" onClick={executar} disabled={ocupado}>
+          {ocupado ? (
+            <Loader2 className="spin" aria-hidden="true" />
+          ) : (
+            <Play aria-hidden="true" />
+          )}
+          <span>{ocupado ? "Disparando…" : "Coletar Drive agora"}</span>
+        </button>
+        <span className="helper" style={capStyle}>{caption}</span>
+      </div>
 
       {feedback ? (
         <span className={cn("save-note", feedback.kind === "err" && "err")}>
