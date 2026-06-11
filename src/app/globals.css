@@ -1468,10 +1468,12 @@ button {
   font-size: 13px;
 }
 .tbl-wrap thead th {
-  /* gruda logo abaixo da .topbar sticky (58px) ao rolar a .main; fica
-     atras da topbar (z menor) — sem cobrir o chrome do cockpit */
+  /* .tbl-wrap tem overflow:hidden -> e o proprio containing block do sticky.
+     Por isso o cabecalho cola no TOPO do card (top:0), nao a 58px (a folga da
+     topbar nao se aplica aqui; 58px empurrava o thead p/ baixo e abria faixa
+     onde a 1a linha vazava por cima). */
   position: sticky;
-  top: 58px;
+  top: 0;
   z-index: 1;
   text-align: left;
   font-size: 10.5px;
