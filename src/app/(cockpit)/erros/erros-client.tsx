@@ -19,12 +19,16 @@ import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 25;
 
-/** Etapas filtraveis (action-filtrar-erro). "todos" = sem filtro de etapa. */
+/**
+ * Etapas filtraveis (action-filtrar-erro). "todos" = sem filtro de etapa.
+ * Os values batem com erros_ingestao.etapa (EtapaIngestao, sem acento).
+ * 'Tratamento' (extracao de arquivos) NAO entra aqui: tem tela propria (Extracao).
+ */
 const ETAPA_FILTERS = [
   { value: "todos", label: "Todos" },
   { value: "Coleta", label: "Coleta" },
-  { value: "Tratamento", label: "Tratamento" },
-  { value: "Indexação", label: "Indexação" },
+  { value: "Persistencia", label: "Persistência" },
+  { value: "Indexacao", label: "Indexação" },
 ] as const;
 
 type EtapaFilter = (typeof ETAPA_FILTERS)[number]["value"];
@@ -81,8 +85,9 @@ export function ErrosClient() {
         <div className="titles">
           <h2>Erros de ingestão</h2>
           <p>
-            Falhas de coleta, de tratamento dos arquivos e de indexação/embedding,
-            de todas as origens. Abra um item para investigar o registro correspondente.
+            Falhas de coleta, persistência e indexação/embedding, de todas as
+            origens. Erros de extração de arquivos ficam na tela Extração. Abra
+            um item para investigar o registro correspondente.
           </p>
         </div>
       </div>

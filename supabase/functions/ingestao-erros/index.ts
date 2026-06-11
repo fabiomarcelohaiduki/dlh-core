@@ -51,15 +51,20 @@ async function handler(req: Request): Promise<Response> {
     const etapa = new URL(req.url).searchParams.get("etapa")?.trim();
     const { db } = await requireAuthorizedUser(req);
 
+    // Erros de extracao de arquivos (etapa 'Tratamento') tem tela propria
+    // (Extracao, via documento_vinculos). Esta tela consolida TODO o restante
+    // (Coleta, Persistencia, Indexacao), entao a etapa Tratamento e excluida
+    // sempre, independente do filtro recebido.
     let query = db
       .from("erros_ingestao")
       .select(
         "id, execucao_id, aviso_id, severidade, etapa, mensagem, quando, status_reprocesso, origem, recurso, registro_id",
       )
+      .neq("etapa", "Tratamento")
       .order("quando", { ascending: false })
       .limit(MAX_ITEMS);
 
-    if (etapa) {
+    if (etapa && etapa !== "Tratamento") {
       query = query.eq("etapa", etapa);
     }
 
