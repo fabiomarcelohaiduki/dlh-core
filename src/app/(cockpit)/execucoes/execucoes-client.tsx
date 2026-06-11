@@ -136,66 +136,58 @@ export function ExecucoesClient() {
 
   return (
     <section className="screen">
-      <div className="top-cards">
-        <div className="top-cards__col">
-          <div className="section-title" style={{ marginTop: 0 }}>
-            <h3>Disparar coleta</h3>
-          </div>
-          <div className="card card-compact disparo-card">
-            <div
-              className="filter-group segmented"
-              role="group"
-              aria-label="Fonte da coleta"
-              style={{ marginBottom: 14 }}
-            >
-              {FONTE_DISPARO_OPCOES.map((opt) => {
-                const active = fonteDisparo === opt.value;
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    className={cn("btn", "btn-sm", active && "btn-primary")}
-                    aria-pressed={active}
-                    onClick={() => setFonteDisparo(opt.value)}
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
-            {disparoForm}
-          </div>
+      {/* Disparo de coleta por fonte (seletor segmentado + form da fonte). */}
+      <div className="section-title" style={{ marginTop: 0 }}>
+        <h3>Disparar coleta</h3>
+      </div>
+      <div
+        className="card disparo-card"
+        style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}
+      >
+        <div
+          className="filter-group segmented"
+          role="group"
+          aria-label="Fonte da coleta"
+        >
+          {FONTE_DISPARO_OPCOES.map((opt) => {
+            const active = fonteDisparo === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                className={cn("btn", "btn-sm", active && "btn-primary")}
+                aria-pressed={active}
+                onClick={() => setFonteDisparo(opt.value)}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
         </div>
-
-        <div className="top-cards__col">
-          <div className="section-title" style={{ marginTop: 0 }}>
-            <h3>Filtrar histórico</h3>
-          </div>
-          <div className="card card-compact">
-            <div className="filter-stack">
-              <OrigemFiltro
-                value={origem}
-                onChange={(v) => {
-                  setOrigem(v);
-                  setRecurso("todos");
-                }}
-                segmented
-              />
-              <RecursoFiltro recursos={recursos} value={recurso} onChange={setRecurso} />
-            </div>
-          </div>
-        </div>
+        <div style={{ marginLeft: "auto" }}>{disparoForm}</div>
       </div>
 
+      {/* Filtros (mesmo layout da tela Erros) + status do tempo real a direita. */}
       <div className="section-title">
-        <h3>Histórico de execuções</h3>
+        <h3>Filtros</h3>
         {!execucoes.isLoading && !execucoes.isError && (
           <span className="count">{runs.length}</span>
         )}
+      </div>
+      <div className="filter-bar">
+        <OrigemFiltro
+          value={origem}
+          onChange={(v) => {
+            setOrigem(v);
+            setRecurso("todos");
+          }}
+        />
+        <RecursoFiltro recursos={recursos} value={recurso} onChange={setRecurso} />
         <div
           className={cn("conn", connected ? "ok" : "reconnecting")}
           role="status"
           aria-live="polite"
+          style={{ marginLeft: "auto" }}
         >
           {connected ? (
             <>

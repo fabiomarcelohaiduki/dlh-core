@@ -1084,6 +1084,23 @@ button {
 .link:hover {
   text-decoration: underline;
 }
+/* coluna de nome de arquivo: largura limitada + reticencias (title no hover) */
+.cell-arquivo {
+  max-width: 340px;
+}
+.cell-arquivo .link {
+  max-width: 100%;
+}
+.cell-arquivo .link svg {
+  flex: none;
+}
+.cell-arquivo .trunc {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tbl-foot {
   display: flex;
   justify-content: center;
@@ -1407,6 +1424,19 @@ select {
 }
 /* Parametros de extracao: ocupa a largura cheia da tela (sem o vazio a direita). */
 .form-card--wide {
+  max-width: none;
+}
+/* Parametros de extracao: agendamento automatico + extracao manual lado a lado
+   (1 coluna em telas estreitas). Neutraliza o cap de 640px do form-card dentro
+   da linha para os dois cards preencherem suas colunas por igual. */
+.extracao-acoes-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 18px;
+}
+.extracao-acoes-row > .form-card {
   max-width: none;
 }
 /* Painel de configuracao aberto abaixo da grade 2-up: centralizado na tela

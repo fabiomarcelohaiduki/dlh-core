@@ -118,9 +118,10 @@ export default async function ExtracaoConfigPage() {
         </div>
       </div>
 
-      <AgendamentoExtracaoForm initial={agendamentoExtracao} />
-
-      <ExtracaoDisparoForm />
+      <div className="extracao-acoes-row">
+        <AgendamentoExtracaoForm initial={agendamentoExtracao} />
+        <ExtracaoDisparoForm />
+      </div>
 
       <ExtracaoConfigForm initial={configExtracao} />
     </section>

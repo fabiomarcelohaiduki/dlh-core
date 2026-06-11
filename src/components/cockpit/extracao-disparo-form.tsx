@@ -42,8 +42,27 @@ export function ExtracaoDisparoForm() {
   const ocupado = disparar.isPending;
 
   return (
-    <div className="card form-card">
-      <div className="form-foot" style={{ marginTop: 0, flexWrap: "wrap" }}>
+    <div className="card" style={{ display: "grid", gap: 14 }}>
+      <div className="cfg-panel-head" style={{ margin: "0 0 2px" }}>
+        <div
+          className="avatar"
+          style={{
+            borderRadius: 9,
+            width: 34,
+            height: 34,
+            color: "var(--accent)",
+            background: "var(--accent-soft)",
+            borderColor: "var(--accent-line)",
+          }}
+        >
+          <FileText aria-hidden="true" />
+        </div>
+        <div style={{ flex: 1 }}>
+          <b style={{ fontSize: 14.5 }}>Extração manual</b>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
         <button className="btn btn-primary" type="button" onClick={executar} disabled={ocupado}>
           {ocupado ? (
             <Loader2 className="spin" aria-hidden="true" />
@@ -63,11 +82,6 @@ export function ExtracaoDisparoForm() {
             {feedback.message}
           </span>
         ) : null}
-      </div>
-
-      <div className="helper" style={{ marginTop: 10 }}>
-        Processa agora os anexos pendentes de todas as fontes via Tika, sem esperar o agendamento
-        automático.
       </div>
     </div>
   );

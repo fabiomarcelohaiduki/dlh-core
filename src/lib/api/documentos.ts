@@ -42,9 +42,11 @@ export function descobrirAnexos(input: DescobrirInput = {}): Promise<DescobrirRe
 
 export interface ExtracaoErro {
   id: string;
+  fonte: string | null;
   processoId: string | null;
   nomeAnexo: string | null;
   extensao: string | null;
+  url: string | null;
   erro: string | null;
   quando: string | null;
 }
@@ -80,9 +82,11 @@ export function fetchExtracaoResumo(): Promise<ExtracaoResumo> {
     },
     erros: (raw.erros ?? []).map((e) => ({
       id: e.id,
+      fonte: e.fonte ?? null,
       processoId: e.processoId ?? null,
       nomeAnexo: e.nomeAnexo ?? null,
       extensao: e.extensao ?? null,
+      url: e.url ?? null,
       erro: e.erro ?? null,
       quando: e.quando ?? null,
     })),

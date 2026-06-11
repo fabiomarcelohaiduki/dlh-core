@@ -3,15 +3,22 @@
 import { useState } from "react";
 import {
   Check,
+  Clock,
+  Copy,
+  ExternalLink,
   FileText,
   Loader2,
   Play,
-  RefreshCw,
   Search,
   TriangleAlert,
 } from "lucide-react";
 import { useDescobrir, useExtracaoResumo } from "@/hooks/use-documentos";
 import { useDispararDrive, useDispararExtracao, useDispararGmail } from "@/hooks/use-admin";
+import { StatCard } from "@/components/cockpit/stat-card";
+import {
+  OrigemFiltro,
+  type OrigemFiltroValue,
+} from "@/components/cockpit/origem-filtro";
 import type { FonteDescoberta } from "@/lib/api/documentos";
 import { ApiError } from "@/lib/api/client";
 import { formatDateTime, formatNumber } from "@/lib/format";
@@ -70,6 +77,8 @@ export function ExtracaoPanel({
   const dispararExtracao = useDispararExtracao();
   const [fonte, setFonte] = useState<FontePainel>("nomus");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+  // Filtro de origem da tabela de erros (client-side, sobre a lista carregada).
+  const [filtroFonte, setFiltroFonte] = useState<OrigemFiltroValue>("todas");
 
   const modo: ModoAcao = FONTES.find((f) => f.value === fonte)?.modo ?? "descobrir";
   // Acao por fonte (descobrir/coletar): NAO inclui o drain da fila (botao proprio).
@@ -81,6 +90,8 @@ export function ExtracaoPanel({
   const disabled = blocked || pending;
   const contagens = resumo.data?.contagens;
   const erros = resumo.data?.erros ?? [];
+  const errosFiltrados =
+    filtroFonte === "todas" ? erros : erros.filter((e) => e.fonte === filtroFonte);
 
   const actionLabel =
     modo === "descobrir"
@@ -146,88 +157,140 @@ export function ExtracaoPanel({
     }
   }
 
+  const errosCount = contagens?.erro ?? 0;
+
   return (
-    <div className="card" style={{ display: "grid", gap: 16 }}>
-      <div className="cfg-panel-head">
-        <div
-          className="avatar"
-          style={{
-            borderRadius: 9,
-            width: 34,
-            height: 34,
-            color: "var(--accent)",
-            background: "var(--accent-soft)",
-            borderColor: "var(--accent-line)",
-          }}
-        >
-          <FileText aria-hidden="true" />
-        </div>
-        <div style={{ flex: 1 }}>
-          <b style={{ fontSize: 14.5 }}>Extração de anexos</b>
-        </div>
+    <>
+      {/* KPIs por status (padrao StatCard do dashboard) */}
+      <div className="section-title" style={{ marginTop: 0 }}>
+        <h3>Anexos na fila</h3>
+        {!resumo.isLoading && (
+          <span className="count">{formatNumber(contagens?.total ?? 0)}</span>
+        )}
+      </div>
+      <div className="grid-dlh g4">
+        <StatCard
+          icon={<Clock aria-hidden="true" />}
+          label="Pendentes"
+          loading={resumo.isLoading}
+          value={
+            <span className="tnum" style={{ color: "var(--run)" }}>
+              {formatNumber(contagens?.pendente ?? 0)}
+            </span>
+          }
+          meta="aguardando extração"
+        />
+        <StatCard
+          icon={<Check aria-hidden="true" />}
+          label="Extraídos"
+          loading={resumo.isLoading}
+          value={
+            <span className="tnum" style={{ color: "var(--ok)" }}>
+              {formatNumber(contagens?.extraido ?? 0)}
+            </span>
+          }
+          meta="texto disponível"
+          metaTone="up"
+        />
+        <StatCard
+          icon={<Copy aria-hidden="true" />}
+          label="Herdados"
+          loading={resumo.isLoading}
+          value={<span className="tnum">{formatNumber(contagens?.herdado ?? 0)}</span>}
+          meta="reaproveitados por dedup"
+        />
+        <StatCard
+          icon={<TriangleAlert aria-hidden="true" />}
+          label="Erros"
+          loading={resumo.isLoading}
+          value={
+            <span
+              className="tnum"
+              style={{ color: errosCount > 0 ? "var(--err)" : undefined }}
+            >
+              {formatNumber(errosCount)}
+            </span>
+          }
+          meta={errosCount > 0 ? "verifique a lista abaixo" : "sem falhas"}
+          metaTone={errosCount > 0 ? "warn" : "up"}
+        />
       </div>
 
-      {/* Contagens por status */}
-      <div className="extr-stats" style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-        <StatusChip label="Pendentes" value={contagens?.pendente} tone="run" loading={resumo.isLoading} />
-        <StatusChip label="Extraídos" value={contagens?.extraido} tone="ok" loading={resumo.isLoading} />
-        <StatusChip label="Herdados" value={contagens?.herdado} tone="default" loading={resumo.isLoading} />
-        <StatusChip label="Erros" value={contagens?.erro} tone="err" loading={resumo.isLoading} />
-        <StatusChip label="Total" value={contagens?.total} tone="default" loading={resumo.isLoading} />
+      {/* Disparo: descobrir por fonte + drenar a fila (Tika). */}
+      <div className="section-title">
+        <h3>Descobrir e extrair</h3>
       </div>
+      <div className="card disparo-card" style={{ display: "grid", gap: 12 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
+          <div
+            className="filter-group segmented"
+            role="group"
+            aria-label="Fonte dos anexos"
+          >
+            {FONTES.map((f) => {
+              const active = fonte === f.value;
+              return (
+                <button
+                  key={f.value}
+                  type="button"
+                  className={cn("btn", "btn-sm", active && "btn-primary")}
+                  aria-pressed={active}
+                  disabled={pending}
+                  onClick={() => {
+                    setFonte(f.value);
+                    setFeedback(null);
+                  }}
+                >
+                  {f.label}
+                </button>
+              );
+            })}
+          </div>
 
-      {/* Acao de descoberta / disparo por fonte */}
-      <div className="action-col">
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
-          <select
-            value={fonte}
-            onChange={(e) => {
-              setFonte(e.target.value as FontePainel);
-              setFeedback(null);
+          <div
+            style={{
+              marginLeft: "auto",
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              gap: 10,
             }}
-            disabled={pending}
-            aria-label="Fonte dos anexos a descobrir"
           >
-            {FONTES.map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className="btn"
-            onClick={handleAcao}
-            disabled={disabled}
-            aria-disabled={disabled}
-            title={blocked ? blockedReason : undefined}
-          >
-            {pending ? (
-              <Loader2 className="spin" aria-hidden="true" />
-            ) : modo === "descobrir" ? (
-              <Search aria-hidden="true" />
-            ) : (
-              <Play aria-hidden="true" />
-            )}
-            <span>{pending ? (modo === "descobrir" ? "Descobrindo…" : "Disparando…") : actionLabel}</span>
-          </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleAcao}
+              disabled={disabled}
+              aria-disabled={disabled}
+              title={blocked ? blockedReason : undefined}
+            >
+              {pending ? (
+                <Loader2 className="spin" aria-hidden="true" />
+              ) : modo === "descobrir" ? (
+                <Search aria-hidden="true" />
+              ) : (
+                <Play aria-hidden="true" />
+              )}
+              <span>{pending ? (modo === "descobrir" ? "Descobrindo…" : "Disparando…") : actionLabel}</span>
+            </button>
 
-          {/* Drain da fila (Tika): gatilho independente da descoberta por fonte. */}
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={handleDrenar}
-            disabled={dispararExtracao.isPending}
-            aria-disabled={dispararExtracao.isPending}
-            title="Processa a fila de anexos pendentes via Tika (todas as fontes)"
-          >
-            {dispararExtracao.isPending ? (
-              <Loader2 className="spin" aria-hidden="true" />
-            ) : (
-              <FileText aria-hidden="true" />
-            )}
-            <span>{dispararExtracao.isPending ? "Disparando…" : "Extrair fila agora"}</span>
-          </button>
+            {/* Drain da fila (Tika): gatilho independente da descoberta por fonte. */}
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={handleDrenar}
+              disabled={dispararExtracao.isPending}
+              aria-disabled={dispararExtracao.isPending}
+              title="Processa a fila de anexos pendentes via Tika (todas as fontes)"
+            >
+              {dispararExtracao.isPending ? (
+                <Loader2 className="spin" aria-hidden="true" />
+              ) : (
+                <FileText aria-hidden="true" />
+              )}
+              <span>{dispararExtracao.isPending ? "Disparando…" : "Extrair fila agora"}</span>
+            </button>
+          </div>
         </div>
 
         {blocked ? (
@@ -248,45 +311,27 @@ export function ExtracaoPanel({
             {feedback.message}
           </span>
         ) : null}
+      </div>
 
-        <div className="helper">
-          As 4 fontes já descobrem sozinhas na coleta. Aqui é o disparo manual da descoberta: Nomus e
-          Effecti enfileiram na hora (descoberta instantânea); Gmail e Drive disparam a coleta própria
-          na nuvem (a descoberta deles depende do runner). &ldquo;Extrair fila agora&rdquo; processa os
-          anexos pendentes de todas as fontes via Tika.
-        </div>
+      {/* Filtros (mesmo layout da tela Erros). */}
+      <div className="section-title">
+        <h3>Filtros</h3>
+        {!resumo.isLoading && (
+          <span className="count">{errosFiltrados.length}</span>
+        )}
+      </div>
+      <div className="filter-bar">
+        <OrigemFiltro value={filtroFonte} onChange={setFiltroFonte} />
       </div>
 
       {/* Tabela de erros de extracao */}
-      <div style={{ display: "grid", gap: 8 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 8,
-          }}
-        >
-          <b style={{ fontSize: 13 }}>Anexos com falha na extração</b>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => resumo.refetch()}
-            disabled={resumo.isFetching}
-            aria-label="Atualizar lista de erros"
-          >
-            <RefreshCw className={cn(resumo.isFetching && "spin")} aria-hidden="true" />
-            <span>Atualizar</span>
-          </button>
-        </div>
-
-        <div className="tbl-wrap tbl-scroll">
+      <div className="tbl-wrap tbl-scroll">
           <table>
             <thead>
               <tr>
                 <th>Arquivo</th>
+                <th>Fonte</th>
                 <th>Extensão</th>
-                <th>Origem</th>
                 <th>Motivo</th>
                 <th>Quando</th>
               </tr>
@@ -302,22 +347,40 @@ export function ExtracaoPanel({
                     ))}
                   </tr>
                 ))
-              ) : erros.length === 0 ? (
+              ) : errosFiltrados.length === 0 ? (
                 <tr>
                   <td colSpan={5}>
                     <div className="empty">
                       <Check aria-hidden="true" />
                       <h4>Nenhuma falha de extração</h4>
-                      <p>Todos os anexos descobertos foram extraídos sem erro.</p>
+                      <p>
+                        {filtroFonte === "todas"
+                          ? "Todos os anexos descobertos foram extraídos sem erro."
+                          : "Nenhuma falha de extração para a fonte selecionada."}
+                      </p>
                     </div>
                   </td>
                 </tr>
               ) : (
-                erros.map((e) => (
+                errosFiltrados.map((e) => (
                   <tr key={e.id}>
-                    <td title={e.nomeAnexo ?? undefined}>{e.nomeAnexo ?? "—"}</td>
+                    <td className="cell-arquivo" title={e.nomeAnexo ?? undefined}>
+                      {e.url ? (
+                        <a
+                          href={e.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="link"
+                        >
+                          <span className="trunc">{e.nomeAnexo ?? "—"}</span>
+                          <ExternalLink aria-hidden="true" />
+                        </a>
+                      ) : (
+                        <span className="trunc">{e.nomeAnexo ?? "—"}</span>
+                      )}
+                    </td>
+                    <td>{e.fonte ? FONTE_LABEL[e.fonte as FontePainel] ?? e.fonte : "—"}</td>
                     <td className="mono">{e.extensao ?? "—"}</td>
-                    <td className="mono">{e.processoId ?? "—"}</td>
                     <td className="sub">{e.erro ?? "—"}</td>
                     <td className="sub tnum">{formatDateTime(e.quando)}</td>
                   </tr>
@@ -326,49 +389,6 @@ export function ExtracaoPanel({
             </tbody>
           </table>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function StatusChip({
-  label,
-  value,
-  tone,
-  loading,
-}: {
-  label: string;
-  value: number | undefined;
-  tone: "ok" | "err" | "run" | "default";
-  loading: boolean;
-}) {
-  const color =
-    tone === "ok"
-      ? "var(--ok)"
-      : tone === "err"
-        ? "var(--err)"
-        : tone === "run"
-          ? "var(--run)"
-          : "var(--muted)";
-  return (
-    <div
-      style={{
-        display: "grid",
-        gap: 2,
-        padding: "8px 12px",
-        borderRadius: 9,
-        border: "1px solid var(--line)",
-        minWidth: 92,
-      }}
-    >
-      <span style={{ fontSize: 11, color: "var(--muted)" }}>{label}</span>
-      {loading ? (
-        <span className="skel skel-line" style={{ width: 40, height: 18 }} />
-      ) : (
-        <b className="tnum" style={{ fontSize: 18, color }}>
-          {formatNumber(value ?? 0)}
-        </b>
-      )}
-    </div>
+    </>
   );
 }

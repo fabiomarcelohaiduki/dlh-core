@@ -228,6 +228,27 @@ function extensaoDoNome(nome: string | null): string | null {
   return m ? m[1].toLowerCase() : null;
 }
 
+/**
+ * Link clicavel para abrir o anexo na origem, derivado de ref_obtencao por
+ * fonte. Effecti ja guarda a URL publica; Drive/Gmail montam o link padrao do
+ * Google a partir do id. Nomus nao tem URL publica (base64 no GET) => null.
+ */
+function linkDoVinculo(fonte: string, ref: unknown): string | null {
+  const r = (ref && typeof ref === "object" ? ref : {}) as Record<string, unknown>;
+  if (fonte === "effecti") {
+    return typeof r.url === "string" && r.url ? r.url : null;
+  }
+  if (fonte === "drive") {
+    const fileId = typeof r.file_id === "string" ? r.file_id : "";
+    return fileId ? `https://drive.google.com/file/d/${fileId}/view` : null;
+  }
+  if (fonte === "gmail") {
+    const threadId = typeof r.thread_id === "string" ? r.thread_id : "";
+    return threadId ? `https://mail.google.com/mail/u/0/#all/${threadId}` : null;
+  }
+  return null;
+}
+
 async function contarPorStatus(
   service: ServiceClient,
   status: StatusVinculo,
@@ -252,7 +273,7 @@ async function montarResumo(service: ServiceClient): Promise<unknown> {
 
   const { data, error } = await service
     .from("documento_vinculos")
-    .select("id, registro_origem_id, nome_anexo, erro, updated_at")
+    .select("id, fonte, registro_origem_id, nome_anexo, ref_obtencao, erro, updated_at")
     .eq("status_extracao", "erro")
     .order("updated_at", { ascending: false })
     .limit(MAX_ERROS_RESUMO);
@@ -263,11 +284,14 @@ async function montarResumo(service: ServiceClient): Promise<unknown> {
   const erros = (data ?? []).map((r) => {
     const o = r as Record<string, unknown>;
     const nome = typeof o.nome_anexo === "string" ? o.nome_anexo : null;
+    const fonte = typeof o.fonte === "string" ? o.fonte : null;
     return {
       id: String(o.id),
+      fonte,
       processoId: o.registro_origem_id ?? null,
       nomeAnexo: nome,
       extensao: extensaoDoNome(nome),
+      url: fonte ? linkDoVinculo(fonte, o.ref_obtencao) : null,
       erro: typeof o.erro === "string" ? o.erro : null,
       quando: o.updated_at ?? null,
     };
