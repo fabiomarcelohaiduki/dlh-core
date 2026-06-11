@@ -10,12 +10,18 @@ import { cn } from "@/lib/utils";
 import type { AgendamentoFonteState, RecursoConfig } from "@/lib/api/types";
 
 /**
- * Recursos da fonte Nomus (config_ingestao.recursos). `processos` e o unico
- * ATIVO/editavel nesta entrega; os demais sao futuros — visiveis e desligados
- * (toggle inerte). `key` casa 1:1 com a allowlist RECURSOS_PERMITIDOS do backend.
+ * Recursos da fonte Nomus (config_ingestao.recursos). `processos` e `pessoas`
+ * sao ATIVOS/editaveis; os demais sao futuros — visiveis e desligados (toggle
+ * inerte). `key` casa 1:1 com a allowlist RECURSOS_PERMITIDOS do backend.
  */
 const RECURSOS = [
   { key: "processos", label: "Processos", descricao: "Processos comerciais", futuro: false },
+  {
+    key: "pessoas",
+    label: "Pessoas",
+    descricao: "Clientes, leads, fornecedores e transportadoras",
+    futuro: false,
+  },
   { key: "cobranca", label: "Cobrança", descricao: "Títulos e cobranças", futuro: true },
   { key: "propostas", label: "Propostas", descricao: "Propostas comerciais", futuro: true },
   { key: "pedidos", label: "Pedidos", descricao: "Pedidos de venda", futuro: true },
@@ -294,6 +300,18 @@ export function NomusCfgForm({
               {r.key === "processos" && ativo && agendamento && (
                 <div style={{ marginTop: 16 }}>
                   <AgendamentoFonteForm initial={agendamento} nota={notaFull} />
+                  <NomusDisparoForm
+                    recurso={r.key}
+                    janelaDias={janelaDias}
+                    fonteId={fonteId ?? null}
+                  />
+                </div>
+              )}
+
+              {/* Pessoas e coleta MANUAL-FIRST: so disparo (sem agendamento ainda).
+                  Cron por recurso pode ser ligado depois, medindo o custo do 1o run. */}
+              {r.key === "pessoas" && ativo && (
+                <div style={{ marginTop: 16 }}>
                   <NomusDisparoForm
                     recurso={r.key}
                     janelaDias={janelaDias}
