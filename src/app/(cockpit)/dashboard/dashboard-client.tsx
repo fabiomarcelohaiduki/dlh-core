@@ -17,9 +17,16 @@ import {
   Server,
   TriangleAlert,
 } from "lucide-react";
-import { useExecucoes, useErros, useHealthcheck } from "@/hooks/use-monitoring";
-import { useFontes } from "@/hooks/use-fontes";
-import { useExtracaoResumo } from "@/hooks/use-documentos";
+import type { QueryKey } from "@tanstack/react-query";
+import {
+  monitoringKeys,
+  useExecucoes,
+  useErros,
+  useHealthcheck,
+} from "@/hooks/use-monitoring";
+import { fonteKeys, useFontes } from "@/hooks/use-fontes";
+import { documentosKeys, useExtracaoResumo } from "@/hooks/use-documentos";
+import { useExecucoesRealtime } from "@/hooks/use-execucoes-realtime";
 import {
   conexaoDescriptor,
   healthDescriptor,
@@ -71,12 +78,56 @@ function ultimaColeta(
   return finalizada?.fim ?? fallback;
 }
 
+/** Poll rapido enquanto ha coleta ativa; lento so quando o Realtime caiu. */
+const RUNNING_POLL_MS = 3_000;
+const FALLBACK_POLL_MS = 30_000;
+
+/**
+ * Keys refrescadas a cada evento de `execucoes` (heartbeat do substrato): KPIs,
+ * lista, erros, fontes e extracao. Constante de modulo -> referencia estavel
+ * para o array de dependencias do efeito do Realtime.
+ */
+const DASHBOARD_KEYS: QueryKey[] = [
+  monitoringKeys.healthcheck,
+  monitoringKeys.execucoesRoot,
+  monitoringKeys.errosRoot,
+  fonteKeys.all,
+  documentosKeys.resumo,
+];
+
+/** Intervalo de fallback: poll rapido se coletando, senao so se desconectado. */
+function pollWhile(running: boolean, connected: boolean): number | false {
+  if (running) return RUNNING_POLL_MS;
+  return connected ? false : FALLBACK_POLL_MS;
+}
+
 export function DashboardClient() {
-  const health = useHealthcheck();
-  const execucoes = useExecucoes({ limit: 50 });
-  const erros = useErros();
-  const fontes = useFontes();
-  const extracao = useExtracaoResumo();
+  // Realtime: reusa o canal de `execucoes` (toda coleta/extracao roda como
+  // execucao) como gatilho para refrescar todos os agregados do dashboard.
+  const { connected } = useExecucoesRealtime({
+    channelName: "dashboard-realtime",
+    invalidateKeys: DASHBOARD_KEYS,
+  });
+
+  const execucoes = useExecucoes({
+    limit: 50,
+    // Rede de seguranca, independente do Realtime: poll rapido enquanto houver
+    // coleta em andamento; parado, so faz poll lento se o Realtime caiu.
+    refetchInterval: (query) => {
+      const items = query.state.data?.items ?? [];
+      const ativo = items.some((r) => r.status === "em_andamento");
+      return pollWhile(ativo, connected);
+    },
+  });
+
+  // Mesmo fallback para os demais agregados (sem forma-funcao propria).
+  const running = (execucoes.data?.items ?? []).some((r) => r.status === "em_andamento");
+  const fallback = pollWhile(running, connected);
+
+  const health = useHealthcheck({ refetchInterval: fallback });
+  const erros = useErros(undefined, { refetchInterval: fallback });
+  const fontes = useFontes({ refetchInterval: fallback });
+  const extracao = useExtracaoResumo({ refetchInterval: fallback });
 
   const healthData = health.data;
   const runs = execucoes.data?.items ?? [];

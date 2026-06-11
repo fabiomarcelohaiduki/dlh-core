@@ -50,7 +50,7 @@ function toFonte(row: FonteRow): Fonte {
  * expor o segredo (token_cifrado nao e selecionado). Alimenta o cmp-fonte-saude
  * (estado_conexao + ultima_coleta_em) e e invalidada por teste/coleta.
  */
-export function useFontes() {
+export function useFontes(options?: { refetchInterval?: number | false }) {
   return useQuery({
     queryKey: fonteKeys.all,
     queryFn: async (): Promise<Fonte[]> => {
@@ -62,6 +62,7 @@ export function useFontes() {
       if (error) throw new Error(error.message);
       return ((data ?? []) as FonteRow[]).map(toFonte);
     },
+    refetchInterval: options?.refetchInterval ?? false,
   });
 }
 

@@ -57,10 +57,11 @@ export function useExecucoes(options?: {
 }
 
 /** useErros — erros de ingestao, filtraveis por etapa (GET /ingestao/erros). */
-export function useErros(etapa?: string) {
+export function useErros(etapa?: string, options?: { refetchInterval?: number | false }) {
   return useQuery({
     queryKey: monitoringKeys.erros(etapa),
     queryFn: ({ signal }) => fetchErros(etapa, signal),
+    refetchInterval: options?.refetchInterval ?? false,
   });
 }
 

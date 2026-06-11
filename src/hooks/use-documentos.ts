@@ -20,11 +20,15 @@ export const documentosKeys = {
  * Extracao em Fontes. As contagens vem do Edge (service_role), nao de leitura
  * direta do browser (regra do projeto: count direto e fragil por RLS/grant).
  */
-export function useExtracaoResumo(options?: { enabled?: boolean }) {
+export function useExtracaoResumo(options?: {
+  enabled?: boolean;
+  refetchInterval?: number | false;
+}) {
   return useQuery({
     queryKey: documentosKeys.resumo,
     queryFn: fetchExtracaoResumo,
     enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval ?? false,
   });
 }
 
