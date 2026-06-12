@@ -231,10 +231,70 @@ async function extrairViaTika({ bytes, nomeArquivo, extension, config }) {
 }
 
 /**
- * Desempacota um container e extrai cada membro. ZIP via adm-zip; RAR/7Z via
- * node-7z/7zip-bin. Deps carregadas sob demanda (so o job de extracao precisa).
+ * Descompacta+extrai via Tika RECURSIVO (/rmeta/text). O Tika `full` ja traz
+ * commons-compress (7z/tar) e junrar (RAR4) e roda Tesseract nos membros, entao
+ * NAO precisamos de binario externo (o 7za do 7zip-bin nao decodifica RAR).
+ * A resposta e um JSON array: [0] e o container (sem texto util) e [1..] os
+ * arquivos embutidos, cada um com "X-TIKA:content". Concatenamos os membros.
  */
-async function extrairCompactado({ bytes, extension, config }) {
+async function extrairViaTikaRecursivo({ bytes, nomeArquivo, extension, config }) {
+  const headers = {
+    Accept: "application/json",
+    "Content-Type": "application/octet-stream",
+  };
+  if (nomeArquivo) {
+    headers["Content-Disposition"] = `attachment; filename="${nomeSeguroHeader(nomeArquivo)}"`;
+  }
+  const estrategia = config.ocrEstrategia === "nunca"
+    ? "no_ocr"
+    : config.ocrEstrategia === "sempre"
+    ? "ocr_and_text"
+    : "auto";
+  headers["X-Tika-PDFOcrStrategy"] = estrategia;
+  if (estrategia !== "no_ocr") headers["X-Tika-OCRLanguage"] = config.ocrIdioma;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+  try {
+    const res = await fetch(`${TIKA_ENDPOINT}/rmeta/text`, {
+      method: "PUT",
+      headers,
+      body: bytes,
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new ExtracaoError(`Tika respondeu ${res.status} para ${nomeArquivo ?? extension}`, "tika_http");
+    }
+    const partes = await res.json();
+    if (!Array.isArray(partes)) {
+      throw new ExtracaoError("resposta recursiva do Tika inesperada", "tika_rmeta");
+    }
+    const blocos = [];
+    for (let i = 1; i < partes.length; i++) {
+      const p = partes[i] ?? {};
+      const conteudo = typeof p["X-TIKA:content"] === "string" ? p["X-TIKA:content"].trim() : "";
+      if (!conteudo) continue;
+      const nome = p["resourceName"] ?? p["X-TIKA:embedded_resource_path"] ?? `membro_${i}`;
+      blocos.push(`\n===== ${nome} =====\n${conteudo}`);
+    }
+    return { texto: blocos.join("\n").trim(), usouOcr: estrategia !== "no_ocr" };
+  } catch (err) {
+    if (err instanceof ExtracaoError) throw err;
+    if (err?.name === "AbortError") {
+      throw new ExtracaoError(`Tika excedeu ${config.timeoutMs}ms`, "timeout");
+    }
+    throw new ExtracaoError(`falha ao contatar o Tika (${TIKA_ENDPOINT}): ${err?.message ?? err}`, "tika_net");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Desempacota um container e extrai cada membro. ZIP via adm-zip (controle por
+ * membro do OCR). RAR/7Z via Tika recursivo (/rmeta/text), que ja desempacota e
+ * extrai sem dependencia nova. Deps carregadas sob demanda (so o job precisa).
+ */
+async function extrairCompactado({ bytes, nomeArquivo, extension, config }) {
   if (extension === "zip") {
     let AdmZip;
     try {
@@ -256,8 +316,16 @@ async function extrairCompactado({ bytes, extension, config }) {
     }
     return { texto: partes.join("\n").trim(), usouOcr: false };
   }
+  if (extension === "rar" || extension === "7z") {
+    return await extrairViaTikaRecursivo({
+      bytes,
+      nomeArquivo: nomeArquivo ?? `arquivo.${extension}`,
+      extension,
+      config,
+    });
+  }
   throw new ExtracaoError(
-    `extensao compactada '${extension}' ainda nao implementada (RAR/7Z exigem 7zip-bin)`,
+    `extensao compactada '${extension}' nao suportada`,
     "compactado_nao_suportado",
   );
 }
@@ -309,7 +377,7 @@ export async function extrairTexto({ bytes, nomeArquivo = null, extension = null
     texto = stripTags(decodeBytes(bytes));
     via = "texto";
   } else if (COMPACTADO.has(ext)) {
-    ({ texto, usouOcr } = await extrairCompactado({ bytes, extension: ext, config: cfg }));
+    ({ texto, usouOcr } = await extrairCompactado({ bytes, nomeArquivo, extension: ext, config: cfg }));
     via = "compactado";
   } else {
     ({ texto, usouOcr } = await extrairViaTika({ bytes, nomeArquivo, extension: ext, config: cfg }));

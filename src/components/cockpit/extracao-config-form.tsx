@@ -28,7 +28,7 @@ const FONTES: ReadonlyArray<{ value: FonteExtracao; label: string }> = [
 /**
  * Extensoes que o extrator (extrator.mjs) processa, agrupadas para o painel.
  * `ativa: false` = chip desabilitado (cinza): formato ainda nao suportado pelo
- * runner (RAR/7Z exigem 7zip-bin, adiados). Os tokens batem 1:1 com o dispatch
+ * runner. Os tokens batem 1:1 com o dispatch
  * do extrator; a allowlist salva e EXATAMENTE o conjunto marcado (modo
  * explicito — nunca null/todas), entao um formato desmarcado nao e extraido.
  */
@@ -81,7 +81,7 @@ const GRUPOS_EXTENSOES: ReadonlyArray<{
   },
   {
     grupo: "Compactados",
-    itens: [{ value: "zip" }, { value: "rar", ativa: false }, { value: "7z", ativa: false }],
+    itens: [{ value: "zip" }, { value: "rar" }, { value: "7z" }],
   },
 ];
 
@@ -352,7 +352,8 @@ export function ExtracaoConfigForm({ initial }: { initial: ConfigExtracaoState }
           {errors.extensoes?.message ?? "Selecione ao menos uma extensão."}
         </div>
         <div className="helper">
-          Só os tipos marcados entram na fila de extração. RAR e 7z ainda não são suportados.
+          Só os tipos marcados entram na fila de extração. RAR e 7z são extraídos via Tika (sem
+          dependência extra).
         </div>
       </div>
 
