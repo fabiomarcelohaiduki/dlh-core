@@ -155,11 +155,6 @@ function ProdutoDetalhe({
         produto={produto}
       />
 
-      <div className="section-title">
-        <h3>Fotos do produto</h3>
-      </div>
-      <FotosUploader produtoId={produto.id} />
-
       <SkusSection produtoId={produto.id} skus={skus} />
 
       <div className="section-title">
