@@ -366,11 +366,20 @@ async function processAviso(
 }
 
 /**
- * Propaga em BATCH o favorito para a Effecti (PUT favoritar-licitacao) e, se
- * a API confirmar (200), marca favorito_propagado=true nas linhas para nao
- * re-disparar a cada coleta. BEST-EFFORT: falha da API ou do update NAO derruba
- * o bloco; a flag permanece false e o write-back e tentado de novo na proxima
- * coleta. Esvazia o set apos sucesso completo.
+ * Tamanho do lote do PUT favoritar-licitacao. Lotes grandes (~100+ ids) eram
+ * rejeitados/expiravam na Effecti, deixando TODOS os ids do bloco sem marcar a
+ * flag e presos em re-tentativa eterna a cada coleta. Quebrar em lotes pequenos
+ * isola a falha: um lote ruim nao contamina os demais.
+ */
+const FAVORITO_BATCH_SIZE = 25;
+
+/**
+ * Propaga em lotes o favorito para a Effecti (PUT favoritar-licitacao) e, por
+ * lote confirmado (200), marca favorito_propagado=true nas linhas para nao
+ * re-disparar a cada coleta. BEST-EFFORT POR LOTE: falha da API ou do update de
+ * um lote NAO derruba o bloco nem os outros lotes; os ids do lote ficam com a
+ * flag false e o write-back e tentado de novo na proxima coleta (idempotente).
+ * Remove do set apenas os ids efetivamente marcados.
  */
 async function flushFavoritos(
   deps: EffectiBlockDeps,
@@ -380,22 +389,28 @@ async function flushFavoritos(
   if (propagarIds.size === 0) return;
   const lista = [...propagarIds];
 
-  const ok = await deps.connector.favoritarLicitacao(lista, signal);
-  if (!ok) return; // mantem flag false -> re-tenta na proxima coleta.
+  for (let i = 0; i < lista.length; i += FAVORITO_BATCH_SIZE) {
+    if (signal?.aborted) return;
+    const chunk = lista.slice(i, i + FAVORITO_BATCH_SIZE);
 
-  const { error } = await deps.db
-    .from("avisos")
-    .update({ favorito_propagado: true })
-    .in("effecti_id", lista.map(String));
-  if (error) {
-    // Favorito ja foi propagado na Effecti, mas a flag nao foi marcada: a
-    // proxima coleta re-propaga (idempotente -> seguro). Apenas loga.
-    console.error("[effecti-pipeline] favorito propagado mas falha ao marcar flag", {
-      error: error.message,
-    });
-    return;
+    const ok = await deps.connector.favoritarLicitacao(chunk, signal);
+    if (!ok) continue; // mantem flag false neste lote -> re-tenta na proxima coleta.
+
+    const { error } = await deps.db
+      .from("avisos")
+      .update({ favorito_propagado: true })
+      .in("effecti_id", chunk.map(String));
+    if (error) {
+      // Favorito ja foi propagado na Effecti, mas a flag nao foi marcada: a
+      // proxima coleta re-propaga (idempotente -> seguro). Apenas loga.
+      console.error("[effecti-pipeline] favorito propagado mas falha ao marcar flag", {
+        error: error.message,
+        lote: chunk.length,
+      });
+      continue;
+    }
+    for (const id of chunk) propagarIds.delete(id);
   }
-  propagarIds.clear();
 }
 
 // ---------------------------------------------------------------------
