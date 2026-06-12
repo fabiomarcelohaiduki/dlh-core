@@ -72,6 +72,65 @@ export function detectarExtensao(nomeArquivo, explicita) {
   return m ? m[1] : "";
 }
 
+/**
+ * Distingue OOXML/ODT de um .zip puro lendo o nome da 1a entrada do ZIP
+ * (offset 30, tamanho em 26-27). OOXML comeca com "[Content_Types].xml";
+ * ODT comeca com "mimetype". Qualquer outra coisa = container generico.
+ */
+function sniffZipFamily(bytes) {
+  try {
+    if (bytes.byteLength < 34) return "zip";
+    const nomeLen = bytes[26] | (bytes[27] << 8);
+    const nome = new TextDecoder("latin1").decode(bytes.subarray(30, 30 + nomeLen));
+    if (nome === "[Content_Types].xml") return "docx"; // ooxml -> Tika resolve o subtipo real
+    if (nome === "mimetype") return "odt";
+    return "zip";
+  } catch {
+    return "zip";
+  }
+}
+
+/**
+ * Detecta o tipo por ASSINATURA (magic bytes) quando o nome nao da uma
+ * extensao reconhecida. Anexos do Effecti chegam com nome-titulo
+ * ("EDITAL 59/26 677kB") sem extensao real -> detectarExtensao devolve lixo
+ * ("", "kb"...) e a allowlist barra um PDF valido antes do Tika. Aqui olhamos
+ * os primeiros bytes para recuperar o tipo. "" quando nao reconhece (mantem o
+ * comportamento anterior). O label so serve p/ roteamento+allowlist; o Tika
+ * faz a deteccao real do subtipo pelos proprios bytes.
+ */
+function detectarPorAssinatura(bytes) {
+  if (!bytes || bytes.byteLength < 4) return "";
+  const b = bytes;
+  // %PDF
+  if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return "pdf";
+  // {\rtf
+  if (b[0] === 0x7b && b[1] === 0x5c && b[2] === 0x72 && b[3] === 0x74 && b[4] === 0x66) return "rtf";
+  // OLE2 (doc/xls/ppt legados): D0 CF 11 E0
+  if (b[0] === 0xd0 && b[1] === 0xcf && b[2] === 0x11 && b[3] === 0xe0) return "doc";
+  // PNG
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "png";
+  // JPG
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "jpg";
+  // GIF8
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return "gif";
+  // TIFF (II* / MM*)
+  if ((b[0] === 0x49 && b[1] === 0x49 && b[2] === 0x2a && b[3] === 0x00) ||
+    (b[0] === 0x4d && b[1] === 0x4d && b[2] === 0x00 && b[3] === 0x2a)) return "tiff";
+  // BMP
+  if (b[0] === 0x42 && b[1] === 0x4d) return "bmp";
+  // 7z
+  if (b[0] === 0x37 && b[1] === 0x7a && b[2] === 0xbc && b[3] === 0xaf) return "7z";
+  // RAR
+  if (b[0] === 0x52 && b[1] === 0x61 && b[2] === 0x72 && b[3] === 0x21) return "rar";
+  // ZIP-family (PK\x03\x04 / \x05\x06 / \x07\x08): zip puro OU OOXML OU ODT.
+  if (b[0] === 0x50 && b[1] === 0x4b &&
+    (b[2] === 0x03 || b[2] === 0x05 || b[2] === 0x07)) {
+    return sniffZipFamily(bytes);
+  }
+  return "";
+}
+
 /** SHA-256 hex dos bytes crus. */
 export function sha256Bytes(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -209,7 +268,7 @@ async function extrairCompactado({ bytes, extension, config }) {
  */
 export async function extrairTexto({ bytes, nomeArquivo = null, extension = null, config = {} }) {
   const cfg = { ...CONFIG_PADRAO, ...config };
-  const ext = detectarExtensao(nomeArquivo, extension);
+  let ext = detectarExtensao(nomeArquivo, extension);
 
   if (!(bytes instanceof Uint8Array)) bytes = new Uint8Array(bytes);
   if (bytes.byteLength === 0) throw new ExtracaoError("arquivo vazio (0 bytes)", "vazio");
@@ -219,13 +278,23 @@ export async function extrairTexto({ bytes, nomeArquivo = null, extension = null
       "muito_grande",
     );
   }
-  if (cfg.extensoesHabilitadas) {
-    const allow = cfg.extensoesHabilitadas instanceof Set
+
+  const allow = cfg.extensoesHabilitadas
+    ? (cfg.extensoesHabilitadas instanceof Set
       ? cfg.extensoesHabilitadas
-      : new Set(cfg.extensoesHabilitadas);
-    if (!allow.has(ext)) {
-      throw new ExtracaoError(`extensao '${ext}' desabilitada na config`, "extensao_desabilitada");
-    }
+      : new Set(cfg.extensoesHabilitadas))
+    : null;
+
+  // Fallback por assinatura: quando o nome nao deu extensao reconhecida (anexo
+  // Effecti com nome-titulo), re-detecta pelos bytes para nao barrar um PDF
+  // valido na allowlist. So sobrescreve se a assinatura devolver algo.
+  if (!ext || (allow && !allow.has(ext))) {
+    const porAssinatura = detectarPorAssinatura(bytes);
+    if (porAssinatura) ext = porAssinatura;
+  }
+
+  if (allow && !allow.has(ext)) {
+    throw new ExtracaoError(`extensao '${ext}' desabilitada na config`, "extensao_desabilitada");
   }
 
   const sha = sha256Bytes(bytes);
