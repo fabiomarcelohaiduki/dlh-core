@@ -1,7 +1,7 @@
 # SPEC_PROGRESS - DLH Core
 
-## Status: 7/7 sprints concluidas
-Ultima atualizacao: 2026-06-07T04:39:11.037Z
+## Status: 13/13 sprints concluidas
+Ultima atualizacao: 2026-06-12T20:03:29.684Z
 
 ---
 
@@ -88,3 +88,63 @@ Ultima atualizacao: 2026-06-07T04:39:11.037Z
 ## Sprint 007 - Frontend: execucoes e erros multi-origem com Realtime [CONCLUIDA]
 - Execucoes com filtros, RunsTable e Realtime: Generalizar ExecucoesClient com OrigemFiltro e RecursoFiltro e atualizar RunsTable com colunas de origem/recurso e progresso/checkpoint ao vivo.
 - Erros com filtros e ErrosTable: Generalizar ErrosClient com OrigemFiltro e RecursoFiltro e atualizar ErrosTable com colunas de origem/recurso/severidade/etapa.
+
+## Sprint 001 - Schema do dominio Produtos - tabelas, constraints e indices (migration) [CONCLUIDA]
+- 17 tabelas novas com colunas, FKs, CHECKs e indices: Criar em UMA migration timestampada (<timestamp>_produtos_schema.sql) todas as tabelas: produto_linhas, produto_linha_atributos, produtos, produto_skus, produto_imagens, insumos, insumo_precos, sku_composicao, sku_custo_aquisicao, parametros_calculo, parametro_regional, sku_precos_calculados, clientes_revenda, revenda_precos, cotacao_diretrizes, cotacao_regras, politica_participacao. Seguir EXATAMENTE os tipos, nullable, defaults, constraints e indices da secao 2.1 da SPEC.
+
+## Sprint 003 - Motor de calculo deterministico e triggers de recalculo [CONCLUIDA]
+- Funcao fn_recalcular_sku(sku_id) deterministica: Funcao que obtem o Custo Variavel do SKU (fabricado: soma quantidade*preco_vigente dos insumos da BOM + mao de obra = tempo_producao*taxa_horaria resolvida; comprado: custo_aquisicao vigente), resolve percentuais por COALESCE PRODUTO->LINHA->GLOBAL (impostos/frete/despesas/lucro/taxa_horaria) e o vetor regional por regiao, encadeia os percentuais com precisao interna de 4 casas e regrava as 10 linhas (5 regioes x CIF/FOB) em sku_precos_calculados preservando valor_anterior. Seta estado_calculo='vigente' ao concluir. Valor final arredondado a 2 casas ROUND_HALF_UP; custo_base mantem 4 casas.
+- Tratamento de entradas faltantes (estado erro): Quando faltarem entradas essenciais, o SKU vai para estado_calculo='erro' sem gravar valor. Fabricado: composicao vazia OU algum insumo sem preco vigente. Comprado: sem custo de aquisicao vigente. Apos sanar a causa, novo recalculo retorna o SKU a 'vigente'.
+- Triggers de recalculo sincrono: Criar os 7 triggers (secao 2.3) que invocam fn_recalcular_sku para os SKUs afetados DENTRO da propria transacao (sincrono e atomico): em sku_composicao (I/U/D), insumo_precos (I/U marca SKUs cuja BOM usa o insumo), parametros_calculo (I/U/D no escopo), parametro_regional (I/U/D), produto_skus AFTER UPDATE OF tempo_producao, sku_custo_aquisicao (I/U/D). Ao commitar a mudanca, os precos ja estao recalculados.
+
+## Sprint 004 - Backend - Linhas, Atributos, Produtos e SKUs [CONCLUIDA]
+- Edge Function produtos-linhas (Linhas + atributos): CRUD de produto_linhas (GET com filtro ?ativo=, POST nome unico, PUT incl. ativo, DELETE bloqueado 409 se houver produtos vinculados) e sub-rota /:id/atributos para gerenciar produto_linha_atributos (GET/POST/PUT/DELETE, chave unica por linha).
+- Edge Function produtos-catalogo (Produtos): CRUD de produtos com validacao de atributos JSONB contra o schema da Linha: rejeita chave fora do schema E exige toda chave obrigatorio=true da Linha. GET /produtos?linha_id= lista; GET /produtos/:id retorna produto + atributos_schema + skus + imagens. DELETE bloqueado 409 se houver SKUs vinculados.
+- CRUD de SKUs + reindex de diretriz_producao: Sub-rotas /produtos/:id/skus e /skus/:skuId para CRUD de produto_skus. POST valida codigo_sku unico e tipo_origem (fabricado default/comprado). Aceita diretriz_producao e tempo_producao opcionais. Ao salvar diretriz_producao, reindexa o chunk em memoria_chunks (origem='produto', tipo='produto-cotacao', registro_id=sku.id) via delete-then-insert idempotente; ao esvaziar diretriz_producao remove os chunks. Bloqueia incoerencias de tipo_origem (400).
+
+## Sprint 005 - Backend - Insumos, Precos, Composicao e Custo de Aquisicao [CONCLUIDA]
+- CRUD de insumos com bloqueio por uso: produtos-insumos: CRUD de insumos (categoria in MP/embalagem/insumo, unidade, ativo). DELETE bloqueado 409 se o insumo estiver referenciado em qualquer sku_composicao; insumo em uso so sai por ativo=false. Insumo inativo nao selecionavel em novas composicoes (validacao na borda).
+- Precos de fornecedor + edicao em lote: Sub-rota /insumos/:id/precos (GET lista historico, POST cria nova faixa de vigencia preservando historico). Rota /insumo-precos/batch (PUT) edita ate 200 precos numa unica acao (400 acima). Escritas com logSensitiveAction. Os triggers da sprint 2 disparam recalculo automatico dos SKUs afetados.
+- Composicao (BOM) e custo de aquisicao: produtos-composicao: CRUD de sku_composicao (/skus/:skuId/composicao e /composicao/:id) SO para SKU fabricado (400 se comprado), insumo inativo nao selecionavel, insumo ja na composicao 409. CRUD de sku_custo_aquisicao (/skus/:skuId/custo-aquisicao e /custo-aquisicao/:id) SO para SKU comprado (400 se fabricado), com historico de vigencia (GET vigente; ?historico=true) e logSensitiveAction.
+
+## Sprint 006 - Backend - Parametros e Precos Calculados [CONCLUIDA]
+- Parametros escalares e regionais: produtos-parametros: GET /parametros?nivel=&escopo_id= e PUT /parametros (upsert por nivel/escopo). GET/PUT /parametros-regional (vetor 5 regioes, override parcial). Escritas com logSensitiveAction. Os triggers disparam recalculo dos SKUs do escopo.
+- Parametros resolvidos (efetivo vs herdado): GET /parametros-resolvidos?produto_id= retorna o valor EFETIVO de cada parametro escalar e de cada regiao para um Produto, indicando a origem (global/linha/produto). Resolucao PRODUTO->LINHA->GLOBAL.
+- Precos calculados, apoio, recalculo e pendentes: produtos-precos: GET /skus/:skuId/precos (grid regiao x patamar + estado + apoio + custo_base). PUT /skus/:skuId/precos/apoio (grava apenas ifp/preco_concorrencia/custo_ideal, nunca valor/custo_base; null limpa). POST /skus/:skuId/recalcular (chama fn_recalcular_sku, fallback manual). GET /precos/pendentes (SKUs pendente/erro).
+
+## Sprint 007 - Backend - Imagens (Storage) e Revenda [CONCLUIDA]
+- Upload, listagem e remocao de imagens: produtos-imagens: POST multipart (file + produto_id?/sku_id? + ordem? + legenda?) grava no bucket privado 'produtos' via service_role e registra metadados. GET lista com signed URL temporaria (TTL 1h). DELETE remove objeto + metadado sem afetar o cadastro. Validacao na borda: max 5MB, MIME image/jpeg|png|webp, max 10 fotos por Produto e 10 por SKU.
+- Clientes e precos de revenda: produtos-revenda: CRUD de clientes_revenda. Sub-rota /clientes-revenda/:id/precos (e /revenda-precos/:id) com HISTORICO de vigencia: GET retorna vigente por SKU (e historico com ?historico=true), POST cria nova faixa sem sobrescrever as anteriores. Estrutura SEPARADA do preco de licitacao.
+
+## Sprint 008 - Backend - Criterios, Politica de Participacao e indexacao semantica [CONCLUIDA]
+- Diretrizes textuais de cotacao com reindex: /cotacao-diretrizes?nivel=&escopo_id= CRUD por LINHA/PRODUTO. Ao salvar texto nao-vazio, reindexa em memoria_chunks (registro_id=cotacao_diretrizes.id). Ao deletar/esvaziar texto, remove os chunks.
+- Regras estruturadas por atributo: /cotacao-regras?nivel=&escopo_id= CRUD de regras (tipo_regra in faixa/opcional/substituicao). Rejeita valor_min > valor_max com 400.
+- Politica de participacao com reindex de diretriz_texto: /politica-participacao?nivel=&escopo_id= CRUD (participa in sim/nao/condicional + condicao + diretriz_texto + preferencia). Reindexa diretriz_texto em memoria_chunks (registro_id=politica_participacao.id); deletar/esvaziar remove os chunks.
+
+## Sprint 009 - Backend - Consumo pela Lia (/v1) [CONCLUIDA]
+- v1-produtos-consulta (3 blocos): GET /v1-produtos-consulta?sku_id= (ou ?produto_id=) retorna produto, sku (incl. tipo_origem), preco (CIF/FOB por regiao + estado_calculo), caracteristicas (atributos + comercial) e informacoes_cotacao (diretrizes + regras + politica). NAO expoe BOM, taxa horaria, percentuais nem lucro. Bloco PRECO nunca e ocultado pelo estado: sempre retorna ultimo valor + estado explicito; HTTP 200 mesmo em pendente/erro.
+- v1-produtos-busca-semantica: POST /v1-produtos-busca-semantica recebe {query, limite?}, gera embedding bge-m3 vector(1024) e chama a RPC busca_semantica_chunks(p_embedding, p_limite, p_escopo='produto-cotacao'). query 1..2000 chars, limite default 10 max 50.
+
+## Sprint 010 - Backend - Documentos PDF (MVP) [CONCLUIDA]
+- Ficha tecnica e lista de precos de licitacao: POST /documentos/ficha-tecnica {produto_id} gera PDF de atributos + fotos (campos ausentes omitidos). POST /documentos/lista-precos-licitacao {sku_ids:[uuid]} gera PDF CIF/FOB por regiao dos SKUs, sinalizando pendentes de recalculo. Ambos retornam application/pdf streaming binario efemero (sem persistir no Storage).
+- Composicao de custos do pregoeiro: POST /documentos/composicao-custos {sku_id} gera PDF da composicao de custos a partir da BOM + motor (valores so do motor). SO para SKU fabricado; SKU comprado retorna 422. Disponibiliza internamente a estrutura {itens, custos, percentuais, preco_final} para compor o PDF.
+
+## Sprint 011 - Frontend - Camada de API, hooks, tipos e navegacao [CONCLUIDA]
+- Tipos e modulos de API: Definir tipos em src/lib/api/types.ts (ProdutoLinha, LinhaAtributo, Produto, ProdutoDetalhe, ProdutoSku, ProdutoImagem, Insumo, InsumoPreco, SkuComposicaoItem, SkuCustoAquisicao, ParametrosCalculo, ParametroRegional, ParametrosResolvidos, PrecoCalculadoGrid, PrecoApoio, PrecoPendente, CotacaoDiretriz, CotacaoRegra, PoliticaParticipacao, ClienteRevenda, RevendaPreco) e modulos produtos.ts, insumos.ts, parametros.ts, criterios.ts, revenda.ts consumindo as Edge Functions via client/proxy existente. NAO inclui documentos.ts: a UI de exports em PDF (US-17/18/19) e Fase seguinte de UI (pos espinha dorsal) e exige nova revisao do Design Lock (SPEC 4.1) - fica fora deste plano.
+- Hooks TanStack Query: Hooks em src/hooks/ com queryKeys namespaced e invalidacao em mutacao: use-linhas, use-linha-atributos, use-produtos, use-produto, use-skus, use-fotos, use-insumos, use-insumo-precos, use-composicao, use-custo-aquisicao, use-parametros, use-parametros-resolvidos, use-precos-calculados, use-apoio-precos (mutation), use-recalcular-sku (mutation), use-precos-pendentes, use-criterios, use-politica, use-revenda. NAO inclui use-documentos: a UI de exports em PDF e diferida para a fase seguinte (SPEC 4.1).
+- Navegacao do grupo Produtos: Adicionar o grupo 'Produtos' no sidebar (src/lib/nav.ts) e atualizar design-contract.json com os itens de menu: Linhas & Produtos (/produtos), Insumos & Precos (/insumos), Parametros de custo (/parametros-custo), Revenda (/revenda). Padrao 1 item de menu = 1 tela.
+
+## Sprint 012 - Frontend - Linhas, Produtos e detalhe denso [CONCLUIDA]
+- Tela /produtos (master-detail) e atributos da Linha: Componentes linhas-table, linha-form (inline em card padrao cfg-form) e atributos-editor (pares chave-valor dinamicos definindo o conjunto de atributos da Linha). Drill-down Linha -> Produtos da Linha. Estados loading/error/empty.
+- Detalhe denso do Produto + SKUs + fotos: produto-detalhe-client (/produtos/[produtoId]) com produto-form (atributos flexiveis renderizados do schema da Linha + campos comerciais), sub-secao de SKUs (sku-form com tipo_origem fabricado/comprado; diretriz e tempo so para fabricado) e fotos-uploader (upload/ordem/legenda, preview, estado sem fotos).
+- Grid de preco calculado com estados: preco-regional-grid (5 regioes x CIF/FOB) com status-pill por estado (vigente=ok, pendente=warn, erro=err) e acao 'Recalcular' (use-recalcular-sku) quando pendente/erro. apoio-precos-form para captura manual de ifp/preco_concorrencia/custo_ideal; valor/custo_base read-only.
+
+## Sprint 013 - Frontend - Insumos & Precos e Parametros de custo [CONCLUIDA]
+- Tela /insumos com precos e composicao: insumos-table (categoria, unidade, ativo), insumo-precos-lote-form (edicao EM LOTE de precos, destaque do vigente), composicao-editor (BOM do SKU fabricado: seletor de insumo + quantidade/unidade) e custo-aquisicao-form (SKU comprado: fornecedor + custo + vigencia com historico).
+- Tela /parametros-custo (3 niveis + regional): parametros-form (impostos, frete, despesas, lucro, taxa horaria, vetor regional) com badge de origem efetivo/herdado (GLOBAL/LINHA/PRODUTO) por valor e por regiao. Inclui grid regional x patamar com status-pill.
+- Bloco de pendentes de recalculo: precos-pendentes-list (use-precos-pendentes) em /parametros-custo: lista SKUs com estado_calculo pendente/erro, cada item com status-pill e atalho para recalculo manual (use-recalcular-sku).
+
+## Sprint 014 - Frontend - Revenda, criterios e politica [CONCLUIDA]
+- Tela /revenda: clientes-revenda-table (clientes de revenda) e revenda-precos-form (tabela de precos por cliente/SKU com vigencia/historico). Canal separado do preco de licitacao.
+- Criterios e regras de cotacao: criterios-form (diretrizes textuais por Linha/Produto) e regras-estruturadas-form (regras por atributo: faixa/opcional/substituicao) integrados ao detalhe do Produto e ao nivel Linha em /produtos.
+- Politica de participacao: politica-participacao-form (flag participa sim/nao/condicional + condicao + diretriz_texto + preferencia) no detalhe do Produto e no nivel Linha.

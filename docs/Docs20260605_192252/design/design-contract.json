@@ -94,6 +94,38 @@
           "US-17",
           "US-18"
         ]
+      },
+      {
+        "id": "nav-produtos",
+        "label": "Linhas & Produtos",
+        "targetScreenId": "produtos",
+        "userStoryIds": [
+          "US-00"
+        ]
+      },
+      {
+        "id": "nav-insumos",
+        "label": "Insumos & Preços",
+        "targetScreenId": "insumos",
+        "userStoryIds": [
+          "US-00"
+        ]
+      },
+      {
+        "id": "nav-parametros-custo",
+        "label": "Parâmetros de custo",
+        "targetScreenId": "parametros-custo",
+        "userStoryIds": [
+          "US-00"
+        ]
+      },
+      {
+        "id": "nav-revenda",
+        "label": "Revenda",
+        "targetScreenId": "revenda",
+        "userStoryIds": [
+          "US-00"
+        ]
       }
     ],
     "secondary": [

@@ -42,8 +42,12 @@ async function handle(
   if (contentType) headers.set("Content-Type", contentType);
 
   const method = req.method;
+  // arrayBuffer preserva uploads binarios (multipart/form-data de imagens) que
+  // req.text() corromperia; tambem encaminha corpos JSON normalmente.
   const body =
-    method === "GET" || method === "HEAD" ? undefined : await req.text();
+    method === "GET" || method === "HEAD"
+      ? undefined
+      : await req.arrayBuffer();
 
   let upstream: Response;
   try {
@@ -69,3 +73,4 @@ async function handle(
 export const GET = handle;
 export const POST = handle;
 export const PUT = handle;
+export const DELETE = handle;

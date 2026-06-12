@@ -471,3 +471,348 @@ export interface DispararDriveResponse {
   ok: boolean;
   requestId: number | null;
 }
+
+// =====================================================================
+// Modulo Produtos — tipos do contrato das Edge Functions produtos-* (secao
+// 4.5 da SPEC). Nomes em PascalCase; campos em snake_case espelhando o JSON
+// cru do backend (a UI NAO faz snake->camel neste dominio: o banco e a fonte
+// de verdade e os formularios/telas consomem os mesmos nomes das colunas).
+// Esta camada NAO consome /v1 (exclusivo da Lia).
+// =====================================================================
+
+// --- Enums de dominio (espelham os CHECKs do schema de produtos) ---
+/** Tipo de um atributo de Linha (produto_linha_atributos.tipo). */
+export type AtributoTipo = "texto" | "numero" | "booleano";
+/** Origem do SKU: fabricado (BOM) ou comprado (custo de aquisicao). */
+export type SkuTipoOrigem = "fabricado" | "comprado";
+/** Estado do calculo de preco do SKU/linha de preco. */
+export type EstadoCalculo = "vigente" | "pendente" | "erro";
+/** Categoria do insumo (insumos.categoria). */
+export type InsumoCategoria = "MP" | "embalagem" | "insumo";
+/** Nivel de heranca dos parametros de calculo (global -> linha -> produto). */
+export type ParametroNivel = "global" | "linha" | "produto";
+/** Regiao do vetor regional / grid de precos. */
+export type Regiao = "S" | "SE" | "CO" | "NE" | "N";
+/** Patamar de preco (com frete = CIF; sem frete = FOB). */
+export type Patamar = "CIF" | "FOB";
+/** Nivel das diretrizes/regras/politica de cotacao (linha ou produto). */
+export type CotacaoNivel = "linha" | "produto";
+/** Tipo de regra estruturada de cotacao (cotacao_regras.tipo_regra). */
+export type CotacaoTipoRegra = "faixa" | "opcional" | "substituicao";
+/** Decisao de participacao em licitacao (politica_participacao.participa). */
+export type PoliticaParticipa = "sim" | "nao" | "condicional";
+
+/** Envelope paginado padrao das listagens de produtos (?limit=&offset=). */
+export interface Paginated<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+// ---------------------------------------------------------------------
+// Dominio A — Linhas, Atributos, Produtos, SKUs e Imagens
+// ---------------------------------------------------------------------
+
+/** Linha/segmento de produto (produto_linhas). nome e a chave natural. */
+export interface ProdutoLinha {
+  id: string;
+  nome: string;
+  descricao: string | null;
+  ativo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Atributo valido de uma Linha (produto_linha_atributos). */
+export interface LinhaAtributo {
+  id: string;
+  linha_id: string;
+  chave: string;
+  tipo: AtributoTipo;
+  obrigatorio: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Subconjunto do atributo exposto no detalhe do produto (atributos_schema). */
+export interface AtributoSchema {
+  chave: string;
+  tipo: AtributoTipo;
+  obrigatorio: boolean;
+}
+
+/** Produto/Familia vinculado a uma Linha (produtos). atributos e JSONB livre. */
+export interface Produto {
+  id: string;
+  linha_id: string;
+  nome: string;
+  atributos: Record<string, unknown>;
+  prazo_entrega: string | null;
+  disponibilidade: string | null;
+  pedido_minimo: string | null;
+  ativo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Variante/SKU de um Produto (produto_skus). */
+export interface ProdutoSku {
+  id: string;
+  produto_id: string;
+  codigo_sku: string;
+  tipo_origem: SkuTipoOrigem;
+  dimensoes: Record<string, unknown> | null;
+  tolerancia_pct: number | null;
+  acabamento: string | null;
+  peso_gr: number | null;
+  diretriz_producao: string | null;
+  tempo_producao: number | null;
+  estado_calculo: EstadoCalculo;
+  ativo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Foto de Produto e/ou SKU (produto_imagens). `signed_url` so vem na listagem
+ * (URL assinada temporaria, TTL 1h); `created_at`/`updated_at` so no detalhe.
+ */
+export interface ProdutoImagem {
+  id: string;
+  produto_id: string | null;
+  sku_id: string | null;
+  storage_path: string;
+  signed_url?: string | null;
+  ordem: number;
+  legenda: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** GET /produtos-catalogo/produtos/:id — detalhe agregado do produto. */
+export interface ProdutoDetalhe {
+  produto: Produto;
+  atributos_schema: AtributoSchema[];
+  skus: ProdutoSku[];
+  imagens: ProdutoImagem[];
+}
+
+// ---------------------------------------------------------------------
+// Dominio B — Insumos, precos de fornecedor, composicao (BOM) e custo
+// de aquisicao. As escritas disparam o recalculo SINCRONO dos SKUs no
+// backend (triggers); a UI apenas invalida os caches de precos.
+// ---------------------------------------------------------------------
+
+/** Insumo / materia-prima (insumos). */
+export interface Insumo {
+  id: string;
+  nome: string;
+  categoria: InsumoCategoria;
+  unidade: string;
+  ativo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Faixa de preco de fornecedor de um insumo, com vigencia (insumo_precos). */
+export interface InsumoPreco {
+  id: string;
+  insumo_id: string;
+  fornecedor: string | null;
+  preco: number;
+  vigencia_inicio: string;
+  vigencia_fim: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Item da BOM de um SKU fabricado (sku_composicao). */
+export interface SkuComposicaoItem {
+  id: string;
+  sku_id: string;
+  insumo_id: string;
+  quantidade: number;
+  unidade: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Faixa de custo de aquisicao de um SKU comprado (sku_custo_aquisicao). */
+export interface SkuCustoAquisicao {
+  id: string;
+  sku_id: string;
+  fornecedor: string | null;
+  custo: number;
+  vigencia_inicio: string;
+  vigencia_fim: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Resultado do PUT /insumo-precos/batch (edicao em lote de precos). */
+export interface InsumoPrecoBatchResponse {
+  updated: number;
+  skus_marcados_recalculo: number;
+}
+
+// ---------------------------------------------------------------------
+// Dominio C — Parametros de calculo e precos calculados
+// ---------------------------------------------------------------------
+
+/** Parametros escalares por nivel/escopo (parametros_calculo). */
+export interface ParametrosCalculo {
+  id: string;
+  nivel: ParametroNivel;
+  escopo_id: string | null;
+  impostos_pct: number | null;
+  frete_pct: number | null;
+  despesas_pct: number | null;
+  lucro_pct: number | null;
+  lucro_minimo_pct: number | null;
+  taxa_horaria: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Uma regiao do vetor regional por nivel/escopo (parametro_regional). */
+export interface ParametroRegional {
+  id: string;
+  nivel: ParametroNivel;
+  escopo_id: string | null;
+  regiao: Regiao;
+  percentual: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Campos escalares resolviveis dos parametros de calculo. */
+export type ParametroEscalarCampo =
+  | "impostos_pct"
+  | "frete_pct"
+  | "despesas_pct"
+  | "lucro_pct"
+  | "lucro_minimo_pct"
+  | "taxa_horaria";
+
+/** Valor efetivo de um parametro + a origem (nivel) de onde foi herdado. */
+export interface ParametroResolvidoEscalar {
+  valor: number | null;
+  origem: ParametroNivel;
+}
+
+/** Valor efetivo de uma regiao + a origem (nivel) de onde foi herdada. */
+export interface ParametroResolvidoRegiao {
+  percentual: number | null;
+  origem: ParametroNivel;
+}
+
+/**
+ * GET /parametros-resolvidos?produto_id= — valor EFETIVO de cada parametro
+ * escalar e de cada regiao para um Produto, indicando a origem (PRODUTO ->
+ * LINHA -> GLOBAL).
+ */
+export interface ParametrosResolvidos {
+  escalares: Record<ParametroEscalarCampo, ParametroResolvidoEscalar>;
+  regional: Record<Regiao, ParametroResolvidoRegiao>;
+}
+
+/** Uma celula do grid de precos (regiao x patamar) — campos de exibicao. */
+export interface PrecoCalculadoLinha {
+  regiao: Regiao;
+  patamar: Patamar;
+  valor: number | null;
+  estado: EstadoCalculo;
+  calculado_em: string | null;
+}
+
+/**
+ * Indicadores de apoio do SKU (sku_precos_calculados), os UNICOS campos
+ * gravaveis pela UI; valor/custo_base sao exclusivos do motor (RF-23).
+ */
+export interface PrecoApoio {
+  ifp: number | null;
+  preco_concorrencia: number | null;
+  custo_ideal: number | null;
+}
+
+/** GET /skus/:skuId/precos — grid (regiao x patamar) + estado + apoio. */
+export interface PrecoCalculadoGrid {
+  estado_calculo: EstadoCalculo;
+  precos: PrecoCalculadoLinha[];
+  apoio: PrecoApoio;
+  custo_base: number | null;
+}
+
+/** Item de GET /precos/pendentes — SKU pendente/erro de recalculo. */
+export interface PrecoPendente {
+  sku_id: string;
+  codigo_sku: string;
+  estado_calculo: EstadoCalculo;
+}
+
+// ---------------------------------------------------------------------
+// Dominio E — Diretrizes/regras de cotacao e politica de participacao
+// ---------------------------------------------------------------------
+
+/** Diretriz textual de cotacao por LINHA/PRODUTO (cotacao_diretrizes). */
+export interface CotacaoDiretriz {
+  id: string;
+  nivel: CotacaoNivel;
+  escopo_id: string;
+  texto: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Regra estruturada de cotacao por atributo (cotacao_regras). */
+export interface CotacaoRegra {
+  id: string;
+  nivel: CotacaoNivel;
+  escopo_id: string;
+  atributo: string;
+  tipo_regra: CotacaoTipoRegra;
+  valor_min: number | null;
+  valor_max: number | null;
+  substituicao: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Politica de participacao em licitacao (politica_participacao). */
+export interface PoliticaParticipacao {
+  id: string;
+  nivel: CotacaoNivel;
+  escopo_id: string;
+  participa: PoliticaParticipa;
+  condicao: string | null;
+  diretriz_texto: string | null;
+  preferencia: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------------------------------------------------------------------
+// Dominio D — Revenda (canal SEPARADO do de licitacao)
+// ---------------------------------------------------------------------
+
+/** Cliente do canal de revenda (clientes_revenda). */
+export interface ClienteRevenda {
+  id: string;
+  nome: string;
+  ativo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Faixa de preco de revenda por cliente/SKU, com vigencia (revenda_precos). */
+export interface RevendaPreco {
+  id: string;
+  cliente_id: string;
+  sku_id: string;
+  preco: number;
+  vigencia_inicio: string;
+  vigencia_fim: string | null;
+  created_at: string;
+  updated_at: string;
+}

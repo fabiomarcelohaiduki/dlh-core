@@ -21,6 +21,11 @@ const DATE_TIME_FULL = new Intl.DateTimeFormat("pt-BR", {
 
 const NUMBER = new Intl.NumberFormat("pt-BR");
 
+const CURRENCY = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+});
+
 function parse(value: string | null | undefined): Date | null {
   if (!value) return null;
   const d = new Date(value);
@@ -40,6 +45,20 @@ export function formatDateTimeFull(value: string | null | undefined): string {
   return DATE_TIME_FULL.format(d).replace(",", " ·");
 }
 
+/**
+ * "01/06/2025" — datas de vigencia (sem hora). Trata o caso comum de datas
+ * "YYYY-MM-DD" sem fuso (vigencia de precos/custos) reformatando os componentes
+ * diretamente, evitando o deslize de um dia que `new Date('YYYY-MM-DD')`
+ * causaria por interpretar como meia-noite UTC.
+ */
+export function formatDate(value: string | null | undefined): string {
+  if (!value) return "—";
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (dateOnly) return `${dateOnly[3]}/${dateOnly[2]}/${dateOnly[1]}`;
+  const d = parse(value);
+  return d ? d.toLocaleDateString("pt-BR") : "—";
+}
+
 /** "há 14 min" / "há 2 h" / "há 3 d" — KPI de ultima sincronizacao. */
 export function formatRelative(value: string | null | undefined): string {
   const d = parse(value);
@@ -57,6 +76,11 @@ export function formatRelative(value: string | null | undefined): string {
 /** Inteiro com separador pt-BR ("8.412"). */
 export function formatNumber(value: number | null | undefined): string {
   return NUMBER.format(value ?? 0);
+}
+
+/** "R$ 1.250,00" — valores monetarios do grid de precos; null/undefined -> "—". */
+export function formatCurrency(value: number | null | undefined): string {
+  return value == null ? "—" : CURRENCY.format(value);
 }
 
 /**

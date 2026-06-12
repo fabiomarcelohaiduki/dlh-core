@@ -7,6 +7,10 @@ import {
   KeyRound,
   Braces,
   FileCog,
+  Layers,
+  Package,
+  SlidersHorizontal,
+  Store,
 } from "lucide-react";
 
 export type NavItem = {
@@ -25,8 +29,9 @@ export type NavGroup = {
 
 /**
  * Navegacao persistente travada pelo Design Lock (design-contract.json).
- * 5 itens primarios em 2 grupos. A config de ingestao vive dentro de Fontes
- * (vinculada a fonte). "Detalhe do edital" NAO aparece no menu.
+ * Itens primarios em 3 grupos (Monitoramento, Produtos, Administracao). A
+ * config de ingestao vive dentro de Fontes (vinculada a fonte). "Detalhe do
+ * edital" NAO aparece no menu. 1 item de menu = 1 tela.
  */
 export const NAV_GROUPS: NavGroup[] = [
   {
@@ -37,6 +42,21 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: "nav-execucoes", label: "Execuções", href: "/execucoes", icon: Activity },
       { id: "nav-extracao", label: "Extração", href: "/extracao", icon: FileText },
       { id: "nav-erros", label: "Erros", href: "/erros", icon: TriangleAlert, badgeKey: "erros" },
+    ],
+  },
+  {
+    id: "produtos",
+    label: "Produtos",
+    items: [
+      { id: "nav-produtos", label: "Linhas & Produtos", href: "/produtos", icon: Layers },
+      { id: "nav-insumos", label: "Insumos & Preços", href: "/insumos", icon: Package },
+      {
+        id: "nav-parametros-custo",
+        label: "Parâmetros de custo",
+        href: "/parametros-custo",
+        icon: SlidersHorizontal,
+      },
+      { id: "nav-revenda", label: "Revenda", href: "/revenda", icon: Store },
     ],
   },
   {
@@ -64,5 +84,9 @@ export const SCREEN_TITLES: Record<string, string> = {
   "/fontes": "Fontes e credenciais",
   "/extracao-config": "Parâmetros de extração",
   "/api": "API LLM-ready",
+  "/produtos": "Linhas & Produtos",
+  "/insumos": "Insumos & Preços",
+  "/parametros-custo": "Parâmetros de custo",
+  "/revenda": "Revenda",
   "/edital": "Detalhe do edital",
 };

@@ -1,7 +1,8 @@
 {
   "imports": {
     "@supabase/supabase-js": "jsr:@supabase/supabase-js@2",
-    "zod": "npm:zod@3.23.8"
+    "zod": "npm:zod@3.23.8",
+    "pdf-lib": "https://esm.sh/pdf-lib@1.17.1"
   },
   "tasks": {
     "check": "deno check **/*.ts",

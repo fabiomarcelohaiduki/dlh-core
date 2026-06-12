@@ -1,4 +1,9 @@
-import type { Execucao, EstadoConexao, StatusIngestao } from "@/lib/api/types";
+import type {
+  EstadoCalculo,
+  EstadoConexao,
+  Execucao,
+  StatusIngestao,
+} from "@/lib/api/types";
 
 /**
  * Estados travados do Design Lock (convencao unica do projeto):
@@ -127,6 +132,25 @@ export function severidadeDescriptor(severidade: string): PillDescriptor {
     case "baixa":
     default:
       return { state: "idle", label: "Baixa" };
+  }
+}
+
+/**
+ * Estado do calculo de preco do SKU/linha (sku_precos_calculados.estado_calculo)
+ * -> pill do grid de precos calculados (modulo Produtos, secao 4.6). Mapeamento
+ * travado: vigente=ok, pendente=warn (recalculo pendente), erro=err (faltam
+ * entradas essenciais). E a unica fonte do estado->cor do grid de precos.
+ */
+export function precoEstadoDescriptor(estado: EstadoCalculo): PillDescriptor {
+  switch (estado) {
+    case "vigente":
+      return { state: "ok", label: "Vigente" };
+    case "pendente":
+      return { state: "warn", label: "Pendente" };
+    case "erro":
+      return { state: "err", label: "Erro" };
+    default:
+      return { state: "idle", label: "—" };
   }
 }
 

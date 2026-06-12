@@ -550,6 +550,41 @@ export function normalizeTopK(topK: number | undefined): number {
 }
 
 // ---------------------------------------------------------------------
+// Schema: busca semantica do dominio Produtos /v1 (POST /v1-produtos-busca-semantica).
+// Diferente da busca multi-origem do substrato: o escopo e FIXO em
+// 'produto-cotacao' (definido no handler, nao no corpo) e o `limite` e
+// VALIDADO (nao clampado): valores acima do maximo sao REJEITADOS com 400
+// (criterio de aceite do Dominio F). query obrigatoria, 1..MAX_QUERY_CHARS.
+// ---------------------------------------------------------------------
+export const PRODUTOS_BUSCA_DEFAULT_LIMITE = 10;
+export const PRODUTOS_BUSCA_MAX_LIMITE = 50;
+
+/** Escopo fixo do dominio Produtos no enum /v1 estendido (RF-24/RF-25). */
+export const PRODUTOS_BUSCA_ESCOPO = "produto-cotacao" as const;
+
+export const produtosBuscaSemanticaSchema = z
+  .object({
+    query: z
+      .string({
+        required_error: "query e obrigatoria",
+        invalid_type_error: "query deve ser string",
+      })
+      .trim()
+      .min(1, "query nao pode ser vazia")
+      .max(MAX_QUERY_CHARS, `query nao pode exceder ${MAX_QUERY_CHARS} caracteres`),
+    // Diferente do substrato: rejeita (nao clampa) limite acima do maximo.
+    limite: z
+      .number({ invalid_type_error: "limite deve ser numero" })
+      .int("limite deve ser inteiro")
+      .positive("limite deve ser positivo")
+      .max(PRODUTOS_BUSCA_MAX_LIMITE, `limite nao pode exceder ${PRODUTOS_BUSCA_MAX_LIMITE}`)
+      .optional(),
+  })
+  .strict();
+
+export type ProdutosBuscaSemanticaInput = z.infer<typeof produtosBuscaSemanticaSchema>;
+
+// ---------------------------------------------------------------------
 // Schema: gestao do token de servico da Lia (POST /v1/lia/token).
 // action: 'rotate' emite/rotaciona uma nova API key; 'revoke' a invalida.
 // ---------------------------------------------------------------------
@@ -619,9 +654,7 @@ export const extracaoConfigSchema = z
       .max(MAX_TIMEOUT_MS, "timeoutMs excede o teto (30 min)"),
     extensoesHabilitadas: z
       .array(
-        stringItems("extensoesHabilitadas").transform((e) =>
-          e.toLowerCase().replace(/^\./, ""),
-        ),
+        stringItems("extensoesHabilitadas").transform((e) => e.toLowerCase().replace(/^\./, "")),
       )
       .transform((items) => Array.from(new Set(items.filter((e) => e.length > 0))))
       .nullable(),
@@ -686,3 +719,976 @@ export const extracaoAgendamentoSchema = z
   .strict();
 
 export type ExtracaoAgendamentoInput = z.infer<typeof extracaoAgendamentoSchema>;
+
+// =====================================================================
+// Dominio A (Produtos): Linhas, Atributos, Produtos e SKUs (secao 3.2).
+// Payloads JSON em snake_case; .strict() rejeita chaves desconhecidas (400).
+// Validacao semantica adicional (atributos x schema da Linha, coerencia de
+// tipo_origem) e feita no handler — aqui ficam apenas as regras de forma.
+// =====================================================================
+
+/** Paginacao offset-based padrao: limit default 50, max 200, offset >= 0. */
+export const DEFAULT_PAGE_LIMIT = 50;
+export const MAX_PAGE_LIMIT = 200;
+
+export interface Pagination {
+  limit: number;
+  offset: number;
+}
+
+/**
+ * Resolve limit/offset da query string com clamp seguro. Valores invalidos ou
+ * ausentes caem no default; limit e limitado a MAX_PAGE_LIMIT.
+ */
+export function parsePagination(url: URL): Pagination {
+  const rawLimit = Number(url.searchParams.get("limit"));
+  const rawOffset = Number(url.searchParams.get("offset"));
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0
+    ? Math.min(Math.trunc(rawLimit), MAX_PAGE_LIMIT)
+    : DEFAULT_PAGE_LIMIT;
+  const offset = Number.isFinite(rawOffset) && rawOffset >= 0 ? Math.trunc(rawOffset) : 0;
+  return { limit, offset };
+}
+
+/**
+ * Interpreta o filtro booleano opcional ?ativo= (true/false). Ausente/invalido
+ * retorna undefined (sem filtro).
+ */
+export function parseBooleanFilter(value: string | null): boolean | undefined {
+  if (value === null) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true" || normalized === "1") return true;
+  if (normalized === "false" || normalized === "0") return false;
+  return undefined;
+}
+
+// ---------------------------------------------------------------------
+// produto_linhas (CRUD). POST exige nome; PUT aceita campos parciais (inclui
+// ativo). nome unico e validado no banco (UNIQUE) -> 409 no handler.
+// ---------------------------------------------------------------------
+export const produtoLinhaCreateSchema = z
+  .object({
+    nome: z
+      .string({ required_error: "nome e obrigatorio", invalid_type_error: "nome deve ser string" })
+      .trim()
+      .min(1, "nome nao pode ser vazio"),
+    descricao: z.string({ invalid_type_error: "descricao deve ser string" }).trim().nullish(),
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
+  })
+  .strict();
+
+export type ProdutoLinhaCreateInput = z.infer<typeof produtoLinhaCreateSchema>;
+
+export const produtoLinhaUpdateSchema = z
+  .object({
+    nome: z
+      .string({ invalid_type_error: "nome deve ser string" })
+      .trim()
+      .min(1, "nome nao pode ser vazio")
+      .optional(),
+    descricao: z.string({ invalid_type_error: "descricao deve ser string" }).trim().nullish(),
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
+  })
+  .strict();
+
+export type ProdutoLinhaUpdateInput = z.infer<typeof produtoLinhaUpdateSchema>;
+
+// ---------------------------------------------------------------------
+// produto_linha_atributos (CRUD sob /:id/atributos). tipo limitado ao CHECK
+// do schema; chave unica por linha validada no banco -> 409 no handler.
+// ---------------------------------------------------------------------
+export const ATRIBUTO_TIPOS = ["texto", "numero", "booleano"] as const;
+export type AtributoTipo = (typeof ATRIBUTO_TIPOS)[number];
+
+export const atributoTipoEnum = z.enum(ATRIBUTO_TIPOS, {
+  errorMap: () => ({ message: `tipo invalido (use: ${ATRIBUTO_TIPOS.join(", ")})` }),
+});
+
+export const linhaAtributoCreateSchema = z
+  .object({
+    chave: z
+      .string({
+        required_error: "chave e obrigatoria",
+        invalid_type_error: "chave deve ser string",
+      })
+      .trim()
+      .min(1, "chave nao pode ser vazia"),
+    tipo: atributoTipoEnum.optional(),
+    obrigatorio: z.boolean({ invalid_type_error: "obrigatorio deve ser booleano" }).optional(),
+  })
+  .strict();
+
+export type LinhaAtributoCreateInput = z.infer<typeof linhaAtributoCreateSchema>;
+
+export const linhaAtributoUpdateSchema = z
+  .object({
+    chave: z
+      .string({ invalid_type_error: "chave deve ser string" })
+      .trim()
+      .min(1, "chave nao pode ser vazia")
+      .optional(),
+    tipo: atributoTipoEnum.optional(),
+    obrigatorio: z.boolean({ invalid_type_error: "obrigatorio deve ser booleano" }).optional(),
+  })
+  .strict();
+
+export type LinhaAtributoUpdateInput = z.infer<typeof linhaAtributoUpdateSchema>;
+
+// ---------------------------------------------------------------------
+// produtos (CRUD). atributos e um mapa JSONB livre na forma; a validacao
+// contra o schema da Linha (chave no schema + obrigatorios presentes) e
+// semantica e ocorre no handler. POST exige linha_id valido e ativo.
+// ---------------------------------------------------------------------
+const atributosRecord = z.record(
+  z.string(),
+  z.unknown(),
+  { invalid_type_error: "atributos deve ser um objeto" },
+);
+
+export const produtoCreateSchema = z
+  .object({
+    linha_id: z
+      .string({
+        required_error: "linha_id e obrigatorio",
+        invalid_type_error: "linha_id deve ser string",
+      })
+      .uuid("linha_id deve ser UUID"),
+    nome: z
+      .string({ required_error: "nome e obrigatorio", invalid_type_error: "nome deve ser string" })
+      .trim()
+      .min(1, "nome nao pode ser vazio"),
+    atributos: atributosRecord.optional(),
+    prazo_entrega: z.string({ invalid_type_error: "prazo_entrega deve ser string" }).trim()
+      .nullish(),
+    disponibilidade: z
+      .string({ invalid_type_error: "disponibilidade deve ser string" })
+      .trim()
+      .nullish(),
+    pedido_minimo: z.string({ invalid_type_error: "pedido_minimo deve ser string" }).trim()
+      .nullish(),
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
+  })
+  .strict();
+
+export type ProdutoCreateInput = z.infer<typeof produtoCreateSchema>;
+
+export const produtoUpdateSchema = z
+  .object({
+    linha_id: z
+      .string({ invalid_type_error: "linha_id deve ser string" })
+      .uuid("linha_id deve ser UUID")
+      .optional(),
+    nome: z
+      .string({ invalid_type_error: "nome deve ser string" })
+      .trim()
+      .min(1, "nome nao pode ser vazio")
+      .optional(),
+    atributos: atributosRecord.optional(),
+    prazo_entrega: z.string({ invalid_type_error: "prazo_entrega deve ser string" }).trim()
+      .nullish(),
+    disponibilidade: z
+      .string({ invalid_type_error: "disponibilidade deve ser string" })
+      .trim()
+      .nullish(),
+    pedido_minimo: z.string({ invalid_type_error: "pedido_minimo deve ser string" }).trim()
+      .nullish(),
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
+  })
+  .strict();
+
+export type ProdutoUpdateInput = z.infer<typeof produtoUpdateSchema>;
+
+// ---------------------------------------------------------------------
+// produto_skus (CRUD sob /produtos/:id/skus e /skus/:skuId). tipo_origem
+// default 'fabricado'; SKU comprado nao pode ter diretriz/tempo de producao
+// (coerencia validada no handler). codigo_sku unico -> 409 no handler.
+// ---------------------------------------------------------------------
+export const SKU_TIPOS_ORIGEM = ["fabricado", "comprado"] as const;
+export type SkuTipoOrigem = (typeof SKU_TIPOS_ORIGEM)[number];
+
+/** Origem padrao de um SKU quando nao informada (fonte da verdade no schema). */
+export const SKU_TIPO_ORIGEM_DEFAULT: SkuTipoOrigem = "fabricado";
+
+export const skuTipoOrigemEnum = z.enum(SKU_TIPOS_ORIGEM, {
+  errorMap: () => ({ message: `tipo_origem invalido (use: ${SKU_TIPOS_ORIGEM.join(", ")})` }),
+});
+
+const skuJsonbField = (label: string) =>
+  z.record(z.string(), z.unknown(), { invalid_type_error: `${label} deve ser um objeto` })
+    .nullish();
+
+const skuNumberField = (label: string) =>
+  z.number({ invalid_type_error: `${label} deve ser numero` }).nullish();
+
+export const skuCreateSchema = z
+  .object({
+    codigo_sku: z
+      .string({
+        required_error: "codigo_sku e obrigatorio",
+        invalid_type_error: "codigo_sku deve ser string",
+      })
+      .trim()
+      .min(1, "codigo_sku nao pode ser vazio"),
+    tipo_origem: skuTipoOrigemEnum.default(SKU_TIPO_ORIGEM_DEFAULT),
+    dimensoes: skuJsonbField("dimensoes"),
+    tolerancia_pct: skuNumberField("tolerancia_pct"),
+    acabamento: z.string({ invalid_type_error: "acabamento deve ser string" }).trim().nullish(),
+    peso_gr: skuNumberField("peso_gr"),
+    diretriz_producao: z.string({ invalid_type_error: "diretriz_producao deve ser string" })
+      .nullish(),
+    tempo_producao: skuNumberField("tempo_producao"),
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
+  })
+  .strict();
+
+export type SkuCreateInput = z.infer<typeof skuCreateSchema>;
+
+export const skuUpdateSchema = z
+  .object({
+    codigo_sku: z
+      .string({ invalid_type_error: "codigo_sku deve ser string" })
+      .trim()
+      .min(1, "codigo_sku nao pode ser vazio")
+      .optional(),
+    tipo_origem: skuTipoOrigemEnum.optional(),
+    dimensoes: skuJsonbField("dimensoes"),
+    tolerancia_pct: skuNumberField("tolerancia_pct"),
+    acabamento: z.string({ invalid_type_error: "acabamento deve ser string" }).trim().nullish(),
+    peso_gr: skuNumberField("peso_gr"),
+    diretriz_producao: z.string({ invalid_type_error: "diretriz_producao deve ser string" })
+      .nullish(),
+    tempo_producao: skuNumberField("tempo_producao"),
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
+  })
+  .strict();
+
+export type SkuUpdateInput = z.infer<typeof skuUpdateSchema>;
+
+// =====================================================================
+// Dominio B (Produtos): Insumos, Precos de fornecedor, Composicao (BOM) e
+// Custo de aquisicao (secao 3.2). Payloads JSON em snake_case; .strict()
+// rejeita chaves desconhecidas (400). Vigencia preservada na borda (sem
+// sobrescrever historico); a regra de "preco vigente" mora no motor SQL.
+// =====================================================================
+
+/** Campo de data ISO (YYYY-MM-DD). DB faz o cast para o tipo date. */
+const dateField = (label: string) =>
+  z
+    .string({ invalid_type_error: `${label} deve ser string (YYYY-MM-DD)` })
+    .regex(/^\d{4}-\d{2}-\d{2}$/, `${label} invalida (use YYYY-MM-DD)`);
+
+/** Campo monetario positivo (preco/custo) com mensagem por rotulo. */
+const moneyField = (label: string) =>
+  z
+    .number({
+      required_error: `${label} e obrigatorio`,
+      invalid_type_error: `${label} deve ser numero`,
+    })
+    .positive(`${label} deve ser positivo`);
+
+// ---------------------------------------------------------------------
+// insumos (CRUD). categoria limitada ao CHECK do schema; insumo em uso so
+// sai de circulacao por ativo=false (DELETE bloqueado 409 no handler).
+// ---------------------------------------------------------------------
+export const INSUMO_CATEGORIAS = ["MP", "embalagem", "insumo"] as const;
+export type InsumoCategoria = (typeof INSUMO_CATEGORIAS)[number];
+
+export const insumoCategoriaEnum = z.enum(INSUMO_CATEGORIAS, {
+  errorMap: () => ({ message: `categoria invalida (use: ${INSUMO_CATEGORIAS.join(", ")})` }),
+});
+
+export const insumoCreateSchema = z
+  .object({
+    nome: z
+      .string({ required_error: "nome e obrigatorio", invalid_type_error: "nome deve ser string" })
+      .trim()
+      .min(1, "nome nao pode ser vazio"),
+    categoria: insumoCategoriaEnum,
+    unidade: z
+      .string({
+        required_error: "unidade e obrigatoria",
+        invalid_type_error: "unidade deve ser string",
+      })
+      .trim()
+      .min(1, "unidade nao pode ser vazia"),
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
+  })
+  .strict();
+
+export type InsumoCreateInput = z.infer<typeof insumoCreateSchema>;
+
+export const insumoUpdateSchema = z
+  .object({
+    nome: z
+      .string({ invalid_type_error: "nome deve ser string" })
+      .trim()
+      .min(1, "nome nao pode ser vazio")
+      .optional(),
+    categoria: insumoCategoriaEnum.optional(),
+    unidade: z
+      .string({ invalid_type_error: "unidade deve ser string" })
+      .trim()
+      .min(1, "unidade nao pode ser vazia")
+      .optional(),
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
+  })
+  .strict();
+
+export type InsumoUpdateInput = z.infer<typeof insumoUpdateSchema>;
+
+// ---------------------------------------------------------------------
+// insumo_precos (POST sob /insumos/:id/precos). Cria nova faixa de vigencia
+// preservando o historico (nunca sobrescreve). vigencia_inicio default no DB.
+// ---------------------------------------------------------------------
+export const insumoPrecoCreateSchema = z
+  .object({
+    fornecedor: z.string({ invalid_type_error: "fornecedor deve ser string" }).trim().nullish(),
+    preco: moneyField("preco"),
+    vigencia_inicio: dateField("vigencia_inicio").optional(),
+    vigencia_fim: dateField("vigencia_fim").nullish(),
+  })
+  .strict();
+
+export type InsumoPrecoCreateInput = z.infer<typeof insumoPrecoCreateSchema>;
+
+// ---------------------------------------------------------------------
+// insumo-precos/batch (PUT). Edicao EM LOTE: 1..200 updates por requisicao
+// (vazio ou > 200 => 400). Cada item cria uma nova faixa de vigencia para o
+// insumo; os triggers da sprint 2 recalculam os SKUs afetados (RNF-15).
+// ---------------------------------------------------------------------
+export const MAX_BATCH_PRECOS = 200;
+
+export const insumoPrecoBatchItemSchema = z
+  .object({
+    insumo_id: z
+      .string({
+        required_error: "insumo_id e obrigatorio",
+        invalid_type_error: "insumo_id deve ser string",
+      })
+      .uuid("insumo_id deve ser UUID"),
+    preco: moneyField("preco"),
+    vigencia_inicio: dateField("vigencia_inicio").optional(),
+  })
+  .strict();
+
+export const insumoPrecoBatchSchema = z
+  .object({
+    updates: z
+      .array(insumoPrecoBatchItemSchema)
+      .min(1, "updates deve ter ao menos 1 item")
+      .max(MAX_BATCH_PRECOS, `updates nao pode exceder ${MAX_BATCH_PRECOS} itens`),
+  })
+  .strict();
+
+export type InsumoPrecoBatchInput = z.infer<typeof insumoPrecoBatchSchema>;
+
+// ---------------------------------------------------------------------
+// sku_composicao (CRUD sob /skus/:skuId/composicao e /composicao/:id). SO
+// para SKU fabricado (400 no handler se comprado). insumo_id unico por SKU
+// (UNIQUE -> 409). insumo inativo nao selecionavel (validado no handler).
+// ---------------------------------------------------------------------
+export const composicaoCreateSchema = z
+  .object({
+    insumo_id: z
+      .string({
+        required_error: "insumo_id e obrigatorio",
+        invalid_type_error: "insumo_id deve ser string",
+      })
+      .uuid("insumo_id deve ser UUID"),
+    quantidade: z
+      .number({
+        required_error: "quantidade e obrigatoria",
+        invalid_type_error: "quantidade deve ser numero",
+      })
+      .positive("quantidade deve ser positiva"),
+    unidade: z.string({ invalid_type_error: "unidade deve ser string" }).trim().nullish(),
+  })
+  .strict();
+
+export type ComposicaoCreateInput = z.infer<typeof composicaoCreateSchema>;
+
+export const composicaoUpdateSchema = z
+  .object({
+    insumo_id: z
+      .string({ invalid_type_error: "insumo_id deve ser string" })
+      .uuid("insumo_id deve ser UUID")
+      .optional(),
+    quantidade: z
+      .number({ invalid_type_error: "quantidade deve ser numero" })
+      .positive("quantidade deve ser positiva")
+      .optional(),
+    unidade: z.string({ invalid_type_error: "unidade deve ser string" }).trim().nullish(),
+  })
+  .strict();
+
+export type ComposicaoUpdateInput = z.infer<typeof composicaoUpdateSchema>;
+
+// ---------------------------------------------------------------------
+// sku_custo_aquisicao (CRUD sob /skus/:skuId/custo-aquisicao e
+// /custo-aquisicao/:id). SO para SKU comprado (400 no handler se fabricado).
+// Historico de vigencia preservado; GET retorna o vigente (?historico=true
+// retorna o historico). logSensitiveAction na escrita (dado de custo).
+// ---------------------------------------------------------------------
+export const custoAquisicaoCreateSchema = z
+  .object({
+    fornecedor: z.string({ invalid_type_error: "fornecedor deve ser string" }).trim().nullish(),
+    custo: moneyField("custo"),
+    vigencia_inicio: dateField("vigencia_inicio").optional(),
+    vigencia_fim: dateField("vigencia_fim").nullish(),
+  })
+  .strict();
+
+export type CustoAquisicaoCreateInput = z.infer<typeof custoAquisicaoCreateSchema>;
+
+export const custoAquisicaoUpdateSchema = z
+  .object({
+    fornecedor: z.string({ invalid_type_error: "fornecedor deve ser string" }).trim().nullish(),
+    custo: moneyField("custo").optional(),
+    vigencia_inicio: dateField("vigencia_inicio").optional(),
+    vigencia_fim: dateField("vigencia_fim").nullish(),
+  })
+  .strict();
+
+export type CustoAquisicaoUpdateInput = z.infer<typeof custoAquisicaoUpdateSchema>;
+
+// =====================================================================
+// Dominio C (Produtos): Parametros escalares (3 niveis), vetor regional e
+// indicadores de apoio dos precos calculados (secao 3.2 da SPEC). Payloads
+// JSON em snake_case; .strict() rejeita chaves desconhecidas (400). valor e
+// custo_base sao EXCLUSIVOS do motor (RF-23) e nunca entram nestes schemas.
+// =====================================================================
+
+/** Niveis de heranca dos parametros (resolucao PRODUTO -> LINHA -> GLOBAL). */
+export const PARAMETRO_NIVEIS = ["global", "linha", "produto"] as const;
+export type ParametroNivel = (typeof PARAMETRO_NIVEIS)[number];
+
+export const parametroNivelEnum = z.enum(PARAMETRO_NIVEIS, {
+  errorMap: () => ({ message: `nivel invalido (use: ${PARAMETRO_NIVEIS.join(", ")})` }),
+});
+
+/** Regioes do vetor regional (uma linha por regiao por escopo). */
+export const REGIOES = ["S", "SE", "CO", "NE", "N"] as const;
+export type Regiao = (typeof REGIOES)[number];
+
+export const regiaoEnum = z.enum(REGIOES, {
+  errorMap: () => ({ message: `regiao invalida (use: ${REGIOES.join(", ")})` }),
+});
+
+/**
+ * Resolve/valida o parametro `nivel` de uma query string (GET). Ausente ->
+ * undefined (sem filtro); valor presente e invalido -> 400.
+ */
+export function parseNivelFilter(value: string | null): ParametroNivel | undefined {
+  if (value === null || value.trim() === "") return undefined;
+  const result = parametroNivelEnum.safeParse(value);
+  if (!result.success) {
+    throw new HttpError(
+      400,
+      "validation_error",
+      `nivel invalido (use: ${PARAMETRO_NIVEIS.join(", ")})`,
+    );
+  }
+  return result.data;
+}
+
+/** Campo de percentual/taxa escalar: numero finito, aceita null (limpa). */
+const scalarField = (label: string) =>
+  z
+    .number({ invalid_type_error: `${label} deve ser numero` })
+    .finite(`${label} deve ser finito`)
+    .nullable()
+    .optional();
+
+/**
+ * CHECK de coerencia nivel/escopo (espelha parametros_calculo_escopo_coerente_check):
+ *   - global  -> escopo_id deve ser ausente/nulo
+ *   - linha/produto -> escopo_id obrigatorio (UUID)
+ * Aplicado via superRefine para virar 400 com mensagem util antes do DB.
+ */
+function refineEscopoCoerente(
+  val: { nivel: ParametroNivel; escopo_id?: string | null },
+  ctx: z.RefinementCtx,
+): void {
+  if (val.nivel === "global" && val.escopo_id != null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["escopo_id"],
+      message: "escopo_id deve ser nulo quando nivel = global",
+    });
+  }
+  if (val.nivel !== "global" && val.escopo_id == null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["escopo_id"],
+      message: "escopo_id e obrigatorio quando nivel = linha ou produto",
+    });
+  }
+}
+
+// ---------------------------------------------------------------------
+// parametros_calculo (PUT /parametros). Upsert por (nivel, escopo_id) com
+// merge parcial: apenas os campos informados sao gravados (preserva os
+// demais). Os triggers da sprint 2 recalculam os SKUs do escopo (RF-15).
+// ---------------------------------------------------------------------
+export const parametrosUpsertSchema = z
+  .object({
+    nivel: parametroNivelEnum,
+    escopo_id: z
+      .string({ invalid_type_error: "escopo_id deve ser string" })
+      .uuid("escopo_id deve ser UUID")
+      .nullish(),
+    impostos_pct: scalarField("impostos_pct"),
+    frete_pct: scalarField("frete_pct"),
+    despesas_pct: scalarField("despesas_pct"),
+    lucro_pct: scalarField("lucro_pct"),
+    lucro_minimo_pct: scalarField("lucro_minimo_pct"),
+    taxa_horaria: scalarField("taxa_horaria"),
+  })
+  .strict()
+  .superRefine(refineEscopoCoerente);
+
+export type ParametrosUpsertInput = z.infer<typeof parametrosUpsertSchema>;
+
+// ---------------------------------------------------------------------
+// parametro_regional (PUT /parametros-regional). Vetor de 5 regioes com
+// override PARCIAL: apenas as regioes informadas sao upsertadas por
+// (nivel, escopo_id, regiao). Os triggers recalculam os SKUs do escopo.
+// ---------------------------------------------------------------------
+export const parametroRegionalItemSchema = z
+  .object({
+    regiao: regiaoEnum,
+    percentual: z
+      .number({
+        required_error: "percentual e obrigatorio",
+        invalid_type_error: "percentual deve ser numero",
+      })
+      .finite("percentual deve ser finito"),
+  })
+  .strict();
+
+export const parametroRegionalUpsertSchema = z
+  .object({
+    nivel: parametroNivelEnum,
+    escopo_id: z
+      .string({ invalid_type_error: "escopo_id deve ser string" })
+      .uuid("escopo_id deve ser UUID")
+      .nullish(),
+    regioes: z
+      .array(parametroRegionalItemSchema)
+      .min(1, "regioes deve ter ao menos um item"),
+  })
+  .strict()
+  .superRefine(refineEscopoCoerente);
+
+export type ParametroRegionalUpsertInput = z.infer<typeof parametroRegionalUpsertSchema>;
+
+// ---------------------------------------------------------------------
+// sku_precos_calculados - indicadores de apoio (PUT /skus/:skuId/precos/apoio).
+// Grava SOMENTE ifp/preco_concorrencia/custo_ideal; NUNCA valor/custo_base
+// (exclusivos do motor, RF-23). Todos opcionais; null limpa o indicador.
+// ---------------------------------------------------------------------
+const apoioField = (label: string) =>
+  z
+    .number({ invalid_type_error: `${label} deve ser numero` })
+    .finite(`${label} deve ser finito`)
+    .nullable()
+    .optional();
+
+export const precoApoioSchema = z
+  .object({
+    ifp: apoioField("ifp"),
+    preco_concorrencia: apoioField("preco_concorrencia"),
+    custo_ideal: apoioField("custo_ideal"),
+  })
+  .strict();
+
+export type PrecoApoioInput = z.infer<typeof precoApoioSchema>;
+
+/**
+ * Valida dados ja desserializados (ex.: metadados de multipart/form-data) com
+ * um schema zod. Espelha a semantica do parseJsonBody (400 validation_error
+ * com mensagem util), para bordas que nao recebem JSON.
+ */
+export function parseWithSchema<S extends ZodTypeAny>(schema: S, data: unknown): z.infer<S> {
+  const result = schema.safeParse(data);
+  if (!result.success) {
+    throw new HttpError(400, "validation_error", formatZodError(result.error));
+  }
+  return result.data;
+}
+
+// =====================================================================
+// Dominio A (Produtos): upload de imagens no Storage (secao 3.2 / RNF-14).
+// Limites: 5MB por arquivo; MIME image/jpeg|png|webp; 10 fotos por Produto
+// e 10 por SKU. signed URL de leitura com TTL de 1h. Os metadados do
+// multipart sao validados por imagemUploadMetaSchema; o binario (tipo e
+// tamanho) e validado no handler ANTES de qualquer escrita no Storage.
+// =====================================================================
+
+export const IMAGEM_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+export type ImagemMimeType = (typeof IMAGEM_MIME_TYPES)[number];
+
+/** Extensao do objeto no Storage por MIME aceito. */
+export const IMAGEM_EXTENSAO: Record<ImagemMimeType, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
+/** Tamanho maximo por arquivo: 5MB (RNF-14). */
+export const IMAGEM_MAX_BYTES = 5 * 1024 * 1024;
+
+/** Maximo de fotos por Produto e por SKU (excedente -> 400). */
+export const IMAGEM_MAX_POR_ALVO = 10;
+
+/** TTL da signed URL de leitura retornada no GET: 1 hora (3600s). */
+export const IMAGEM_SIGNED_URL_TTL_SECONDS = 3600;
+
+/** True quando o MIME informado e um tipo de imagem aceito. */
+export function isImagemMimeAceito(mime: string | null | undefined): mime is ImagemMimeType {
+  return typeof mime === "string" && (IMAGEM_MIME_TYPES as readonly string[]).includes(mime);
+}
+
+export const imagemUploadMetaSchema = z
+  .object({
+    produto_id: z
+      .string({ invalid_type_error: "produto_id deve ser string" })
+      .uuid("produto_id deve ser UUID")
+      .optional(),
+    sku_id: z
+      .string({ invalid_type_error: "sku_id deve ser string" })
+      .uuid("sku_id deve ser UUID")
+      .optional(),
+    ordem: z.coerce
+      .number({ invalid_type_error: "ordem deve ser numero" })
+      .int("ordem deve ser inteiro")
+      .min(0, "ordem nao pode ser negativa")
+      .optional(),
+    legenda: z
+      .string({ invalid_type_error: "legenda deve ser string" })
+      .trim()
+      .min(1, "legenda nao pode ser vazia")
+      .optional(),
+  })
+  .strict()
+  .refine((d) => d.produto_id !== undefined || d.sku_id !== undefined, {
+    message: "informe ao menos um de produto_id ou sku_id",
+  });
+
+export type ImagemUploadMetaInput = z.infer<typeof imagemUploadMetaSchema>;
+
+// =====================================================================
+// Dominio D (Produtos): clientes de revenda + precos por cliente/SKU com
+// historico de vigencia. Canal SEPARADO do de licitacao (RF-16/RF-17): a
+// nova faixa de vigencia NUNCA sobrescreve a anterior (sem UNIQUE rigido).
+// =====================================================================
+
+export const clienteRevendaCreateSchema = z
+  .object({
+    nome: z
+      .string({ required_error: "nome e obrigatorio", invalid_type_error: "nome deve ser string" })
+      .trim()
+      .min(1, "nome nao pode ser vazio"),
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
+  })
+  .strict();
+
+export type ClienteRevendaCreateInput = z.infer<typeof clienteRevendaCreateSchema>;
+
+export const clienteRevendaUpdateSchema = z
+  .object({
+    nome: z
+      .string({ invalid_type_error: "nome deve ser string" })
+      .trim()
+      .min(1, "nome nao pode ser vazio")
+      .optional(),
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
+  })
+  .strict();
+
+export type ClienteRevendaUpdateInput = z.infer<typeof clienteRevendaUpdateSchema>;
+
+export const revendaPrecoCreateSchema = z
+  .object({
+    sku_id: z
+      .string({
+        required_error: "sku_id e obrigatorio",
+        invalid_type_error: "sku_id deve ser string",
+      })
+      .uuid("sku_id deve ser UUID"),
+    preco: moneyField("preco"),
+    vigencia_inicio: dateField("vigencia_inicio").optional(),
+    vigencia_fim: dateField("vigencia_fim").nullish(),
+  })
+  .strict();
+
+export type RevendaPrecoCreateInput = z.infer<typeof revendaPrecoCreateSchema>;
+
+export const revendaPrecoUpdateSchema = z
+  .object({
+    preco: moneyField("preco").optional(),
+    vigencia_inicio: dateField("vigencia_inicio").optional(),
+    vigencia_fim: dateField("vigencia_fim").nullish(),
+  })
+  .strict();
+
+export type RevendaPrecoUpdateInput = z.infer<typeof revendaPrecoUpdateSchema>;
+
+// =====================================================================
+// Dominio E (Produtos): criterios de cotacao, regras estruturadas e
+// politica de participacao (secao 3.2 / RF-18..RF-21B). Diferente dos
+// parametros, o `nivel` aqui aceita SOMENTE 'linha' ou 'produto' e
+// `escopo_id` e SEMPRE obrigatorio (FK logica, not null no schema). O texto
+// de cotacao_diretrizes.texto e politica_participacao.diretriz_texto e
+// indexado em memoria_chunks (origem='produto', tipo='produto-cotacao').
+// =====================================================================
+
+/** Niveis de escopo de cotacao (precedencia PRODUTO sobre LINHA). */
+export const COTACAO_NIVEIS = ["linha", "produto"] as const;
+export type CotacaoNivel = (typeof COTACAO_NIVEIS)[number];
+
+export const cotacaoNivelEnum = z.enum(COTACAO_NIVEIS, {
+  errorMap: () => ({ message: `nivel invalido (use: ${COTACAO_NIVEIS.join(", ")})` }),
+});
+
+/**
+ * Resolve/valida o filtro `nivel` (?nivel=) restrito a linha/produto. Ausente
+ * -> undefined (sem filtro); valor presente e invalido -> 400.
+ */
+export function parseCotacaoNivelFilter(value: string | null): CotacaoNivel | undefined {
+  if (value === null || value.trim() === "") return undefined;
+  const result = cotacaoNivelEnum.safeParse(value);
+  if (!result.success) {
+    throw new HttpError(
+      400,
+      "validation_error",
+      `nivel invalido (use: ${COTACAO_NIVEIS.join(", ")})`,
+    );
+  }
+  return result.data;
+}
+
+/** escopo_id obrigatorio (UUID, not null no schema de cotacao). */
+const escopoIdRequired = z
+  .string({
+    required_error: "escopo_id e obrigatorio",
+    invalid_type_error: "escopo_id deve ser string",
+  })
+  .uuid("escopo_id deve ser UUID");
+
+/** escopo_id opcional (UUID) para updates parciais. */
+const escopoIdOptional = z
+  .string({ invalid_type_error: "escopo_id deve ser string" })
+  .uuid("escopo_id deve ser UUID")
+  .optional();
+
+// ---------------------------------------------------------------------
+// cotacao_diretrizes (CRUD /cotacao-diretrizes). texto e NOT NULL e e o
+// conteudo indexavel: salvar texto nao-vazio reindexa; deletar remove.
+// ---------------------------------------------------------------------
+export const cotacaoDiretrizCreateSchema = z
+  .object({
+    nivel: cotacaoNivelEnum,
+    escopo_id: escopoIdRequired,
+    texto: z
+      .string({
+        required_error: "texto e obrigatorio",
+        invalid_type_error: "texto deve ser string",
+      })
+      .trim()
+      .min(1, "texto nao pode ser vazio"),
+  })
+  .strict();
+
+export type CotacaoDiretrizCreateInput = z.infer<typeof cotacaoDiretrizCreateSchema>;
+
+export const cotacaoDiretrizUpdateSchema = z
+  .object({
+    nivel: cotacaoNivelEnum.optional(),
+    escopo_id: escopoIdOptional,
+    texto: z
+      .string({ invalid_type_error: "texto deve ser string" })
+      .trim()
+      .min(1, "texto nao pode ser vazio")
+      .optional(),
+  })
+  .strict();
+
+export type CotacaoDiretrizUpdateInput = z.infer<typeof cotacaoDiretrizUpdateSchema>;
+
+// ---------------------------------------------------------------------
+// cotacao_regras (CRUD /cotacao-regras). Regras estruturadas por atributo;
+// valor_min > valor_max e rejeitado com 400 (espelha o CHECK do schema).
+// ---------------------------------------------------------------------
+export const COTACAO_TIPOS_REGRA = ["faixa", "opcional", "substituicao"] as const;
+export type CotacaoTipoRegra = (typeof COTACAO_TIPOS_REGRA)[number];
+
+export const cotacaoTipoRegraEnum = z.enum(COTACAO_TIPOS_REGRA, {
+  errorMap: () => ({ message: `tipo_regra invalido (use: ${COTACAO_TIPOS_REGRA.join(", ")})` }),
+});
+
+/** Valor numerico finito de faixa; aceita null (limpa) e ausente. */
+const regraValorField = (label: string) =>
+  z
+    .number({ invalid_type_error: `${label} deve ser numero` })
+    .finite(`${label} deve ser finito`)
+    .nullable()
+    .optional();
+
+export const cotacaoRegraCreateSchema = z
+  .object({
+    nivel: cotacaoNivelEnum,
+    escopo_id: escopoIdRequired,
+    atributo: z
+      .string({
+        required_error: "atributo e obrigatorio",
+        invalid_type_error: "atributo deve ser string",
+      })
+      .trim()
+      .min(1, "atributo nao pode ser vazio"),
+    tipo_regra: cotacaoTipoRegraEnum,
+    valor_min: regraValorField("valor_min"),
+    valor_max: regraValorField("valor_max"),
+    substituicao: z
+      .string({ invalid_type_error: "substituicao deve ser string" })
+      .trim()
+      .min(1, "substituicao nao pode ser vazia")
+      .nullish(),
+  })
+  .strict();
+
+export type CotacaoRegraCreateInput = z.infer<typeof cotacaoRegraCreateSchema>;
+
+export const cotacaoRegraUpdateSchema = z
+  .object({
+    nivel: cotacaoNivelEnum.optional(),
+    escopo_id: escopoIdOptional,
+    atributo: z
+      .string({ invalid_type_error: "atributo deve ser string" })
+      .trim()
+      .min(1, "atributo nao pode ser vazio")
+      .optional(),
+    tipo_regra: cotacaoTipoRegraEnum.optional(),
+    valor_min: regraValorField("valor_min"),
+    valor_max: regraValorField("valor_max"),
+    substituicao: z
+      .string({ invalid_type_error: "substituicao deve ser string" })
+      .trim()
+      .min(1, "substituicao nao pode ser vazia")
+      .nullish(),
+  })
+  .strict();
+
+export type CotacaoRegraUpdateInput = z.infer<typeof cotacaoRegraUpdateSchema>;
+
+// ---------------------------------------------------------------------
+// politica_participacao (CRUD /politica-participacao). diretriz_texto e
+// nullable e e o conteudo indexavel: salvar texto nao-vazio reindexa;
+// deletar/esvaziar remove. participa restrito a sim/nao/condicional.
+// ---------------------------------------------------------------------
+export const POLITICA_PARTICIPA = ["sim", "nao", "condicional"] as const;
+export type PoliticaParticipa = (typeof POLITICA_PARTICIPA)[number];
+
+export const politicaParticipaEnum = z.enum(POLITICA_PARTICIPA, {
+  errorMap: () => ({ message: `participa invalido (use: ${POLITICA_PARTICIPA.join(", ")})` }),
+});
+
+export const politicaParticipacaoCreateSchema = z
+  .object({
+    nivel: cotacaoNivelEnum,
+    escopo_id: escopoIdRequired,
+    participa: politicaParticipaEnum,
+    condicao: z
+      .string({ invalid_type_error: "condicao deve ser string" })
+      .trim()
+      .min(1, "condicao nao pode ser vazia")
+      .nullish(),
+    // diretriz_texto aceita string vazia/null (semantica de esvaziar -> remove
+    // chunks); por isso nao aplica min(1).
+    diretriz_texto: z
+      .string({ invalid_type_error: "diretriz_texto deve ser string" })
+      .nullish(),
+    preferencia: z
+      .string({ invalid_type_error: "preferencia deve ser string" })
+      .trim()
+      .min(1, "preferencia nao pode ser vazia")
+      .nullish(),
+  })
+  .strict();
+
+export type PoliticaParticipacaoCreateInput = z.infer<typeof politicaParticipacaoCreateSchema>;
+
+export const politicaParticipacaoUpdateSchema = z
+  .object({
+    nivel: cotacaoNivelEnum.optional(),
+    escopo_id: escopoIdOptional,
+    participa: politicaParticipaEnum.optional(),
+    condicao: z
+      .string({ invalid_type_error: "condicao deve ser string" })
+      .trim()
+      .min(1, "condicao nao pode ser vazia")
+      .nullish(),
+    diretriz_texto: z
+      .string({ invalid_type_error: "diretriz_texto deve ser string" })
+      .nullish(),
+    preferencia: z
+      .string({ invalid_type_error: "preferencia deve ser string" })
+      .trim()
+      .min(1, "preferencia nao pode ser vazia")
+      .nullish(),
+  })
+  .strict();
+
+export type PoliticaParticipacaoUpdateInput = z.infer<typeof politicaParticipacaoUpdateSchema>;
+
+// =====================================================================
+// Dominio H (Documentos PDF - MVP, secao 3.2). Corpos dos 3 endpoints de
+// geracao de PDF efemero (ficha tecnica, composicao de custos, lista de
+// precos de licitacao). Validacao na borda ANTES de qualquer consulta.
+// =====================================================================
+
+/** POST /documentos/ficha-tecnica  { produto_id } */
+export const fichaTecnicaSchema = z
+  .object({
+    produto_id: z
+      .string({
+        required_error: "produto_id e obrigatorio",
+        invalid_type_error: "produto_id deve ser string",
+      })
+      .uuid("produto_id deve ser UUID"),
+  })
+  .strict();
+
+export type FichaTecnicaInput = z.infer<typeof fichaTecnicaSchema>;
+
+/** POST /documentos/composicao-custos  { sku_id } */
+export const composicaoCustosSchema = z
+  .object({
+    sku_id: z
+      .string({
+        required_error: "sku_id e obrigatorio",
+        invalid_type_error: "sku_id deve ser string",
+      })
+      .uuid("sku_id deve ser UUID"),
+  })
+  .strict();
+
+export type ComposicaoCustosInput = z.infer<typeof composicaoCustosSchema>;
+
+/** POST /documentos/lista-precos-licitacao  { sku_ids: [uuid] } */
+export const listaPrecosLicitacaoSchema = z
+  .object({
+    sku_ids: z
+      .array(
+        z
+          .string({ invalid_type_error: "sku_ids deve conter apenas strings" })
+          .uuid("cada sku_id deve ser UUID"),
+        { required_error: "sku_ids e obrigatorio", invalid_type_error: "sku_ids deve ser array" },
+      )
+      .min(1, "sku_ids deve ter ao menos um item")
+      .max(200, "sku_ids deve ter no maximo 200 itens")
+      .transform((items) => Array.from(new Set(items))),
+  })
+  .strict();
+
+export type ListaPrecosLicitacaoInput = z.infer<typeof listaPrecosLicitacaoSchema>;

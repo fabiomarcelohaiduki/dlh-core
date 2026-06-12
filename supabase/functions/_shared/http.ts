@@ -69,13 +69,20 @@ export async function errorResponse(
   return jsonResponse(body, 500);
 }
 
-/** Garante que o metodo da requisicao e o esperado; senao lanca 405. */
-export function assertMethod(req: Request, expected: "GET" | "POST" | "PUT"): void {
-  if (req.method !== expected) {
+/** Metodos HTTP suportados pelas Edge Functions do cockpit. */
+export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
+
+/**
+ * Garante que o metodo da requisicao esta entre os esperados; senao lanca 405.
+ * Aceita um unico metodo (compat) ou uma lista (endpoints CRUD multi-metodo).
+ */
+export function assertMethod(req: Request, expected: HttpMethod | HttpMethod[]): void {
+  const allowed = Array.isArray(expected) ? expected : [expected];
+  if (!allowed.includes(req.method as HttpMethod)) {
     throw new HttpError(
       405,
       "method_not_allowed",
-      `metodo nao permitido: use ${expected}`,
+      `metodo nao permitido: use ${allowed.join(", ")}`,
     );
   }
 }
