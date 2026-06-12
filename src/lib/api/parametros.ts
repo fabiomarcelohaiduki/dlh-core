@@ -120,9 +120,11 @@ export function updatePrecoApoio(
   skuId: string,
   apoio: PrecoApoio,
 ): Promise<PrecoCalculadoGrid> {
+  // Body ACHATADO (preco_concorrencia/custo_ideal no topo): o edge valida com
+  // precoApoioSchema.strict(), que rejeita um envelope { apoio: ... }.
   return apiFetch<PrecoCalculadoGrid>(
     `produtos-precos/skus/${skuId}/precos/apoio`,
-    { method: "PUT", body: JSON.stringify({ apoio }) },
+    { method: "PUT", body: JSON.stringify(apoio) },
   );
 }
 

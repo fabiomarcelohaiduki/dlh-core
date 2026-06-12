@@ -395,10 +395,8 @@ function SkuDetail({
         </div>
       )}
 
-      <div className="grid-dlh g2" style={{ alignItems: "start" }}>
-        <PrecoRegionalGrid skuId={sku.id} />
-        <ApoioPrecosForm skuId={sku.id} />
-      </div>
+      <PrecoRegionalGrid skuId={sku.id} produtoId={sku.produto_id} />
+      <ApoioPrecosForm skuId={sku.id} />
 
       <FotosUploader skuId={sku.id} />
     </div>

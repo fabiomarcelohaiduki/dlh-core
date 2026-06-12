@@ -30,8 +30,12 @@ const FUNCTION_SEGMENT = "produtos-precos";
 const PRECOS_COLUMNS =
   "regiao, patamar, valor, estado, calculado_em, custo_base, ifp, preco_concorrencia, custo_ideal";
 
-/** Campos de apoio gravaveis pelo PUT (valor/custo_base NUNCA entram aqui). */
-const APOIO_FIELDS = ["ifp", "preco_concorrencia", "custo_ideal"] as const;
+/**
+ * Campos de apoio gravaveis pelo PUT. valor/custo_base/ifp NUNCA entram aqui:
+ * sao exclusivos do motor (ifp varia por patamar/regiao, calculado em
+ * fn_recalcular_sku) — RF-23.
+ */
+const APOIO_FIELDS = ["preco_concorrencia", "custo_ideal"] as const;
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
@@ -83,11 +87,12 @@ async function loadPrecos(db: ServiceClient, skuId: string): Promise<PrecoRow[]>
 /** Monta o array de precos do grid (campos de exibicao do calculo). */
 function toGrid(
   rows: PrecoRow[],
-): Array<Pick<PrecoRow, "regiao" | "patamar" | "valor" | "estado" | "calculado_em">> {
+): Array<Pick<PrecoRow, "regiao" | "patamar" | "valor" | "ifp" | "estado" | "calculado_em">> {
   return rows.map((r) => ({
     regiao: r.regiao,
     patamar: r.patamar,
     valor: r.valor,
+    ifp: r.ifp,
     estado: r.estado,
     calculado_em: r.calculado_em,
   }));
@@ -96,10 +101,9 @@ function toGrid(
 /** Extrai os indicadores de apoio (iguais em todas as linhas do SKU). */
 function toApoio(
   rows: PrecoRow[],
-): { ifp: number | null; preco_concorrencia: number | null; custo_ideal: number | null } {
+): { preco_concorrencia: number | null; custo_ideal: number | null } {
   const first = rows[0];
   return {
-    ifp: first?.ifp ?? null,
     preco_concorrencia: first?.preco_concorrencia ?? null,
     custo_ideal: first?.custo_ideal ?? null,
   };
@@ -143,8 +147,8 @@ async function updateApoio(req: Request, skuId: string, email: string): Promise<
   }
   payload.updated_at = new Date().toISOString();
 
-  // Apoio e um conceito por SKU: replica nas 10 linhas (regiao x patamar)
-  // para leitura consistente. NUNCA inclui valor/custo_base no payload.
+  // Apoio e um conceito por SKU: replica nas 15 linhas (5 regioes x 3
+  // patamares) para leitura consistente. NUNCA inclui valor/custo_base/ifp.
   const { error } = await db
     .from("sku_precos_calculados")
     .update(payload)
@@ -164,7 +168,6 @@ async function updateApoio(req: Request, skuId: string, email: string): Promise<
   // Recarrega o apoio efetivo (linhas existentes); sem linhas -> echo do input.
   const rows = await loadPrecos(db, skuId);
   const apoio = rows.length > 0 ? toApoio(rows) : {
-    ifp: input.ifp ?? null,
     preco_concorrencia: input.preco_concorrencia ?? null,
     custo_ideal: input.custo_ideal ?? null,
   };

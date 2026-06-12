@@ -493,8 +493,13 @@ export type InsumoCategoria = "MP" | "embalagem" | "insumo";
 export type ParametroNivel = "global" | "linha" | "produto";
 /** Regiao do vetor regional / grid de precos. */
 export type Regiao = "S" | "SE" | "CO" | "NE" | "N";
-/** Patamar de preco (com frete = CIF; sem frete = FOB). */
-export type Patamar = "CIF" | "FOB";
+/**
+ * Patamar de preco (metodo IFP / markup por dentro):
+ *   FOB        — IFP sem frete (independe de regiao)
+ *   CIF_MINIMO — IFP com frete + lucro minimo (piso de negociacao)
+ *   CIF_ALVO   — IFP com frete + lucro alvo
+ */
+export type Patamar = "FOB" | "CIF_MINIMO" | "CIF_ALVO";
 /** Nivel das diretrizes/regras/politica de cotacao (linha ou produto). */
 export type CotacaoNivel = "linha" | "produto";
 /** Tipo de regra estruturada de cotacao (cotacao_regras.tipo_regra). */
@@ -717,21 +722,25 @@ export interface ParametrosResolvidos {
   regional: Record<Regiao, ParametroResolvidoRegiao>;
 }
 
-/** Uma celula do grid de precos (regiao x patamar) — campos de exibicao. */
+/**
+ * Uma celula do grid de precos (regiao x patamar) — campos de exibicao.
+ * `ifp` e o indice (1 - somatorio de percentuais) usado no calculo daquela
+ * celula; e exclusivo do motor (varia por patamar/regiao) e somente leitura.
+ */
 export interface PrecoCalculadoLinha {
   regiao: Regiao;
   patamar: Patamar;
   valor: number | null;
+  ifp: number | null;
   estado: EstadoCalculo;
   calculado_em: string | null;
 }
 
 /**
  * Indicadores de apoio do SKU (sku_precos_calculados), os UNICOS campos
- * gravaveis pela UI; valor/custo_base sao exclusivos do motor (RF-23).
+ * gravaveis pela UI; valor/custo_base/ifp sao exclusivos do motor (RF-23).
  */
 export interface PrecoApoio {
-  ifp: number | null;
   preco_concorrencia: number | null;
   custo_ideal: number | null;
 }

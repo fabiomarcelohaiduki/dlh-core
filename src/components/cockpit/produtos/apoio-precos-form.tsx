@@ -19,15 +19,15 @@ function toNumber(value: string): number | null {
 
 /**
  * cmp-apoio-precos-form — captura manual dos indicadores de apoio do SKU
- * (ifp, preco_concorrencia, custo_ideal): os UNICOS campos gravaveis do grid
- * (RF-23). valor e custo_base vem do motor e ficam somente leitura. Compartilha
- * o cache de usePrecosCalculados com o grid e hidrata o form a partir de `apoio`.
+ * (preco_concorrencia, custo_ideal): os UNICOS campos gravaveis do grid
+ * (RF-23). valor, custo_base e ifp vem do motor e ficam somente leitura
+ * (o ifp e calculado por celula em fn_recalcular_sku). Compartilha o cache de
+ * usePrecosCalculados com o grid e hidrata o form a partir de `apoio`.
  */
 export function ApoioPrecosForm({ skuId }: { skuId: string }) {
   const precos = usePrecosCalculados(skuId);
   const apoioPrecos = useApoioPrecos();
 
-  const [ifp, setIfp] = useState("");
   const [precoConcorrencia, setPrecoConcorrencia] = useState("");
   const [custoIdeal, setCustoIdeal] = useState("");
   const [feedback, setFeedback] = useState<{ kind: "ok" | "err"; msg: string } | null>(
@@ -39,7 +39,6 @@ export function ApoioPrecosForm({ skuId }: { skuId: string }) {
 
   // Hidrata o form quando o apoio carrega ou troca de SKU.
   useEffect(() => {
-    setIfp(apoio?.ifp != null ? String(apoio.ifp) : "");
     setPrecoConcorrencia(
       apoio?.preco_concorrencia != null ? String(apoio.preco_concorrencia) : "",
     );
@@ -50,7 +49,6 @@ export function ApoioPrecosForm({ skuId }: { skuId: string }) {
   async function onSave() {
     setFeedback(null);
     const payload: PrecoApoio = {
-      ifp: toNumber(ifp),
       preco_concorrencia: toNumber(precoConcorrencia),
       custo_ideal: toNumber(custoIdeal),
     };
@@ -83,18 +81,7 @@ export function ApoioPrecosForm({ skuId }: { skuId: string }) {
             são calculados pelo motor e não são editáveis aqui.
           </p>
 
-          <div className="grid-fields" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-            <div className="field" style={{ marginBottom: 0 }}>
-              <label htmlFor="apoio-ifp">IFP</label>
-              <input
-                id="apoio-ifp"
-                type="number"
-                step="any"
-                placeholder="Opcional"
-                value={ifp}
-                onChange={(e) => setIfp(e.target.value)}
-              />
-            </div>
+          <div className="grid-fields" style={{ gridTemplateColumns: "1fr 1fr" }}>
             <div className="field" style={{ marginBottom: 0 }}>
               <label htmlFor="apoio-concorrencia">Preço concorrência</label>
               <input

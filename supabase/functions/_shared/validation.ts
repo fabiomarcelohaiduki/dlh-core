@@ -1284,7 +1284,7 @@ export type ParametroRegionalUpsertInput = z.infer<typeof parametroRegionalUpser
 
 // ---------------------------------------------------------------------
 // sku_precos_calculados - indicadores de apoio (PUT /skus/:skuId/precos/apoio).
-// Grava SOMENTE ifp/preco_concorrencia/custo_ideal; NUNCA valor/custo_base
+// Grava SOMENTE preco_concorrencia/custo_ideal; NUNCA valor/custo_base/ifp
 // (exclusivos do motor, RF-23). Todos opcionais; null limpa o indicador.
 // ---------------------------------------------------------------------
 const apoioField = (label: string) =>
@@ -1296,7 +1296,6 @@ const apoioField = (label: string) =>
 
 export const precoApoioSchema = z
   .object({
-    ifp: apoioField("ifp"),
     preco_concorrencia: apoioField("preco_concorrencia"),
     custo_ideal: apoioField("custo_ideal"),
   })
