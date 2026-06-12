@@ -574,6 +574,48 @@ export async function runIncrementalSync(
 }
 
 /**
+ * Campos do payload Effecti que OSCILAM entre chamadas identicas da API, sem
+ * o aviso ter mudado: a API atribui o aviso a um perfil/palavra-chave diferente
+ * a cada chamada (~3% dos avisos) e remarca o destaque de busca em itensEdital.
+ * Provado empiricamente (2 chamadas seguidas, mesma janela: 97/100 identicos,
+ * 3/100 diferindo SO nesses campos). Excluidos do hash para que "alterado"
+ * signifique mudanca real da licitacao (objeto, anexos, datas, valores, orgao,
+ * favorito, naLixeira) e nao ruido de busca que inflava ~150 falsos/coleta e
+ * regeraria embeddings a toa. itensEdital e o subconjunto que casou a palavra
+ * (nunca a lista completa) -> nao serve de sinal de mudanca; o edital PDF
+ * (camada 2) e a fonte canonica dos itens.
+ */
+const CAMPOS_VOLATEIS_HASH = new Set([
+  "perfil",
+  "perfilNome",
+  "palavraEncontrada",
+  "itensEdital",
+]);
+
+/**
+ * Stringify canonico: ordena chaves recursivamente. Imuniza o hash contra
+ * reordenacao de chaves da API (e do jsonb do Postgres, embora o hash so use
+ * o raw em memoria).
+ */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",")}}`;
+}
+
+/** Entrada estavel do hash: remove campos volateis e ordena chaves. */
+function canonicalHashInput(payload: unknown): string {
+  if (typeof payload !== "object" || payload === null) return stableStringify(payload);
+  const filtered: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(payload as Record<string, unknown>)) {
+    if (!CAMPOS_VOLATEIS_HASH.has(k)) filtered[k] = v;
+  }
+  return stableStringify(filtered);
+}
+
+/**
  * Upsert de um lote com dedupe por effecti_id. Determina novos vs alterados
  * comparando o HASH do conteudo (FNV-1a do payload_bruto) com o persistido,
  * espelhando o Nomus. So escreve/conta 'alterado' quando o conteudo mudou:
@@ -610,11 +652,14 @@ async function upsertBatch(
 
   let novos = 0;
   let alterados = 0;
-  // Hash sempre derivado do raw da API (payload_bruto) -> deterministico entre
-  // coletas. NUNCA recalcular do jsonb persistido (o Postgres reordena chaves).
+  // Hash derivado do raw da API (payload_bruto), sobre um subconjunto ESTAVEL
+  // (sem campos volateis de busca) e com chaves ordenadas -> deterministico
+  // entre coletas. NUNCA recalcular do jsonb persistido (o Postgres reordena
+  // chaves; o canonicalHashInput tambem ordena, mas o filtro de volateis e a
+  // razao principal). Ver CAMPOS_VOLATEIS_HASH.
   const rows: AvisoUpsertRow[] = [];
   for (const i of unique) {
-    const hash = hashTexto(JSON.stringify(i.payloadBruto));
+    const hash = hashTexto(canonicalHashInput(i.payloadBruto));
     const existe = hashExistente.has(i.effectiId);
     const persistido = existe ? hashExistente.get(i.effectiId) ?? null : null;
 
