@@ -12,6 +12,7 @@ import {
   Plus,
   TriangleAlert,
   Trash2,
+  Wand2,
   X,
 } from "lucide-react";
 import { useDeleteLinha, useLinhas } from "@/hooks/use-linhas";
@@ -69,7 +70,11 @@ export function ProdutosClient() {
           </p>
         </div>
         <div className="actions">
-          <button type="button" className="btn btn-primary" onClick={onNew}>
+          <Link href="/produtos/novo" className="btn btn-primary">
+            <Wand2 aria-hidden="true" />
+            <span>Cadastro guiado</span>
+          </Link>
+          <button type="button" className="btn" onClick={onNew}>
             <Plus aria-hidden="true" />
             <span>Nova linha</span>
           </button>
