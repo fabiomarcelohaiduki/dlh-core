@@ -183,11 +183,6 @@ export async function runEffectiBlock(
   const counters = await loadCounters(db, execucaoId);
   const until = checkpoint.janela_fim ? new Date(checkpoint.janela_fim) : new Date();
 
-  // Write-back de favorito: ids cujo favorito virou true e ainda nao foi
-  // propagado para a Effecti nesta coleta. Acumulam ao longo do bloco e sao
-  // disparados em batch (PUT favoritar-licitacao) ao encerrar (best-effort).
-  const propagarIds = new Set<number>();
-
   await updateExecucao(db, execucaoId, {
     status: "em_andamento",
     etapa_atual: "coleta",
@@ -207,7 +202,6 @@ export async function runEffectiBlock(
       // Fim global alcancado: conclui a execucao.
       if (blocoInicio.getTime() >= until.getTime()) {
         checkpoint.fase = "concluido";
-        await flushFavoritos(deps, propagarIds, params.signal);
         await finalizeConcluida(db, execucaoId, fonteId, checkpoint, counters);
         return {
           estado: "concluida",
@@ -236,8 +230,8 @@ export async function runEffectiBlock(
             execucaoId,
             aviso,
             embeddingProvider,
+            connector,
             counters,
-            propagarIds,
             params.signal,
           );
         } catch (err) {
@@ -273,10 +267,9 @@ export async function runEffectiBlock(
       });
     }
 
-    // Bloco de trabalho encerrado por teto (ainda ha janela): propaga os
-    // favoritos acumulados (best-effort) e permanece em_andamento com o
-    // checkpoint salvo, para o orquestrador retomar.
-    await flushFavoritos(deps, propagarIds, params.signal);
+    // Bloco de trabalho encerrado por teto (ainda ha janela): permanece
+    // em_andamento com o checkpoint salvo, para o orquestrador retomar. O
+    // write-back de favorito ja foi propagado item-a-item durante o loop.
     await updateExecucao(db, execucaoId, {
       status: "em_andamento",
       checkpoint,
@@ -330,8 +323,8 @@ async function processAviso(
   execucaoId: string,
   aviso: CollectedAviso,
   embeddingProvider: EmbeddingProvider | undefined,
+  connector: EffectiConnector,
   counters: Counters,
-  propagarIds: Set<number>,
   signal?: AbortSignal,
 ): Promise<void> {
   const { avisoId, status, reindexar, favorito, favoritoPropagado } = await persistAvisoBase(
@@ -343,11 +336,31 @@ async function processAviso(
   else if (status === "alterado") counters.alterados += 1;
   // "ignorado" / legado: nao conta (espelha o Nomus).
 
-  // Write-back: enfileira para propagar o favorito a TODAS as ocorrencias do id
-  // na Effecti quando virou true e ainda nao foi propagado. idLicitacao e numero.
+  // Write-back INLINE: propaga o favorito para a Effecti (PUT favoritar-licitacao
+  // para TODAS as ocorrencias do idLicitacao) assim que encontrado e marca a flag
+  // na hora. Propagar item-a-item (em vez de acumular e disparar no fim do bloco)
+  // e robusto a morte do Edge no meio do bloco: o progresso fica persistido
+  // incrementalmente, sem perder um flush final. BEST-EFFORT: falha do PUT mantem
+  // a flag false -> re-tenta na proxima coleta (idempotente).
   if (favorito && !favoritoPropagado) {
     const idNum = Number(aviso.effectiId);
-    if (Number.isFinite(idNum)) propagarIds.add(idNum);
+    if (Number.isFinite(idNum)) {
+      const ok = await connector.favoritarLicitacao([idNum], signal);
+      if (ok) {
+        const { error } = await db
+          .from("avisos")
+          .update({ favorito_propagado: true })
+          .eq("id", avisoId);
+        if (error) {
+          // Favorito ja propagado na Effecti, mas a flag nao foi marcada: a
+          // proxima coleta re-propaga (idempotente -> seguro). Apenas loga.
+          console.error("[effecti-pipeline] favorito propagado mas falha ao marcar flag", {
+            error: error.message,
+            avisoId,
+          });
+        }
+      }
+    }
   }
 
   // Indexacao opcional: so quando ha provider de embeddings E o verbatim mudou
@@ -363,54 +376,6 @@ async function processAviso(
   }
 
   counters.sucesso += 1;
-}
-
-/**
- * Tamanho do lote do PUT favoritar-licitacao. Lotes grandes (~100+ ids) eram
- * rejeitados/expiravam na Effecti, deixando TODOS os ids do bloco sem marcar a
- * flag e presos em re-tentativa eterna a cada coleta. Quebrar em lotes pequenos
- * isola a falha: um lote ruim nao contamina os demais.
- */
-const FAVORITO_BATCH_SIZE = 25;
-
-/**
- * Propaga em lotes o favorito para a Effecti (PUT favoritar-licitacao) e, por
- * lote confirmado (200), marca favorito_propagado=true nas linhas para nao
- * re-disparar a cada coleta. BEST-EFFORT POR LOTE: falha da API ou do update de
- * um lote NAO derruba o bloco nem os outros lotes; os ids do lote ficam com a
- * flag false e o write-back e tentado de novo na proxima coleta (idempotente).
- * Remove do set apenas os ids efetivamente marcados.
- */
-async function flushFavoritos(
-  deps: EffectiBlockDeps,
-  propagarIds: Set<number>,
-  signal?: AbortSignal,
-): Promise<void> {
-  if (propagarIds.size === 0) return;
-  const lista = [...propagarIds];
-
-  for (let i = 0; i < lista.length; i += FAVORITO_BATCH_SIZE) {
-    if (signal?.aborted) return;
-    const chunk = lista.slice(i, i + FAVORITO_BATCH_SIZE);
-
-    const ok = await deps.connector.favoritarLicitacao(chunk, signal);
-    if (!ok) continue; // mantem flag false neste lote -> re-tenta na proxima coleta.
-
-    const { error } = await deps.db
-      .from("avisos")
-      .update({ favorito_propagado: true })
-      .in("effecti_id", chunk.map(String));
-    if (error) {
-      // Favorito ja foi propagado na Effecti, mas a flag nao foi marcada: a
-      // proxima coleta re-propaga (idempotente -> seguro). Apenas loga.
-      console.error("[effecti-pipeline] favorito propagado mas falha ao marcar flag", {
-        error: error.message,
-        lote: chunk.length,
-      });
-      continue;
-    }
-    for (const id of chunk) propagarIds.delete(id);
-  }
 }
 
 // ---------------------------------------------------------------------
