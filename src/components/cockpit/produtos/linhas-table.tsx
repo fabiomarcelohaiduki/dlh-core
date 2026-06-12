@@ -86,7 +86,19 @@ export function LinhasTable({
         <thead>
           <tr>
             <th>Linha</th>
-            <th style={{ width: 150 }} aria-label="Status" />
+            <th style={{ width: 150 }}>
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-icon"
+                  onClick={onNew}
+                  aria-label="Nova linha"
+                  title="Nova linha"
+                >
+                  <Plus aria-hidden="true" />
+                </button>
+              </div>
+            </th>
           </tr>
         </thead>
         <tbody>

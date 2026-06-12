@@ -56,23 +56,11 @@ export function ProdutosClient() {
   return (
     <section className="screen">
       <div className="page-head">
-        <div className="titles">
-          <h2>Linhas &amp; Produtos</h2>
-          <p>
-            As Linhas agrupam Produtos e definem os atributos que cada Produto
-            preenche. Selecione uma Linha para editar seus atributos, critérios
-            de cotação e abrir os Produtos vinculados.
-          </p>
-        </div>
-        <div className="actions">
+        <div className="actions" style={{ marginLeft: 0 }}>
           <Link href="/produtos/novo" className="btn btn-primary">
             <Wand2 aria-hidden="true" />
             <span>Cadastro guiado</span>
           </Link>
-          <button type="button" className="btn" onClick={onNew}>
-            <Plus aria-hidden="true" />
-            <span>Nova linha</span>
-          </button>
         </div>
       </div>
 
