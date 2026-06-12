@@ -22,15 +22,21 @@ export function StatusPill({
   state,
   label,
   className,
+  iconOnly = false,
 }: {
   state: PillState;
   label: string;
   className?: string;
+  iconOnly?: boolean;
 }) {
   return (
-    <span className={cn("pill", STATE_CLASS[state], className)}>
+    <span
+      className={cn("pill", STATE_CLASS[state], iconOnly && "icon-only", className)}
+      title={iconOnly ? label : undefined}
+      aria-label={iconOnly ? label : undefined}
+    >
       <span className="dot" aria-hidden="true" />
-      {label}
+      {iconOnly ? null : label}
     </span>
   );
 }

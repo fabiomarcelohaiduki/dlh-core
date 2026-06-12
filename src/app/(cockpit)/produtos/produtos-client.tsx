@@ -6,19 +6,14 @@ import { useRouter } from "next/navigation";
 import {
   ChevronRight,
   Layers,
-  Loader2,
   Package,
-  Pencil,
   Plus,
   TriangleAlert,
-  Trash2,
   Wand2,
-  X,
 } from "lucide-react";
-import { useDeleteLinha, useLinhas } from "@/hooks/use-linhas";
+import { useLinhas } from "@/hooks/use-linhas";
 import { useLinhaAtributos } from "@/hooks/use-linha-atributos";
 import { useProdutos } from "@/hooks/use-produtos";
-import { ApiError } from "@/lib/api/client";
 import { StatusPill } from "@/components/cockpit/status-pill";
 import { LinhasTable } from "@/components/cockpit/produtos/linhas-table";
 import { LinhaForm } from "@/components/cockpit/produtos/linha-form";
@@ -97,6 +92,14 @@ export function ProdutosClient() {
           selectedId={selectedId}
           onSelect={onSelect}
           onNew={onNew}
+          onEdit={(linha) => {
+            setSelectedId(linha.id);
+            setFormMode("edit");
+          }}
+          onDeleted={() => {
+            setSelectedId(null);
+            setFormMode("none");
+          }}
         />
 
         <div style={{ display: "grid", gap: 16 }}>
@@ -118,11 +121,7 @@ export function ProdutosClient() {
               <AtributosEditor linhaId={selected.id} />
             </>
           ) : selected ? (
-            <LinhaDetail
-              linha={selected}
-              onEdit={() => setFormMode("edit")}
-              onDeleted={() => setSelectedId(null)}
-            />
+            <LinhaDetail linha={selected} />
           ) : (
             <div className="card">
               <div className="empty">
@@ -141,116 +140,11 @@ export function ProdutosClient() {
   );
 }
 
-/** Painel DETAIL de uma Linha: cabecalho + produtos + tabela de precos + criterios. */
-function LinhaDetail({
-  linha,
-  onEdit,
-  onDeleted,
-}: {
-  linha: ProdutoLinha;
-  onEdit: () => void;
-  onDeleted: () => void;
-}) {
-  const deleteLinha = useDeleteLinha();
-  const [confirming, setConfirming] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
-
-  const ativo = linha.ativo
-    ? ({ state: "ok", label: "Ativa" } as const)
-    : ({ state: "idle", label: "Inativa" } as const);
-
-  async function onConfirmDelete() {
-    setErro(null);
-    try {
-      await deleteLinha.mutateAsync(linha.id);
-      setConfirming(false);
-      onDeleted();
-    } catch (err) {
-      setErro(
-        err instanceof ApiError && err.status === 409
-          ? "Linha possui produtos vinculados. Remova os Produtos antes de excluir a Linha."
-          : "Não foi possível excluir a linha. Tente novamente.",
-      );
-    }
-  }
-
+/** Painel DETAIL de uma Linha: produtos + tabela de precos + criterios. A
+ * identidade e as acoes (Editar/Excluir) da Linha vivem na lista a esquerda. */
+function LinhaDetail({ linha }: { linha: ProdutoLinha }) {
   return (
     <>
-      <div className="card">
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: 12,
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={{ display: "grid", gap: 6 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <strong style={{ fontSize: "15px" }}>{linha.nome}</strong>
-              <StatusPill state={ativo.state} label={ativo.label} />
-            </div>
-            {linha.descricao ? (
-              <p style={{ margin: 0, fontSize: "12.5px", color: "var(--muted)" }}>
-                {linha.descricao}
-              </p>
-            ) : null}
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button type="button" className="btn btn-sm" onClick={onEdit}>
-              <Pencil aria-hidden="true" />
-              <span>Editar</span>
-            </button>
-            {confirming ? (
-              <>
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  style={{ color: "var(--err)" }}
-                  onClick={onConfirmDelete}
-                  disabled={deleteLinha.isPending}
-                >
-                  {deleteLinha.isPending ? (
-                    <Loader2 className="spin" aria-hidden="true" />
-                  ) : (
-                    <Trash2 aria-hidden="true" />
-                  )}
-                  <span>Confirmar</span>
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={() => {
-                    setConfirming(false);
-                    setErro(null);
-                  }}
-                  disabled={deleteLinha.isPending}
-                >
-                  <X aria-hidden="true" />
-                  <span>Cancelar</span>
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={() => setConfirming(true)}
-              >
-                <Trash2 aria-hidden="true" />
-                <span>Excluir</span>
-              </button>
-            )}
-          </div>
-        </div>
-        {erro && (
-          <div className="err-msg" style={{ display: "flex", marginTop: 14 }}>
-            <TriangleAlert aria-hidden="true" />
-            {erro}
-          </div>
-        )}
-      </div>
-
       <ProdutosDaLinha linha={linha} />
 
       <TabelaPrecosLinha linhaId={linha.id} />

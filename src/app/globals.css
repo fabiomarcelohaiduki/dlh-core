@@ -181,6 +181,15 @@ button {
   padding: 0 11px;
   font-size: 12.5px;
 }
+.btn-icon {
+  padding: 0;
+  width: 38px;
+  gap: 0;
+  justify-content: center;
+}
+.btn-sm.btn-icon {
+  width: 30px;
+}
 .btn[disabled] {
   opacity: 0.45;
   cursor: not-allowed;
@@ -221,6 +230,16 @@ button {
   height: 6px;
   border-radius: 50%;
   background: currentColor;
+}
+.pill.icon-only {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  justify-content: center;
+}
+.pill.icon-only .dot {
+  width: 8px;
+  height: 8px;
 }
 .pill.ok {
   color: var(--ok);
