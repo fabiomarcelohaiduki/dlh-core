@@ -4,8 +4,10 @@ import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/
 import {
   descobrirAnexos,
   fetchExtracaoResumo,
+  reprocessarErros,
   salvarConfigExtracao,
   type DescobrirInput,
+  type FonteReprocessavel,
   type SalvarConfigExtracaoInput,
 } from "@/lib/api/documentos";
 
@@ -41,6 +43,22 @@ export function useDescobrir() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input?: DescobrirInput) => descobrirAnexos(input ?? {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: documentosKeys.resumo });
+    },
+  });
+}
+
+/**
+ * useReprocessarErros — re-enfileira os vinculos com erro (status 'erro' ->
+ * 'pendente') via POST documentos-descobrir { action:'reprocessar-erros' }.
+ * Fonte opcional (ausente = todas). Em sucesso invalida o resumo para refletir
+ * os erros que voltaram para a fila. O drain do Actions consome depois.
+ */
+export function useReprocessarErros() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (fonte?: FonteReprocessavel | null) => reprocessarErros(fonte),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: documentosKeys.resumo });
     },

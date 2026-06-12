@@ -40,6 +40,30 @@ export function descobrirAnexos(input: DescobrirInput = {}): Promise<DescobrirRe
   });
 }
 
+/** Fontes que podem ter vinculos com erro (mais ampla que as descobriveis). */
+export type FonteReprocessavel = "nomus" | "effecti" | "gmail" | "drive";
+
+export interface ReprocessarErrosResultado {
+  reprocessados: number;
+  fonte: FonteReprocessavel | null;
+}
+
+/**
+ * POST /documentos-descobrir { action:'reprocessar-erros' } — re-enfileira os
+ * vinculos com erro (status 'erro' -> 'pendente'). Fonte opcional (ausente =
+ * todas). O proximo drain da fila tenta de novo (ex.: apos fix no extrator).
+ */
+export function reprocessarErros(
+  fonte?: FonteReprocessavel | null,
+): Promise<ReprocessarErrosResultado> {
+  const body: Record<string, unknown> = { action: "reprocessar-erros" };
+  if (fonte) body.fonte = fonte;
+  return apiFetch<ReprocessarErrosResultado>("documentos-descobrir", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 export interface ExtracaoErro {
   id: string;
   fonte: string | null;

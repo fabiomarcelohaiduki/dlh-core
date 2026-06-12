@@ -301,6 +301,30 @@ async function montarResumo(service: ServiceClient): Promise<unknown> {
   return { contagens, erros };
 }
 
+// ---------------------------------------------------------------------
+// action='reprocessar-erros': re-enfileira os vinculos que falharam
+// (status_extracao='erro' -> 'pendente', limpa a msg de erro), opcionalmente
+// filtrando por fonte. ESCRITA -> auditada. O runner do Actions so consome
+// 'pendente', entao isto e o que faz um erro "sair do estado" pela tela: o
+// proximo drain da fila tenta de novo (ex.: apos um fix no extrator). O erro
+// e regerado se falhar de novo. Idempotente (so toca quem esta em 'erro').
+// ---------------------------------------------------------------------
+async function reprocessarErros(
+  service: ServiceClient,
+  fonte: FonteDescobrivel | null,
+): Promise<number> {
+  let q = service
+    .from("documento_vinculos")
+    .update({ status_extracao: "pendente", erro: null })
+    .eq("status_extracao", "erro");
+  if (fonte) q = q.eq("fonte", fonte);
+  const { data, error } = await q.select("id");
+  if (error) {
+    throw new HttpError(500, "reprocessar_falhou", "falha ao re-enfileirar anexos com erro");
+  }
+  return Array.isArray(data) ? data.length : 0;
+}
+
 async function handler(req: Request): Promise<Response> {
   const preflight = handleCorsPreflight(req);
   if (preflight) return preflight;
@@ -314,6 +338,22 @@ async function handler(req: Request): Promise<Response> {
     // LEITURA: resumo de status + erros (cockpit). Nao audita (sem efeito).
     if (body.action === "resumo") {
       return jsonResponse(await montarResumo(service), 200);
+    }
+
+    // ESCRITA: re-enfileira os vinculos com erro (cockpit). Fonte opcional.
+    if (body.action === "reprocessar-erros") {
+      const fonteRaw = typeof body.fonte === "string" ? body.fonte : null;
+      const fonte = fonteRaw && FONTES_DESCOBRIVEIS.includes(fonteRaw as FonteDescobrivel)
+        ? (fonteRaw as FonteDescobrivel)
+        : null;
+      const reprocessados = await reprocessarErros(service, fonte);
+      await logSensitiveAction({
+        tabela: "documento_vinculos",
+        acao: "reprocessar_erros_extracao",
+        usuario: caller.usuario,
+        dadosNovos: { gatilho: caller.gatilho, fonte, reprocessados },
+      });
+      return jsonResponse({ reprocessados, fonte }, 200);
     }
 
     const input = parseInput(body);

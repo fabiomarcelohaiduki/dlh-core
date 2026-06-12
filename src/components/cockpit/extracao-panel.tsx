@@ -9,10 +9,11 @@ import {
   FileText,
   Loader2,
   Play,
+  RotateCcw,
   Search,
   TriangleAlert,
 } from "lucide-react";
-import { useDescobrir, useExtracaoResumo } from "@/hooks/use-documentos";
+import { useDescobrir, useExtracaoResumo, useReprocessarErros } from "@/hooks/use-documentos";
 import { useDispararDrive, useDispararExtracao, useDispararGmail } from "@/hooks/use-admin";
 import { StatCard } from "@/components/cockpit/stat-card";
 import {
@@ -75,6 +76,7 @@ export function ExtracaoPanel({
   const dispararGmail = useDispararGmail();
   const dispararDrive = useDispararDrive();
   const dispararExtracao = useDispararExtracao();
+  const reprocessar = useReprocessarErros();
   const [fonte, setFonte] = useState<FontePainel>("nomus");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   // Filtro de origem da tabela de erros (client-side, sobre a lista carregada).
@@ -169,6 +171,28 @@ export function ExtracaoPanel({
         message = "Não foi possível acionar a extração na nuvem. Tente novamente.";
       }
       setFeedback({ kind: "err", message });
+    }
+  }
+
+  // Re-enfileira os vinculos com erro (status 'erro' -> 'pendente'), respeitando
+  // o filtro de origem da tabela: "todas" reprocessa tudo; senao so a fonte
+  // selecionada. O proximo drain da fila tenta de novo (ex.: apos um fix no
+  // extrator). Em sucesso, o resumo invalida e os erros caem para Pendentes.
+  async function handleReprocessar() {
+    if (reprocessar.isPending) return;
+    setFeedback(null);
+    const alvoFonte = filtroFonte === "todas" ? undefined : filtroFonte;
+    try {
+      const r = await reprocessar.mutateAsync(alvoFonte);
+      setFeedback({
+        kind: "ok",
+        message:
+          r.reprocessados > 0
+            ? `${formatNumber(r.reprocessados)} anexo(s) com erro voltaram para a fila. Use "Extrair fila agora".`
+            : "Nenhum anexo com erro para reprocessar.",
+      });
+    } catch {
+      setFeedback({ kind: "err", message: "Não foi possível reprocessar os erros. Tente novamente." });
     }
   }
 
@@ -344,8 +368,38 @@ export function ExtracaoPanel({
           </span>
         )}
       </div>
-      <div className="filter-bar">
+      <div className="filter-bar" style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <OrigemFiltro value={filtroFonte} onChange={setFiltroFonte} />
+        {/* Re-enfileira os erros (status 'erro' -> 'pendente') respeitando o
+            filtro de origem. So aparece quando ha erros. */}
+        {errosCount > 0 && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            style={{ marginLeft: "auto" }}
+            onClick={handleReprocessar}
+            disabled={reprocessar.isPending}
+            aria-disabled={reprocessar.isPending}
+            title={
+              filtroFonte === "todas"
+                ? "Volta todos os anexos com erro para a fila de extração"
+                : `Volta os anexos com erro do ${FONTE_LABEL[filtroFonte as FontePainel] ?? filtroFonte} para a fila`
+            }
+          >
+            {reprocessar.isPending ? (
+              <Loader2 className="spin" aria-hidden="true" />
+            ) : (
+              <RotateCcw aria-hidden="true" />
+            )}
+            <span>
+              {reprocessar.isPending
+                ? "Reprocessando…"
+                : filtroFonte === "todas"
+                  ? "Reprocessar erros"
+                  : `Reprocessar erros · ${FONTE_LABEL[filtroFonte as FontePainel] ?? filtroFonte}`}
+            </span>
+          </button>
+        )}
       </div>
 
       {/* Tabela de erros de extracao */}
