@@ -299,17 +299,16 @@ function StepLinhaProduto({
         ) : (
           <LinhaForm onSuccess={(linha) => onLinha(linha.id)} />
         )}
+
+        {linhaId && (
+          <div style={{ marginTop: 18 }}>
+            <AtributosEditor linhaId={linhaId} embedded />
+          </div>
+        )}
       </div>
 
       {linhaId && (
-        <>
-          <AtributosEditor linhaId={linhaId} />
-          <ProdutoForm
-            linhaId={linhaId}
-            schema={schema}
-            onSuccess={onProduto}
-          />
-        </>
+        <ProdutoForm linhaId={linhaId} schema={schema} onSuccess={onProduto} />
       )}
     </>
   );

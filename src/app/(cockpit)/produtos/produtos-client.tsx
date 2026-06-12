@@ -109,11 +109,14 @@ export function ProdutosClient() {
               onCancel={() => setFormMode("none")}
             />
           ) : formMode === "edit" && selected ? (
-            <LinhaForm
-              linha={selected}
-              onSuccess={() => setFormMode("none")}
-              onCancel={() => setFormMode("none")}
-            />
+            <>
+              <LinhaForm
+                linha={selected}
+                onSuccess={() => setFormMode("none")}
+                onCancel={() => setFormMode("none")}
+              />
+              <AtributosEditor linhaId={selected.id} />
+            </>
           ) : selected ? (
             <LinhaDetail
               linha={selected}
@@ -138,7 +141,7 @@ export function ProdutosClient() {
   );
 }
 
-/** Painel DETAIL de uma Linha: cabecalho + atributos + produtos + criterios. */
+/** Painel DETAIL de uma Linha: cabecalho + produtos + tabela de precos + criterios. */
 function LinhaDetail({
   linha,
   onEdit,
@@ -247,8 +250,6 @@ function LinhaDetail({
           </div>
         )}
       </div>
-
-      <AtributosEditor linhaId={linha.id} />
 
       <ProdutosDaLinha linha={linha} />
 

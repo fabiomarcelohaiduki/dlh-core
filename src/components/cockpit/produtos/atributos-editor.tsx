@@ -27,8 +27,17 @@ function tipoLabel(tipo: AtributoTipo): string {
  * produto-form renderiza dinamicamente: criar/remover atributo aqui muda os
  * campos disponiveis em todos os Produtos da Linha. A chave e unica por Linha
  * (o backend rejeita duplicata com 409, exibido inline).
+ *
+ * `embedded`: renderiza como SECAO (sem o card proprio), para ficar DENTRO do
+ * cadastro/detalhe da Linha em vez de um card irmao solto.
  */
-export function AtributosEditor({ linhaId }: { linhaId: string }) {
+export function AtributosEditor({
+  linhaId,
+  embedded = false,
+}: {
+  linhaId: string;
+  embedded?: boolean;
+}) {
   const atributos = useLinhaAtributos(linhaId);
   const createAtributo = useCreateLinhaAtributo();
   const deleteAtributo = useDeleteLinhaAtributo();
@@ -77,9 +86,17 @@ export function AtributosEditor({ linhaId }: { linhaId: string }) {
     }
   }
 
-  return (
-    <div className="card">
-      <div className="section-title" style={{ margin: "0 0 14px" }}>
+  const body = (
+    <>
+      <div
+        className="section-title"
+        style={{
+          margin: "0 0 14px",
+          ...(embedded
+            ? { paddingTop: 18, borderTop: "1px solid var(--border)" }
+            : null),
+        }}
+      >
         <h3>Atributos da linha</h3>
         <span className="count">{items.length} definidos</span>
       </div>
@@ -229,6 +246,8 @@ export function AtributosEditor({ linhaId }: { linhaId: string }) {
           {erro}
         </div>
       )}
-    </div>
+    </>
   );
+
+  return embedded ? body : <div className="card">{body}</div>;
 }
