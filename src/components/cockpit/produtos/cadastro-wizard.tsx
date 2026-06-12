@@ -22,25 +22,25 @@ import { ComposicaoEditor } from "@/components/cockpit/produtos/composicao-edito
 import { CustoAquisicaoForm } from "@/components/cockpit/produtos/custo-aquisicao-form";
 import { PrecoRegionalGrid } from "@/components/cockpit/produtos/preco-regional-grid";
 import { cn } from "@/lib/utils";
-import type { AtributoSchema, ProdutoSku } from "@/lib/api/types";
+import type { AtributoSchema, Produto, ProdutoSku } from "@/lib/api/types";
 
-type Step = 1 | 2 | 3 | 4 | 5;
+type Step = 1 | 2 | 3 | 4;
 
 const STEPS: { n: Step; label: string }[] = [
-  { n: 1, label: "Linha" },
-  { n: 2, label: "Produto" },
-  { n: 3, label: "SKU" },
-  { n: 4, label: "Custo" },
-  { n: 5, label: "Preço" },
+  { n: 1, label: "Linha & Produto" },
+  { n: 2, label: "SKU" },
+  { n: 3, label: "Custo" },
+  { n: 4, label: "Preço" },
 ];
 
 /**
  * cmp-cadastro-wizard — fluxo guiado de cadastro de um item, em sequencia, numa
- * tela so: Linha (existente ou nova) -> Produto -> SKU -> Custo -> Preço.
- * Orquestra os forms ja existentes (nao reconstroi nenhum), encadeando os IDs
- * criados (linhaId -> produtoId -> sku) e liberando o proximo passo a cada
- * entidade salva. O custo entra no MESMO fluxo (BOM se fabricado, aquisicao se
- * comprado) e o preço final ja vem calculado pelo motor (triggers).
+ * tela so: Linha & Produto (escolhe/cria a linha e cadastra o produto no mesmo
+ * passo) -> SKU -> Custo -> Preço. Orquestra os forms ja existentes (nao
+ * reconstroi nenhum), encadeando os IDs criados (linhaId -> produtoId -> sku) e
+ * liberando o proximo passo a cada entidade salva. O custo entra no MESMO fluxo
+ * (BOM se fabricado, aquisicao se comprado) e o preço final ja vem calculado
+ * pelo motor (triggers).
  */
 export function CadastroWizard() {
   const router = useRouter();
@@ -65,9 +65,7 @@ export function CadastroWizard() {
   // Um passo so e alcancavel se a entidade do passo anterior ja existe.
   function reachable(n: Step): boolean {
     if (n === 1) return true;
-    if (n === 2) return Boolean(linhaId);
-    if (n === 3) return Boolean(produtoId);
-    if (n === 4) return Boolean(sku);
+    if (n === 2) return Boolean(produtoId);
     return Boolean(sku);
   }
 
@@ -100,47 +98,38 @@ export function CadastroWizard() {
 
       <div style={{ display: "grid", gap: 16, marginTop: 4 }}>
         {step === 1 && (
-          <StepLinha
+          <StepLinhaProduto
             linhaId={linhaId}
+            schema={schema}
             onLinha={setLinhaId}
-            onNext={() => setStep(2)}
+            onProduto={(produto) => {
+              setProdutoId(produto.id);
+              setStep(2);
+            }}
           />
         )}
 
-        {step === 2 && linhaId && (
-          <StepWrap onBack={() => setStep(1)} backLabel="Voltar para Linha">
-            <ProdutoForm
-              linhaId={linhaId}
-              schema={schema}
-              onSuccess={(produto) => {
-                setProdutoId(produto.id);
+        {step === 2 && produtoId && (
+          <StepWrap onBack={() => setStep(1)} backLabel="Voltar para Linha & Produto">
+            <SkuForm
+              produtoId={produtoId}
+              onSuccess={(novo) => {
+                setSku(novo);
                 setStep(3);
               }}
             />
           </StepWrap>
         )}
 
-        {step === 3 && produtoId && (
-          <StepWrap onBack={() => setStep(2)} backLabel="Voltar para Produto">
-            <SkuForm
-              produtoId={produtoId}
-              onSuccess={(novo) => {
-                setSku(novo);
-                setStep(4);
-              }}
-            />
-          </StepWrap>
+        {step === 3 && sku && (
+          <StepCusto sku={sku} onBack={() => setStep(2)} onNext={() => setStep(4)} />
         )}
 
-        {step === 4 && sku && (
-          <StepCusto sku={sku} onBack={() => setStep(3)} onNext={() => setStep(5)} />
-        )}
-
-        {step === 5 && sku && produtoId && (
+        {step === 4 && sku && produtoId && (
           <StepPreco
             skuId={sku.id}
             produtoId={produtoId}
-            onBack={() => setStep(4)}
+            onBack={() => setStep(3)}
             onConcluir={() => router.push(`/produtos/${produtoId}`)}
           />
         )}
@@ -232,15 +221,17 @@ function StepWrap({
   );
 }
 
-/** Passo 1 — escolher Linha existente ou criar nova, definir atributos. */
-function StepLinha({
+/** Passo 1 — escolher/criar a Linha (+ atributos) e cadastrar o Produto. */
+function StepLinhaProduto({
   linhaId,
+  schema,
   onLinha,
-  onNext,
+  onProduto,
 }: {
   linhaId: string | null;
+  schema: AtributoSchema[];
   onLinha: (id: string) => void;
-  onNext: () => void;
+  onProduto: (produto: Produto) => void;
 }) {
   const linhas = useLinhas();
   const [modo, setModo] = useState<"existente" | "nova">("existente");
@@ -313,12 +304,11 @@ function StepLinha({
       {linhaId && (
         <>
           <AtributosEditor linhaId={linhaId} />
-          <div className="form-foot">
-            <button type="button" className="btn btn-primary" onClick={onNext}>
-              <span>Avançar para Produto</span>
-              <ArrowRight aria-hidden="true" />
-            </button>
-          </div>
+          <ProdutoForm
+            linhaId={linhaId}
+            schema={schema}
+            onSuccess={onProduto}
+          />
         </>
       )}
     </>
