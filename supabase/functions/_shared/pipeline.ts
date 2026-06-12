@@ -232,7 +232,7 @@ export async function persistAvisoBase(
 ): Promise<{ avisoId: string; status: PersistStatus; reindexar: boolean }> {
   const { data: existing, error: selError } = await db
     .from("avisos")
-    .select("id, conteudo_hash, conteudo_verbatim, execucao_origem_id, favorito")
+    .select("id, conteudo_hash, conteudo_verbatim, execucao_origem_id, favorito, data_captura")
     .eq("effecti_id", aviso.effectiId)
     .maybeSingle();
 
@@ -254,68 +254,75 @@ export async function persistAvisoBase(
       conteudo_verbatim: string | null;
       execucao_origem_id: string | null;
       favorito: boolean | null;
+      data_captura: string | null;
     };
     const persistido = row.conteudo_hash ?? null;
     const avisoId = String(row.id);
 
-    // DEDUP POR COLETA: a API Effecti devolve o MESMO idLicitacao varias vezes na
-    // mesma execucao (re-servico de paginacao E eventos/comunicados distintos da
-    // mesma licitacao) com favorito POR OCORRENCIA. Se ja gravamos este id nesta
-    // execucao, nao reescreve o conteudo (primeira ocorrencia vence -> mata o
-    // auto-flip dos 'alterados'), MAS aplica OR no favorito: a licitacao fica
-    // favoritada se QUALQUER ocorrencia veio marcada (so sobe, nunca rebaixa na
-    // run; a 1a ocorrencia ja definiu a base com o estado atual da Effecti).
-    if (row.execucao_origem_id === execucaoId) {
-      if (aviso.favorito === true && row.favorito !== true) {
-        const { error: orError } = await db
-          .from("avisos")
-          .update({ favorito: true })
-          .eq("id", avisoId);
-        if (orError) {
-          throw new Error(`falha ao aplicar OR de favorito: ${orError.message}`);
-        }
-      }
-      return { avisoId, status: "ignorado", reindexar: false };
-    }
+    // FAVORITO = OR de todas as ocorrencias do id na coleta. A MESMA licitacao gera
+    // N avisos (re-servico de paginacao + eventos/comunicados distintos), com favorito
+    // POR OCORRENCIA. A 1a ocorrencia da run reseta a base (estado atual da Effecti ->
+    // permite DESMARCAR entre coletas); reocorrencias so SOBEM (nunca rebaixam dentro
+    // da run). Compartilha o mesmo execucaoId atraves dos blocos/ticks da coleta.
+    const primeiraDaRun = row.execucao_origem_id !== execucaoId;
+    const favoritoFinal = primeiraDaRun
+      ? aviso.favorito === true
+      : row.favorito === true || aviso.favorito === true;
 
-    // Hash igual: nada de negocio mudou -> nao reescreve a linha inteira, mas
-    // CARIMBA a execucao para deduplicar reocorrencias divergentes nesta run.
-    // Junto, sincroniza os campos-espelho (favorito, na_lixeira) que vivem FORA
-    // do hash canonico de proposito -> marcar favorito na Effecti reflete aqui
-    // sem contar como 'alterado' nem re-embed. Primeira ocorrencia da run vence.
-    if (persistido === hash) {
-      const { error: stampError } = await db
+    // EVENTO MAIS RECENTE VENCE P/ CONTEUDO. dataCaptura discrimina o EVENTO: o
+    // re-servico de paginacao do MESMO evento mantem a dataCaptura (nunca "mais
+    // recente" -> nao reescreve -> mata o auto-flip dos 'alterados'); um evento/
+    // comunicado novo (ex "licitacao deserta") traz dataCaptura MAIOR -> a linha unica
+    // do idLicitacao passa a refletir o aviso mais atual. Uma linha por licitacao:
+    // comunicados sao atualizacoes da mesma licitacao, nunca novas linhas.
+    const dcNovo = aviso.dataCaptura ? new Date(aviso.dataCaptura).getTime() : NaN;
+    const dcAtual = row.data_captura ? new Date(row.data_captura).getTime() : NaN;
+    const maisRecente = !Number.isFinite(dcAtual) ||
+      (Number.isFinite(dcNovo) && dcNovo > dcAtual);
+
+    if (maisRecente) {
+      // Reescreve o conteudo com o evento mais recente. So conta 'alterado' quando um
+      // campo de NEGOCIO mudou de verdade (hash != persistido). Legado (hash NULL) so
+      // popula sem contar como alterado (evita falso pico na estabilizacao). So
+      // re-embed quando o verbatim (texto que vira vetor) muda.
+      const status: PersistStatus = persistido !== null && persistido !== hash
+        ? "alterado"
+        : "ignorado";
+      const reindexar = (row.conteudo_verbatim ?? "") !== (aviso.conteudoVerbatim ?? "");
+      const updateRow = buildRow(aviso, execucaoId, hash, reindexar, favoritoFinal);
+      const { error: upError } = await db
         .from("avisos")
-        .update({
-          execucao_origem_id: execucaoId,
-          favorito: aviso.favorito,
-          na_lixeira: aviso.naLixeira,
-        })
+        .update(updateRow)
         .eq("id", avisoId);
-      if (stampError) {
-        throw new Error(`falha ao carimbar execucao no aviso: ${stampError.message}`);
+      if (upError) {
+        throw new Error(`falha ao atualizar aviso: ${upError.message}`);
       }
-      return { avisoId, status: "ignorado", reindexar: false };
+      return { avisoId, status, reindexar };
     }
 
-    // Legado (hash NULL): 1a coleta apos o deploy popula o hash SEM contar como
-    // alterado (evita falso pico de 'alterados' na estabilizacao).
-    const status: PersistStatus = persistido === null ? "ignorado" : "alterado";
-    // So re-embed quando o verbatim (texto que vira vetor) muda. Flip so de
-    // data NAO altera o verbatim -> vetor identico, re-embed seria desperdicio.
-    const reindexar = (row.conteudo_verbatim ?? "") !== (aviso.conteudoVerbatim ?? "");
-    const updateRow = buildRow(aviso, execucaoId, hash, reindexar);
-    const { error: upError } = await db
-      .from("avisos")
-      .update(updateRow)
-      .eq("id", avisoId);
-    if (upError) {
-      throw new Error(`falha ao atualizar aviso: ${upError.message}`);
+    // Evento mais antigo OU re-servico do mesmo evento (dataCaptura <= atual): NAO
+    // toca o conteudo (a linha ja reflete o evento mais recente), mas CARIMBA a
+    // execucao (dedup/OR cross-tick) e sincroniza o favorito (reset na 1a ocorrencia,
+    // OR nas seguintes). na_lixeira so espelha na 1a ocorrencia da run (sem OR).
+    const stamp: {
+      execucao_origem_id: string;
+      favorito: boolean;
+      na_lixeira?: boolean | null;
+    } = { execucao_origem_id: execucaoId, favorito: favoritoFinal };
+    if (primeiraDaRun) {
+      stamp.na_lixeira = aviso.naLixeira;
     }
-    return { avisoId, status, reindexar };
+    const { error: stampError } = await db
+      .from("avisos")
+      .update(stamp)
+      .eq("id", avisoId);
+    if (stampError) {
+      throw new Error(`falha ao carimbar execucao no aviso: ${stampError.message}`);
+    }
+    return { avisoId, status: "ignorado", reindexar: false };
   }
 
-  const row = buildRow(aviso, execucaoId, hash, true);
+  const row = buildRow(aviso, execucaoId, hash, true, aviso.favorito === true);
   const { data, error: upError } = await db
     .from("avisos")
     .insert(row)
@@ -351,7 +358,13 @@ function hashAvisoCanonico(aviso: CollectedAviso): string {
   return hashTexto(canonical);
 }
 
-function buildRow(aviso: CollectedAviso, execucaoId: string, hash: string, reindexar: boolean) {
+function buildRow(
+  aviso: CollectedAviso,
+  execucaoId: string,
+  hash: string,
+  reindexar: boolean,
+  favorito: boolean,
+) {
   return {
     effecti_id: aviso.effectiId,
     modalidade: aviso.modalidade,
@@ -367,9 +380,9 @@ function buildRow(aviso: CollectedAviso, execucaoId: string, hash: string, reind
     data_final: aviso.dataFinal,
     origem: aviso.origem,
     // Espelho do estado na Effecti (so leitura). Fora do hash canonico de
-    // proposito: mudar favorito NAO conta como 'alterado'. So e gravado quando
-    // a linha ja vai ser escrita (insert, ou update por mudanca de negocio).
-    favorito: aviso.favorito,
+    // proposito: mudar favorito NAO conta como 'alterado'. Recebe o favoritoFinal
+    // (OR das ocorrencias da run), nao o valor cru da ocorrencia.
+    favorito,
     na_lixeira: aviso.naLixeira,
     execucao_origem_id: execucaoId,
     // So re-marca para indexar quando o verbatim mudou. Update so de data
