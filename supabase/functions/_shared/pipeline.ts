@@ -267,10 +267,17 @@ export async function persistAvisoBase(
 
     // Hash igual: nada de negocio mudou -> nao reescreve a linha inteira, mas
     // CARIMBA a execucao para deduplicar reocorrencias divergentes nesta run.
+    // Junto, sincroniza os campos-espelho (favorito, na_lixeira) que vivem FORA
+    // do hash canonico de proposito -> marcar favorito na Effecti reflete aqui
+    // sem contar como 'alterado' nem re-embed. Primeira ocorrencia da run vence.
     if (persistido === hash) {
       const { error: stampError } = await db
         .from("avisos")
-        .update({ execucao_origem_id: execucaoId })
+        .update({
+          execucao_origem_id: execucaoId,
+          favorito: aviso.favorito,
+          na_lixeira: aviso.naLixeira,
+        })
         .eq("id", avisoId);
       if (stampError) {
         throw new Error(`falha ao carimbar execucao no aviso: ${stampError.message}`);
