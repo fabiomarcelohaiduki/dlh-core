@@ -360,6 +360,49 @@ export class EffectiConnector implements SourceConnector {
     return { items: filtered, hasMore: items.length > 0 && hasMore };
   }
 
+  /**
+   * Write-back de favorito para a plataforma Effecti (PUT
+   * /aviso/favoritar-licitacao, body {idLicitacao:[int,...]}). Faz a estrela
+   * acender na web em TODAS as ocorrencias do mesmo idLicitacao (validado ao
+   * vivo 2026-06-12). Idempotente (nao e toggle) -> seguro re-chamar; a API
+   * NAO desfavorita (so favoritar/descartar). BEST-EFFORT: nunca lanca; loga e
+   * retorna false em qualquer falha para nao derrubar a coleta. Usa fetch
+   * direto (sem o backoff de leitura) com o mesmo timeout/Authorization cru.
+   */
+  async favoritarLicitacao(ids: number[], signal?: AbortSignal): Promise<boolean> {
+    if (ids.length === 0) return true;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+    const onExternalAbort = () => controller.abort();
+    signal?.addEventListener("abort", onExternalAbort, { once: true });
+
+    try {
+      const res = await this.fetchImpl(`${this.endpointBase}/aviso/favoritar-licitacao`, {
+        method: "PUT",
+        headers: {
+          Authorization: this.token,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ idLicitacao: ids }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        console.warn(`[effecti favoritar] status=${res.status} ids=${ids.length}`);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[effecti favoritar] falha: ${msg.slice(0, 200)}`);
+      return false;
+    } finally {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", onExternalAbort);
+    }
+  }
+
   // -------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------

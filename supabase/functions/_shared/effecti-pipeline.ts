@@ -183,6 +183,11 @@ export async function runEffectiBlock(
   const counters = await loadCounters(db, execucaoId);
   const until = checkpoint.janela_fim ? new Date(checkpoint.janela_fim) : new Date();
 
+  // Write-back de favorito: ids cujo favorito virou true e ainda nao foi
+  // propagado para a Effecti nesta coleta. Acumulam ao longo do bloco e sao
+  // disparados em batch (PUT favoritar-licitacao) ao encerrar (best-effort).
+  const propagarIds = new Set<number>();
+
   await updateExecucao(db, execucaoId, {
     status: "em_andamento",
     etapa_atual: "coleta",
@@ -202,6 +207,7 @@ export async function runEffectiBlock(
       // Fim global alcancado: conclui a execucao.
       if (blocoInicio.getTime() >= until.getTime()) {
         checkpoint.fase = "concluido";
+        await flushFavoritos(deps, propagarIds, params.signal);
         await finalizeConcluida(db, execucaoId, fonteId, checkpoint, counters);
         return {
           estado: "concluida",
@@ -225,7 +231,15 @@ export async function runEffectiBlock(
       for (const aviso of page.items) {
         if (params.signal?.aborted) break;
         try {
-          await processAviso(db, execucaoId, aviso, embeddingProvider, counters, params.signal);
+          await processAviso(
+            db,
+            execucaoId,
+            aviso,
+            embeddingProvider,
+            counters,
+            propagarIds,
+            params.signal,
+          );
         } catch (err) {
           // Falha isolada do item: registra e segue (RNF-05).
           counters.erro += 1;
@@ -259,8 +273,10 @@ export async function runEffectiBlock(
       });
     }
 
-    // Bloco de trabalho encerrado por teto (ainda ha janela): permanece
-    // em_andamento com o checkpoint salvo, para o orquestrador retomar.
+    // Bloco de trabalho encerrado por teto (ainda ha janela): propaga os
+    // favoritos acumulados (best-effort) e permanece em_andamento com o
+    // checkpoint salvo, para o orquestrador retomar.
+    await flushFavoritos(deps, propagarIds, params.signal);
     await updateExecucao(db, execucaoId, {
       status: "em_andamento",
       checkpoint,
@@ -315,12 +331,24 @@ async function processAviso(
   aviso: CollectedAviso,
   embeddingProvider: EmbeddingProvider | undefined,
   counters: Counters,
+  propagarIds: Set<number>,
   signal?: AbortSignal,
 ): Promise<void> {
-  const { avisoId, status, reindexar } = await persistAvisoBase(db, aviso, execucaoId);
+  const { avisoId, status, reindexar, favorito, favoritoPropagado } = await persistAvisoBase(
+    db,
+    aviso,
+    execucaoId,
+  );
   if (status === "novo") counters.novos += 1;
   else if (status === "alterado") counters.alterados += 1;
   // "ignorado" / legado: nao conta (espelha o Nomus).
+
+  // Write-back: enfileira para propagar o favorito a TODAS as ocorrencias do id
+  // na Effecti quando virou true e ainda nao foi propagado. idLicitacao e numero.
+  if (favorito && !favoritoPropagado) {
+    const idNum = Number(aviso.effectiId);
+    if (Number.isFinite(idNum)) propagarIds.add(idNum);
+  }
 
   // Indexacao opcional: so quando ha provider de embeddings E o verbatim mudou
   // (reindexar). Flip so de data nao muda o vetor -> nao re-embed.
@@ -335,6 +363,39 @@ async function processAviso(
   }
 
   counters.sucesso += 1;
+}
+
+/**
+ * Propaga em BATCH o favorito para a Effecti (PUT favoritar-licitacao) e, se
+ * a API confirmar (200), marca favorito_propagado=true nas linhas para nao
+ * re-disparar a cada coleta. BEST-EFFORT: falha da API ou do update NAO derruba
+ * o bloco; a flag permanece false e o write-back e tentado de novo na proxima
+ * coleta. Esvazia o set apos sucesso completo.
+ */
+async function flushFavoritos(
+  deps: EffectiBlockDeps,
+  propagarIds: Set<number>,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (propagarIds.size === 0) return;
+  const lista = [...propagarIds];
+
+  const ok = await deps.connector.favoritarLicitacao(lista, signal);
+  if (!ok) return; // mantem flag false -> re-tenta na proxima coleta.
+
+  const { error } = await deps.db
+    .from("avisos")
+    .update({ favorito_propagado: true })
+    .in("effecti_id", lista.map(String));
+  if (error) {
+    // Favorito ja foi propagado na Effecti, mas a flag nao foi marcada: a
+    // proxima coleta re-propaga (idempotente -> seguro). Apenas loga.
+    console.error("[effecti-pipeline] favorito propagado mas falha ao marcar flag", {
+      error: error.message,
+    });
+    return;
+  }
+  propagarIds.clear();
 }
 
 // ---------------------------------------------------------------------

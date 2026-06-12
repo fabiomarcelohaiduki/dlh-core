@@ -225,14 +225,27 @@ async function collectAll(
 
 export type PersistStatus = "novo" | "alterado" | "ignorado";
 
+export interface PersistResult {
+  avisoId: string;
+  status: PersistStatus;
+  reindexar: boolean;
+  /** Estado final do favorito da linha (OR das ocorrencias da run). */
+  favorito: boolean;
+  /** Se o favorito desta linha JA foi propagado (write-back) para a Effecti.
+   *  O caller (write-back) so propaga quando favorito===true && !favoritoPropagado. */
+  favoritoPropagado: boolean;
+}
+
 export async function persistAvisoBase(
   db: SupabaseClient,
   aviso: CollectedAviso,
   execucaoId: string,
-): Promise<{ avisoId: string; status: PersistStatus; reindexar: boolean }> {
+): Promise<PersistResult> {
   const { data: existing, error: selError } = await db
     .from("avisos")
-    .select("id, conteudo_hash, conteudo_verbatim, execucao_origem_id, favorito, data_captura")
+    .select(
+      "id, conteudo_hash, conteudo_verbatim, execucao_origem_id, favorito, favorito_propagado, data_captura",
+    )
     .eq("effecti_id", aviso.effectiId)
     .maybeSingle();
 
@@ -254,6 +267,7 @@ export async function persistAvisoBase(
       conteudo_verbatim: string | null;
       execucao_origem_id: string | null;
       favorito: boolean | null;
+      favorito_propagado: boolean | null;
       data_captura: string | null;
     };
     const persistido = row.conteudo_hash ?? null;
@@ -268,6 +282,12 @@ export async function persistAvisoBase(
     const favoritoFinal = primeiraDaRun
       ? aviso.favorito === true
       : row.favorito === true || aviso.favorito === true;
+
+    // Write-back: o caller propaga (PUT favoritar-licitacao) quando favoritoFinal
+    // vira true e ainda nao foi propagado. Quando o favorito CAI para false, reseta
+    // a flag para que um eventual re-favoritar volte a propagar.
+    const jaPropagado = row.favorito_propagado === true;
+    const resetPropagado = favoritoFinal === false && jaPropagado;
 
     // EVENTO MAIS RECENTE VENCE P/ CONTEUDO. dataCaptura discrimina o EVENTO: o
     // re-servico de paginacao do MESMO evento mantem a dataCaptura (nunca "mais
@@ -289,7 +309,10 @@ export async function persistAvisoBase(
         ? "alterado"
         : "ignorado";
       const reindexar = (row.conteudo_verbatim ?? "") !== (aviso.conteudoVerbatim ?? "");
-      const updateRow = buildRow(aviso, execucaoId, hash, reindexar, favoritoFinal);
+      const updateRow = {
+        ...buildRow(aviso, execucaoId, hash, reindexar, favoritoFinal),
+        ...(resetPropagado ? { favorito_propagado: false } : {}),
+      };
       const { error: upError } = await db
         .from("avisos")
         .update(updateRow)
@@ -297,7 +320,13 @@ export async function persistAvisoBase(
       if (upError) {
         throw new Error(`falha ao atualizar aviso: ${upError.message}`);
       }
-      return { avisoId, status, reindexar };
+      return {
+        avisoId,
+        status,
+        reindexar,
+        favorito: favoritoFinal,
+        favoritoPropagado: resetPropagado ? false : jaPropagado,
+      };
     }
 
     // Evento mais antigo OU re-servico do mesmo evento (dataCaptura <= atual): NAO
@@ -308,9 +337,13 @@ export async function persistAvisoBase(
       execucao_origem_id: string;
       favorito: boolean;
       na_lixeira?: boolean | null;
+      favorito_propagado?: boolean;
     } = { execucao_origem_id: execucaoId, favorito: favoritoFinal };
     if (primeiraDaRun) {
       stamp.na_lixeira = aviso.naLixeira;
+    }
+    if (resetPropagado) {
+      stamp.favorito_propagado = false;
     }
     const { error: stampError } = await db
       .from("avisos")
@@ -319,10 +352,17 @@ export async function persistAvisoBase(
     if (stampError) {
       throw new Error(`falha ao carimbar execucao no aviso: ${stampError.message}`);
     }
-    return { avisoId, status: "ignorado", reindexar: false };
+    return {
+      avisoId,
+      status: "ignorado",
+      reindexar: false,
+      favorito: favoritoFinal,
+      favoritoPropagado: resetPropagado ? false : jaPropagado,
+    };
   }
 
-  const row = buildRow(aviso, execucaoId, hash, true, aviso.favorito === true);
+  const favoritoNovo = aviso.favorito === true;
+  const row = buildRow(aviso, execucaoId, hash, true, favoritoNovo);
   const { data, error: upError } = await db
     .from("avisos")
     .insert(row)
@@ -333,7 +373,14 @@ export async function persistAvisoBase(
     throw new Error(`falha ao persistir aviso: ${upError?.message ?? "sem id"}`);
   }
 
-  return { avisoId: String((data as { id: string }).id), status: "novo", reindexar: true };
+  // Aviso novo: favorito_propagado tem default false -> se favorito, o caller propaga.
+  return {
+    avisoId: String((data as { id: string }).id),
+    status: "novo",
+    reindexar: true,
+    favorito: favoritoNovo,
+    favoritoPropagado: false,
+  };
 }
 
 // Separador estavel entre campos (ASCII Unit Separator), igual ao hash.ts.
