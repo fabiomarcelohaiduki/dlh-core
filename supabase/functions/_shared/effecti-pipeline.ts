@@ -317,13 +317,14 @@ async function processAviso(
   counters: Counters,
   signal?: AbortSignal,
 ): Promise<void> {
-  const { avisoId, status } = await persistAvisoBase(db, aviso, execucaoId);
+  const { avisoId, status, reindexar } = await persistAvisoBase(db, aviso, execucaoId);
   if (status === "novo") counters.novos += 1;
   else if (status === "alterado") counters.alterados += 1;
   // "ignorado" / legado: nao conta (espelha o Nomus).
 
-  // Indexacao opcional: so quando ha provider de embeddings configurado.
-  if (embeddingProvider) {
+  // Indexacao opcional: so quando ha provider de embeddings E o verbatim mudou
+  // (reindexar). Flip so de data nao muda o vetor -> nao re-embed.
+  if (embeddingProvider && reindexar) {
     await setStatusIndexacao(db, avisoId, "em_andamento");
     await generateAndStoreChunks(
       db,

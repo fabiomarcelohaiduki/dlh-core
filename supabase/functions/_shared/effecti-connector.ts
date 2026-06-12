@@ -761,7 +761,7 @@ function mapRawAviso(raw: unknown): CollectedAviso | null {
     effectiId,
     modalidade: firstString(obj, ["modalidade", "modality"]) ?? "desconhecida",
     orgao: firstString(obj, ["orgao", "organ", "orgaoNome", "unidadeGestora"]) ?? "desconhecido",
-    objeto: firstString(obj, ["objeto", "objetoSemTags", "object", "descricao"]) ?? "",
+    objeto: firstString(obj, ["objetoSemTags", "objeto", "object", "descricao"]) ?? "",
     portal: firstString(obj, ["portal", "portalOrigem"]),
     conteudoVerbatim:
       firstString(obj, [

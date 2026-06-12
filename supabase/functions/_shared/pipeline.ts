@@ -135,17 +135,17 @@ export async function runPipeline(
     if (params.signal?.aborted) break;
 
     try {
-      const { avisoId, status } = await persistAvisoBase(db, aviso, params.execucaoId);
+      const { avisoId, status, reindexar } = await persistAvisoBase(db, aviso, params.execucaoId);
       if (status === "novo") result.novos += 1;
       else if (status === "alterado") result.alterados += 1;
       // status === "ignorado" (hash igual) ou legado (hash NULL populado): nao
       // conta como alterado -> espelha o Nomus, evita inflar ALTERADOS a cada ciclo.
 
       // Indexacao: chunking + embeddings do verbatim integro.
-      // Etapa OPCIONAL: so roda quando ha provider de embeddings configurado.
-      // Sem provider, o aviso permanece status_indexacao='pendente' para ser
-      // indexado numa fase posterior, sem travar a ingestao do aviso.
-      if (deps.embeddingProvider) {
+      // Etapa OPCIONAL: so roda quando ha provider de embeddings configurado E o
+      // verbatim mudou (reindexar). Sem provider, o aviso permanece
+      // status_indexacao='pendente' para indexacao posterior, sem travar a ingestao.
+      if (deps.embeddingProvider && reindexar) {
         await updateExecucao(db, params.execucaoId, { etapa_atual: "indexacao" });
         await setStatusIndexacao(db, avisoId, "em_andamento");
         await generateAndStoreChunks(
@@ -229,10 +229,10 @@ export async function persistAvisoBase(
   db: SupabaseClient,
   aviso: CollectedAviso,
   execucaoId: string,
-): Promise<{ avisoId: string; status: PersistStatus }> {
+): Promise<{ avisoId: string; status: PersistStatus; reindexar: boolean }> {
   const { data: existing, error: selError } = await db
     .from("avisos")
-    .select("id, conteudo_hash")
+    .select("id, conteudo_hash, conteudo_verbatim, execucao_origem_id")
     .eq("effecti_id", aviso.effectiId)
     .maybeSingle();
 
@@ -248,27 +248,54 @@ export async function persistAvisoBase(
   const hash = hashAvisoCanonico(aviso);
 
   if (existing) {
-    const persistido = (existing as { conteudo_hash: string | null }).conteudo_hash ?? null;
-    const avisoId = String((existing as { id: string }).id);
-    // Hash igual: nada mudou -> nao reescreve, nao conta (ignorado).
-    if (persistido === hash) {
-      return { avisoId, status: "ignorado" };
+    const row = existing as {
+      id: string;
+      conteudo_hash: string | null;
+      conteudo_verbatim: string | null;
+      execucao_origem_id: string | null;
+    };
+    const persistido = row.conteudo_hash ?? null;
+    const avisoId = String(row.id);
+
+    // DEDUP POR COLETA: a API Effecti devolve o MESMO aviso varias vezes na
+    // mesma execucao (paginas/blocos diferentes) com DATAS diferentes. Se ja
+    // gravamos este aviso nesta execucao, ignora as reocorrencias -> mata o
+    // auto-flip que inflava 'alterados' (primeira ocorrencia vence).
+    if (row.execucao_origem_id === execucaoId) {
+      return { avisoId, status: "ignorado", reindexar: false };
     }
+
+    // Hash igual: nada de negocio mudou -> nao reescreve a linha inteira, mas
+    // CARIMBA a execucao para deduplicar reocorrencias divergentes nesta run.
+    if (persistido === hash) {
+      const { error: stampError } = await db
+        .from("avisos")
+        .update({ execucao_origem_id: execucaoId })
+        .eq("id", avisoId);
+      if (stampError) {
+        throw new Error(`falha ao carimbar execucao no aviso: ${stampError.message}`);
+      }
+      return { avisoId, status: "ignorado", reindexar: false };
+    }
+
     // Legado (hash NULL): 1a coleta apos o deploy popula o hash SEM contar como
     // alterado (evita falso pico de 'alterados' na estabilizacao).
     const status: PersistStatus = persistido === null ? "ignorado" : "alterado";
-    const row = buildRow(aviso, execucaoId, hash);
+    // So re-embed quando o verbatim (texto que vira vetor) muda. Flip so de
+    // data NAO altera o verbatim -> vetor identico, re-embed seria desperdicio.
+    const reindexar = (row.conteudo_verbatim ?? "") !== (aviso.conteudoVerbatim ?? "");
+    const updateRow = buildRow(aviso, execucaoId, hash, reindexar);
     const { error: upError } = await db
       .from("avisos")
-      .update(row)
+      .update(updateRow)
       .eq("id", avisoId);
     if (upError) {
       throw new Error(`falha ao atualizar aviso: ${upError.message}`);
     }
-    return { avisoId, status };
+    return { avisoId, status, reindexar };
   }
 
-  const row = buildRow(aviso, execucaoId, hash);
+  const row = buildRow(aviso, execucaoId, hash, true);
   const { data, error: upError } = await db
     .from("avisos")
     .insert(row)
@@ -279,7 +306,7 @@ export async function persistAvisoBase(
     throw new Error(`falha ao persistir aviso: ${upError?.message ?? "sem id"}`);
   }
 
-  return { avisoId: String((data as { id: string }).id), status: "novo" };
+  return { avisoId: String((data as { id: string }).id), status: "novo", reindexar: true };
 }
 
 // Separador estavel entre campos (ASCII Unit Separator), igual ao hash.ts.
@@ -304,7 +331,7 @@ function hashAvisoCanonico(aviso: CollectedAviso): string {
   return hashTexto(canonical);
 }
 
-function buildRow(aviso: CollectedAviso, execucaoId: string, hash: string) {
+function buildRow(aviso: CollectedAviso, execucaoId: string, hash: string, reindexar: boolean) {
   return {
     effecti_id: aviso.effectiId,
     modalidade: aviso.modalidade,
@@ -325,7 +352,9 @@ function buildRow(aviso: CollectedAviso, execucaoId: string, hash: string) {
     favorito: aviso.favorito,
     na_lixeira: aviso.naLixeira,
     execucao_origem_id: execucaoId,
-    status_indexacao: "pendente" as StatusIndexacao,
+    // So re-marca para indexar quando o verbatim mudou. Update so de data
+    // preserva o status_indexacao atual (nao re-enfileira embedding em vao).
+    ...(reindexar ? { status_indexacao: "pendente" as StatusIndexacao } : {}),
   };
 }
 
