@@ -760,6 +760,44 @@ export interface PrecoPendente {
   estado_calculo: EstadoCalculo;
 }
 
+/**
+ * Celula da tabela consolidada (regiao x patamar) de um SKU. Subconjunto de
+ * PrecoCalculadoLinha (sem calculado_em): valor + ifp por celula, somente
+ * leitura (motor).
+ */
+export interface TabelaPrecoCelula {
+  regiao: Regiao;
+  patamar: Patamar;
+  valor: number | null;
+  ifp: number | null;
+  estado: EstadoCalculo;
+}
+
+/** Um SKU na tabela consolidada da Linha, com suas celulas de preco. */
+export interface TabelaPrecoSku {
+  sku_id: string;
+  codigo_sku: string;
+  estado_calculo: EstadoCalculo;
+  precos: TabelaPrecoCelula[];
+}
+
+/** Um Produto na tabela consolidada da Linha, agrupando seus SKUs. */
+export interface TabelaPrecoProduto {
+  produto_id: string;
+  nome: string;
+  skus: TabelaPrecoSku[];
+}
+
+/**
+ * GET /precos/consolidado?linha_id= — Tabela de Preços de uma Linha inteira:
+ * todos os Produtos -> SKUs -> celulas (regiao x patamar) num so payload.
+ * Leitura em lote no edge; somente leitura.
+ */
+export interface TabelaPrecoConsolidada {
+  linha_id: string;
+  produtos: TabelaPrecoProduto[];
+}
+
 // ---------------------------------------------------------------------
 // Dominio E — Diretrizes/regras de cotacao e politica de participacao
 // ---------------------------------------------------------------------

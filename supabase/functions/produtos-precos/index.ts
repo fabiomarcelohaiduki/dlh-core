@@ -236,6 +236,121 @@ async function listPendentes(): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------
+// GET /precos/consolidado?linha_id=:uuid
+// Tabela de precos consolidada de uma Linha: todos os Produtos -> SKUs ->
+// celulas (regiao x patamar) com valor e ifp. Leitura em lote (3 queries +
+// montagem em memoria), evitando embedding PostgREST. Somente leitura.
+// ---------------------------------------------------------------------
+
+interface ConsolidadoCell {
+  regiao: string;
+  patamar: string;
+  valor: number | null;
+  ifp: number | null;
+  estado: string;
+}
+
+interface ConsolidadoSku {
+  sku_id: string;
+  codigo_sku: string;
+  estado_calculo: string;
+  precos: ConsolidadoCell[];
+}
+
+interface ConsolidadoProduto {
+  produto_id: string;
+  nome: string;
+  skus: ConsolidadoSku[];
+}
+
+async function getConsolidado(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  const linhaId = assertUuid(url.searchParams.get("linha_id") ?? undefined, "linha");
+  const db = createServiceClient();
+
+  const { data: produtosData, error: produtosErr } = await db
+    .from("produtos")
+    .select("id, nome")
+    .eq("linha_id", linhaId)
+    .order("nome", { ascending: true });
+  if (produtosErr) {
+    throw new HttpError(500, "produtos_query_failed", "falha ao consultar os produtos da linha");
+  }
+  const produtos = (produtosData as { id: string; nome: string }[] | null) ?? [];
+  const produtoIds = produtos.map((p) => p.id);
+
+  let skuRows: {
+    id: string;
+    codigo_sku: string;
+    produto_id: string;
+    estado_calculo: string;
+  }[] = [];
+  if (produtoIds.length > 0) {
+    const { data, error } = await db
+      .from("produto_skus")
+      .select("id, codigo_sku, produto_id, estado_calculo")
+      .in("produto_id", produtoIds)
+      .order("codigo_sku", { ascending: true });
+    if (error) {
+      throw new HttpError(500, "skus_query_failed", "falha ao consultar os SKUs da linha");
+    }
+    skuRows = (data as typeof skuRows | null) ?? [];
+  }
+  const skuIds = skuRows.map((s) => s.id);
+
+  let precoRows: {
+    sku_id: string;
+    regiao: string;
+    patamar: string;
+    valor: number | null;
+    ifp: number | null;
+    estado: string;
+  }[] = [];
+  if (skuIds.length > 0) {
+    const { data, error } = await db
+      .from("sku_precos_calculados")
+      .select("sku_id, regiao, patamar, valor, ifp, estado")
+      .in("sku_id", skuIds);
+    if (error) {
+      throw new HttpError(500, "precos_query_failed", "falha ao consultar os precos da linha");
+    }
+    precoRows = (data as typeof precoRows | null) ?? [];
+  }
+
+  // Indexa precos por SKU e SKUs por Produto para montagem O(n).
+  const precosBySku = new Map<string, ConsolidadoCell[]>();
+  for (const r of precoRows) {
+    const arr = precosBySku.get(r.sku_id) ?? [];
+    arr.push({
+      regiao: r.regiao,
+      patamar: r.patamar,
+      valor: r.valor,
+      ifp: r.ifp,
+      estado: r.estado,
+    });
+    precosBySku.set(r.sku_id, arr);
+  }
+  const skusByProduto = new Map<string, ConsolidadoSku[]>();
+  for (const s of skuRows) {
+    const arr = skusByProduto.get(s.produto_id) ?? [];
+    arr.push({
+      sku_id: s.id,
+      codigo_sku: s.codigo_sku,
+      estado_calculo: s.estado_calculo,
+      precos: precosBySku.get(s.id) ?? [],
+    });
+    skusByProduto.set(s.produto_id, arr);
+  }
+  const produtosOut: ConsolidadoProduto[] = produtos.map((p) => ({
+    produto_id: p.id,
+    nome: p.nome,
+    skus: skusByProduto.get(p.id) ?? [],
+  }));
+
+  return jsonResponse({ linha_id: linhaId, produtos: produtosOut }, 200);
+}
+
+// ---------------------------------------------------------------------
 // Roteamento
 // ---------------------------------------------------------------------
 
@@ -251,10 +366,14 @@ async function handler(req: Request): Promise<Response> {
     const segments = routeSegments(req, FUNCTION_SEGMENT);
     const root = segments[0];
 
-    // ----- /precos/pendentes -----
+    // ----- /precos/{pendentes|consolidado} -----
     if (root === "precos") {
       if (segments[1] === "pendentes" && segments.length === 2) {
         if (req.method === "GET") return await listPendentes();
+        throw new HttpError(405, "method_not_allowed", "metodo nao permitido: use GET");
+      }
+      if (segments[1] === "consolidado" && segments.length === 2) {
+        if (req.method === "GET") return await getConsolidado(req);
         throw new HttpError(405, "method_not_allowed", "metodo nao permitido: use GET");
       }
       throw new HttpError(404, "nao_encontrado", "rota nao encontrada");

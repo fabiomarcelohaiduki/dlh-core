@@ -24,6 +24,7 @@ import { LinhaForm } from "@/components/cockpit/produtos/linha-form";
 import { AtributosEditor } from "@/components/cockpit/produtos/atributos-editor";
 import { CriteriosPanel } from "@/components/cockpit/produtos/criterios-panel";
 import { ProdutoForm } from "@/components/cockpit/produtos/produto-form";
+import { TabelaPrecosLinha } from "@/components/cockpit/produtos/tabela-precos-linha";
 import type { AtributoSchema, ProdutoLinha } from "@/lib/api/types";
 
 type LinhaFormMode = "none" | "new" | "edit";
@@ -245,6 +246,8 @@ function LinhaDetail({
       <AtributosEditor linhaId={linha.id} />
 
       <ProdutosDaLinha linha={linha} />
+
+      <TabelaPrecosLinha linhaId={linha.id} />
 
       <div className="section-title">
         <h3>Critérios de cotação da Linha</h3>

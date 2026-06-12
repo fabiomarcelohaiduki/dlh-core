@@ -8,6 +8,7 @@ import type {
   PrecoCalculadoGrid,
   PrecoPendente,
   Regiao,
+  TabelaPrecoConsolidada,
 } from "@/lib/api/types";
 
 // ---------------------------------------------------------------------
@@ -139,6 +140,19 @@ export function recalcularSku(skuId: string): Promise<PrecoCalculadoGrid> {
 export function listPrecosPendentes(): Promise<{ items: PrecoPendente[] }> {
   return apiFetch<{ items: PrecoPendente[] }>(
     "produtos-precos/precos/pendentes",
+    { method: "GET" },
+  );
+}
+
+/**
+ * GET /precos/consolidado?linha_id= — Tabela de Preços da Linha inteira
+ * (Produtos -> SKUs -> celulas regiao x patamar) num so payload.
+ */
+export function getTabelaPrecos(
+  linhaId: string,
+): Promise<TabelaPrecoConsolidada> {
+  return apiFetch<TabelaPrecoConsolidada>(
+    `produtos-precos/precos/consolidado${buildQuery({ linha_id: linhaId })}`,
     { method: "GET" },
   );
 }
