@@ -232,7 +232,7 @@ export async function persistAvisoBase(
 ): Promise<{ avisoId: string; status: PersistStatus; reindexar: boolean }> {
   const { data: existing, error: selError } = await db
     .from("avisos")
-    .select("id, conteudo_hash, conteudo_verbatim, execucao_origem_id")
+    .select("id, conteudo_hash, conteudo_verbatim, execucao_origem_id, favorito")
     .eq("effecti_id", aviso.effectiId)
     .maybeSingle();
 
@@ -253,15 +253,28 @@ export async function persistAvisoBase(
       conteudo_hash: string | null;
       conteudo_verbatim: string | null;
       execucao_origem_id: string | null;
+      favorito: boolean | null;
     };
     const persistido = row.conteudo_hash ?? null;
     const avisoId = String(row.id);
 
-    // DEDUP POR COLETA: a API Effecti devolve o MESMO aviso varias vezes na
-    // mesma execucao (paginas/blocos diferentes) com DATAS diferentes. Se ja
-    // gravamos este aviso nesta execucao, ignora as reocorrencias -> mata o
-    // auto-flip que inflava 'alterados' (primeira ocorrencia vence).
+    // DEDUP POR COLETA: a API Effecti devolve o MESMO idLicitacao varias vezes na
+    // mesma execucao (re-servico de paginacao E eventos/comunicados distintos da
+    // mesma licitacao) com favorito POR OCORRENCIA. Se ja gravamos este id nesta
+    // execucao, nao reescreve o conteudo (primeira ocorrencia vence -> mata o
+    // auto-flip dos 'alterados'), MAS aplica OR no favorito: a licitacao fica
+    // favoritada se QUALQUER ocorrencia veio marcada (so sobe, nunca rebaixa na
+    // run; a 1a ocorrencia ja definiu a base com o estado atual da Effecti).
     if (row.execucao_origem_id === execucaoId) {
+      if (aviso.favorito === true && row.favorito !== true) {
+        const { error: orError } = await db
+          .from("avisos")
+          .update({ favorito: true })
+          .eq("id", avisoId);
+        if (orError) {
+          throw new Error(`falha ao aplicar OR de favorito: ${orError.message}`);
+        }
+      }
       return { avisoId, status: "ignorado", reindexar: false };
     }
 
