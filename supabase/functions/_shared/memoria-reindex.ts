@@ -24,6 +24,7 @@ import {
   type EmbeddingProvider,
   generateAndStoreMemoriaChunks,
 } from "./embeddings.ts";
+import { getEnv } from "./env.ts";
 
 /** Identificacao de um registro no indice de memoria (origem + registro_id). */
 export interface MemoriaChunkRef {
@@ -78,6 +79,18 @@ export async function syncMemoriaChunks(
 
   if (verbatim === "") {
     await removeMemoriaChunks(db, { origem: params.origem, registroId: params.registroId });
+    return 0;
+  }
+
+  // Degradacao graciosa: sem provider injetado e sem EMBEDDINGS_ENDPOINT
+  // configurado, a indexacao e DIFERIDA (nao estoura). O registro de dominio
+  // (diretriz/politica) persiste normalmente; os chunks serao gerados quando
+  // os embeddings forem ligados (backfill). Salvar o substrato nao pode
+  // depender da camada de IA estar online.
+  if (!params.provider && !(getEnv().embeddingsEndpoint ?? "").trim()) {
+    console.warn(
+      `[memoria-reindex] indexacao diferida (EMBEDDINGS_ENDPOINT ausente): ${params.origem}/${params.registroId}`,
+    );
     return 0;
   }
 
