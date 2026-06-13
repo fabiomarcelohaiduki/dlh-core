@@ -1938,6 +1938,9 @@ select:focus {
   grid-template-columns: 1fr 1fr;
   gap: 18px;
 }
+.grid-fields > .field {
+  margin-bottom: 0;
+}
 .chk-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

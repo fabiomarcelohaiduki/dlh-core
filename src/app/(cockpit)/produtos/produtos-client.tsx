@@ -326,24 +326,18 @@ function ProdutosDaLinha({ linha }: { linha: ProdutoLinha }) {
                   style={active ? { background: "var(--accent-soft)" } : undefined}
                 >
                   <td>
-                    <div className="cell-stack">
-                      <b
-                        style={{
-                          fontSize: "13.5px",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 8,
-                        }}
-                      >
-                        <Package
-                          aria-hidden="true"
-                          style={{ width: 14, height: 14 }}
-                        />
-                        {p.nome}
-                      </b>
-                      {p.disponibilidade ? (
-                        <span className="sub">{p.disponibilidade}</span>
-                      ) : null}
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <StatusPill
+                        state={p.ativo ? "ok" : "idle"}
+                        label={p.ativo ? "Ativo" : "Inativo"}
+                        iconOnly
+                      />
+                      <div className="cell-stack">
+                        <b style={{ fontSize: "13.5px" }}>{p.nome}</b>
+                        {p.disponibilidade ? (
+                          <span className="sub">{p.disponibilidade}</span>
+                        ) : null}
+                      </div>
                     </div>
                   </td>
                   <td>
@@ -352,14 +346,8 @@ function ProdutosDaLinha({ linha }: { linha: ProdutoLinha }) {
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "flex-end",
-                        gap: 8,
                       }}
                     >
-                      <StatusPill
-                        state={p.ativo ? "ok" : "idle"}
-                        label={p.ativo ? "Ativo" : "Inativo"}
-                        iconOnly
-                      />
                       <button
                         type="button"
                         className="btn btn-sm btn-icon"

@@ -127,11 +127,14 @@ export function LinhasTable({
                   }
                 >
                   <td>
-                    <div className="cell-stack">
-                      <b style={{ fontSize: "13.5px" }}>{l.nome}</b>
-                      {l.descricao ? (
-                        <span className="sub">{l.descricao}</span>
-                      ) : null}
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <StatusPill state={desc.state} label={desc.label} iconOnly />
+                      <div className="cell-stack">
+                        <b style={{ fontSize: "13.5px" }}>{l.nome}</b>
+                        {l.descricao ? (
+                          <span className="sub">{l.descricao}</span>
+                        ) : null}
+                      </div>
                     </div>
                   </td>
                   <td>
@@ -140,10 +143,8 @@ export function LinhasTable({
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "flex-end",
-                        gap: 8,
                       }}
                     >
-                      <StatusPill state={desc.state} label={desc.label} iconOnly />
                       <button
                         type="button"
                         className="btn btn-sm btn-icon"

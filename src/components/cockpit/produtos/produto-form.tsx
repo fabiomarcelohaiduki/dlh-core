@@ -189,11 +189,8 @@ export function ProdutoForm({
         </div>
       </div>
 
-      <div className="section-title" style={{ margin: "22px 0 13px" }}>
-        <h3>Atributos da linha</h3>
-      </div>
       {schema.length === 0 ? (
-        <div className="empty">
+        <div className="empty" style={{ marginTop: 18 }}>
           <Info aria-hidden="true" />
           <h4>Esta linha ainda não define atributos</h4>
           <p>
@@ -202,7 +199,7 @@ export function ProdutoForm({
           </p>
         </div>
       ) : (
-        <div className="grid-fields">
+        <div className="grid-fields" style={{ marginTop: 18 }}>
           {schema.map((a) => {
             const fieldError = atributoErrors?.[a.chave]?.message;
             if (a.tipo === "booleano") {
@@ -246,10 +243,7 @@ export function ProdutoForm({
         </div>
       )}
 
-      <div className="section-title" style={{ margin: "22px 0 13px" }}>
-        <h3>Condições comerciais</h3>
-      </div>
-      <div className="grid-fields">
+      <div className="grid-fields" style={{ marginTop: 18 }}>
         <div className="field">
           <label htmlFor="produto-prazo">Prazo de entrega</label>
           <input

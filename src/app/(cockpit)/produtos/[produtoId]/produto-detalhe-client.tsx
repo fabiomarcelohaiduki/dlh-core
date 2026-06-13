@@ -222,7 +222,9 @@ function ProdutoDetalhe({
 
       <ProdutoForm linhaId={produto.linha_id} schema={linhaSchema} produto={produto} />
 
-      <AtributosEditor scope="produto" produtoId={produto.id} linhaId={produto.linha_id} />
+      <div style={{ marginTop: 24 }}>
+        <AtributosEditor scope="produto" produtoId={produto.id} linhaId={produto.linha_id} />
+      </div>
 
       <SkusSection
         produtoId={produto.id}
@@ -303,7 +305,7 @@ function SkusSection({
                 <tr>
                   <th>Código</th>
                   <th>Origem</th>
-                  <th style={{ width: 200 }} aria-label="Preço e ações" />
+                  <th style={{ width: 110 }} aria-label="Ações" />
                 </tr>
               </thead>
               <tbody>
@@ -323,7 +325,12 @@ function SkusSection({
                         setCreating(false);
                       }}
                     >
-                      <td className="mono">{sku.codigo_sku}</td>
+                      <td className="mono">
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <StatusPill state={desc.state} label={desc.label} iconOnly />
+                          {sku.codigo_sku}
+                        </div>
+                      </td>
                       <td className="sub">
                         {sku.tipo_origem === "fabricado" ? "Fabricado" : "Comprado"}
                       </td>
@@ -336,7 +343,6 @@ function SkusSection({
                             gap: 8,
                           }}
                         >
-                          <StatusPill state={desc.state} label={desc.label} />
                           {isConfirming ? (
                             <>
                               <button
