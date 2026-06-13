@@ -27,8 +27,8 @@ const ESCALARES: {
   { campo: "frete_pct", label: "Frete", suffix: "%" },
   { campo: "despesas_pct", label: "Despesas", suffix: "%" },
   { campo: "lucro_pct", label: "Lucro alvo", suffix: "%" },
-  { campo: "lucro_minimo_pct", label: "Lucro mínimo", suffix: "%" },
-  { campo: "taxa_horaria", label: "Custo hora de produção", suffix: "R$/h" },
+  { campo: "lucro_minimo_pct", label: "Lucro mín.", suffix: "%" },
+  { campo: "taxa_horaria", label: "Custo prod.", suffix: "R$/h" },
 ];
 
 const REGIOES: { value: Regiao; label: string }[] = [

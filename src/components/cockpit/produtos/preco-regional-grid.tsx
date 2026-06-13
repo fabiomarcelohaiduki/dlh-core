@@ -38,7 +38,7 @@ const ESCALARES: { campo: ParametroEscalarCampo; label: string; suffix: string }
   { campo: "despesas_pct", label: "Despesas", suffix: "%" },
   { campo: "lucro_pct", label: "Lucro alvo", suffix: "%" },
   { campo: "lucro_minimo_pct", label: "Lucro mín.", suffix: "%" },
-  { campo: "taxa_horaria", label: "Custo produção", suffix: "R$/h" },
+  { campo: "taxa_horaria", label: "Custo prod.", suffix: "R$/h" },
 ];
 
 /** Rotulo + classe do badge de origem (nivel efetivo) de cada parametro. */
@@ -129,16 +129,12 @@ export function PrecoRegionalGrid({
 
   return (
     <div className="card">
-      <div className="section-title" style={{ margin: "0 0 6px" }}>
-        <h3>Ficha de preço</h3>
+      <div className="section-title" style={{ margin: "0 0 14px" }}>
+        <h3>Formação de preço</h3>
         {!precos.isLoading && !precos.isError && (
           <StatusPill state={descriptor.state} label={descriptor.label} />
         )}
       </div>
-      <p style={{ margin: "0 0 14px", fontSize: "12.5px", color: "var(--muted)" }}>
-        Custo variável técnico, percentuais efetivos e os 3 patamares (FOB / CIF
-        Mínimo / CIF Alvo) por região. Preço = custo ÷ IFP — calculado pelo motor.
-      </p>
 
       {precos.isLoading ? (
         <div style={{ display: "grid", gap: 8 }}>
@@ -173,7 +169,7 @@ export function PrecoRegionalGrid({
             }}
           >
             <div style={{ ...chipStyle, background: "var(--accent-soft)" }}>
-              <span className="sub">Custo variável técnico</span>
+              <span className="sub">Custo unitário</span>
               <strong className="tnum" style={{ fontSize: "14px" }}>
                 {formatCurrency(data.custo_base)}
               </strong>
