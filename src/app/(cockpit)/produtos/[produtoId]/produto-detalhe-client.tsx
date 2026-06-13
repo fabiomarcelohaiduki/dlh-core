@@ -131,9 +131,9 @@ function ProdutoDetalhe({
   router: ReturnType<typeof useRouter>;
 }) {
   const { produto, atributos_schema, skus } = detalhe;
-  // Produto preenche os atributos da Linha; SKU preenche os proprios do Produto.
+  // Produto preenche os atributos da Linha; o SKU preenche o schema MESCLADO
+  // (Linha + Produto), herdando os valores da Linha ja informados no Produto.
   const linhaSchema = atributos_schema.filter((a) => a.origem === "linha");
-  const produtoSchema = atributos_schema.filter((a) => a.origem === "produto");
   const deleteProduto = useDeleteProduto();
   const [confirming, setConfirming] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -222,7 +222,12 @@ function ProdutoDetalhe({
 
       <AtributosEditor scope="produto" produtoId={produto.id} linhaId={produto.linha_id} />
 
-      <SkusSection produtoId={produto.id} schema={produtoSchema} skus={skus} />
+      <SkusSection
+        produtoId={produto.id}
+        schema={atributos_schema}
+        produtoAtributos={produto.atributos}
+        skus={skus}
+      />
 
       <div className="section-title">
         <h3>Critérios de cotação do Produto</h3>
@@ -237,10 +242,12 @@ function ProdutoDetalhe({
 function SkusSection({
   produtoId,
   schema,
+  produtoAtributos,
   skus,
 }: {
   produtoId: string;
   schema: AtributoSchema[];
+  produtoAtributos: Record<string, unknown>;
   skus: ProdutoSku[];
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -310,6 +317,7 @@ function SkusSection({
             <SkuForm
               produtoId={produtoId}
               schema={schema}
+              produtoAtributos={produtoAtributos}
               onSuccess={(sku) => {
                 setCreating(false);
                 setSelectedId(sku.id);
@@ -339,6 +347,7 @@ function SkusSection({
           key={selected.id}
           sku={selected}
           schema={schema}
+          produtoAtributos={produtoAtributos}
           onDeleted={() => setSelectedId(null)}
         />
       )}
@@ -350,10 +359,12 @@ function SkusSection({
 function SkuDetail({
   sku,
   schema,
+  produtoAtributos,
   onDeleted,
 }: {
   sku: ProdutoSku;
   schema: AtributoSchema[];
+  produtoAtributos: Record<string, unknown>;
   onDeleted: () => void;
 }) {
   const deleteSku = useDeleteSku();
@@ -382,6 +393,7 @@ function SkuDetail({
         <SkuForm
           produtoId={sku.produto_id}
           schema={schema}
+          produtoAtributos={produtoAtributos}
           sku={sku}
           onSuccess={() => setEditing(false)}
           onCancel={() => setEditing(false)}

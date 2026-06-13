@@ -131,8 +131,9 @@ async function loadProdutoAtributos(
 }
 
 /**
- * Schema que o SKU preenche: os atributos PROPRIOS do Produto (produto_atributos).
- * Valida a existencia do Produto (404) antes de devolver o schema.
+ * Schema que o SKU preenche (CASCATA): os atributos da Linha (herdados, com
+ * valor preenchido no Produto) MAIS os proprios do Produto. O SKU exibe e pode
+ * sobrescrever ambos por SKU. Valida a existencia do Produto (404) antes.
  */
 async function loadSkuSchema(
   db: SupabaseClient,
@@ -140,7 +141,7 @@ async function loadSkuSchema(
 ): Promise<LinhaAtributoRow[]> {
   const { data: produto, error } = await db
     .from("produtos")
-    .select("id")
+    .select("id, linha_id")
     .eq("id", produtoId)
     .maybeSingle();
   if (error) {
@@ -149,7 +150,11 @@ async function loadSkuSchema(
   if (!produto) {
     throw new HttpError(404, "nao_encontrado", "produto nao encontrado");
   }
-  return loadProdutoAtributos(db, produtoId);
+  const [linhaSchema, produtoSchema] = await Promise.all([
+    loadLinhaSchema(db, produto.linha_id as string, false),
+    loadProdutoAtributos(db, produtoId),
+  ]);
+  return [...linhaSchema, ...produtoSchema];
 }
 
 /**

@@ -48,6 +48,9 @@ export function CadastroWizard() {
   const [step, setStep] = useState<Step>(1);
   const [linhaId, setLinhaId] = useState<string | null>(null);
   const [produtoId, setProdutoId] = useState<string | null>(null);
+  // Valores dos atributos da Linha preenchidos no Produto recem-criado; o SKU
+  // os herda (cascata). Produto novo nao tem atributos PROPRIOS ainda.
+  const [produtoAtributos, setProdutoAtributos] = useState<Record<string, unknown>>({});
   const [sku, setSku] = useState<ProdutoSku | null>(null);
 
   // Schema de atributos da Linha escolhida (o ProdutoForm preenche estes).
@@ -105,6 +108,7 @@ export function CadastroWizard() {
             onLinha={setLinhaId}
             onProduto={(produto) => {
               setProdutoId(produto.id);
+              setProdutoAtributos(produto.atributos ?? {});
               setStep(2);
             }}
           />
@@ -114,7 +118,8 @@ export function CadastroWizard() {
           <StepWrap onBack={() => setStep(1)} backLabel="Voltar para Linha & Produto">
             <SkuForm
               produtoId={produtoId}
-              schema={[]}
+              schema={schema}
+              produtoAtributos={produtoAtributos}
               onSuccess={(novo) => {
                 setSku(novo);
                 setStep(3);

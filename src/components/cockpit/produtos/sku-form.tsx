@@ -73,12 +73,14 @@ type SkuValues = {
 export function SkuForm({
   produtoId,
   schema,
+  produtoAtributos,
   sku,
   onSuccess,
   onCancel,
 }: {
   produtoId: string;
   schema: AtributoSchema[];
+  produtoAtributos?: Record<string, unknown>;
   sku?: ProdutoSku;
   onSuccess?: (sku: ProdutoSku) => void;
   onCancel?: () => void;
@@ -108,7 +110,13 @@ export function SkuForm({
   const defaultAtributos = useMemo(() => {
     const base: Record<string, string | number | boolean | undefined> = {};
     for (const a of schema) {
-      const current = sku?.atributos?.[a.chave];
+      // Em edicao usa o valor proprio do SKU. Ao criar, os atributos de origem
+      // 'linha' HERDAM o valor ja informado no Produto (sobrescrivivel por SKU);
+      // os proprios do Produto comecam vazios.
+      let current = sku?.atributos?.[a.chave];
+      if (current == null && a.origem === "linha") {
+        current = produtoAtributos?.[a.chave];
+      }
       if (a.tipo === "booleano") {
         base[a.chave] = Boolean(current);
       } else if (a.tipo === "numero") {
@@ -119,7 +127,7 @@ export function SkuForm({
       }
     }
     return base;
-  }, [schema, sku]);
+  }, [schema, sku, produtoAtributos]);
 
   const {
     register,
@@ -290,6 +298,11 @@ export function SkuForm({
                     <div className="t">
                       {a.chave}
                       {a.obrigatorio ? " *" : ""}
+                      {a.origem === "linha" ? (
+                        <span className="tag" style={{ marginLeft: 6 }}>
+                          Herdado
+                        </span>
+                      ) : null}
                     </div>
                   </label>
                 );
@@ -299,6 +312,11 @@ export function SkuForm({
                   <label htmlFor={`sku-attr-${a.chave}`}>
                     {a.chave}
                     {a.obrigatorio ? " *" : ""}
+                    {a.origem === "linha" ? (
+                      <span className="tag" style={{ marginLeft: 6 }}>
+                        Herdado
+                      </span>
+                    ) : null}
                   </label>
                   <input
                     id={`sku-attr-${a.chave}`}
