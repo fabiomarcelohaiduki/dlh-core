@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useMemo, useState } from "react";
+import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Check, Loader2, TriangleAlert, X } from "lucide-react";
 import { useCreateSku, useUpdateSku } from "@/hooks/use-skus";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
-import type { ProdutoSku, SkuTipoOrigem } from "@/lib/api/types";
+import type { AtributoSchema, ProdutoSku, SkuTipoOrigem } from "@/lib/api/types";
 
 const optionalNumber = z.preprocess(
   (v) =>
@@ -18,31 +18,67 @@ const optionalNumber = z.preprocess(
   z.number({ invalid_type_error: "Informe um número." }).optional(),
 );
 
-const skuSchema = z.object({
-  codigo_sku: z.string().trim().min(1, "Informe o código do SKU."),
-  tipo_origem: z.enum(["fabricado", "comprado"]),
-  acabamento: z.string().trim().optional(),
-  peso_gr: optionalNumber,
-  tolerancia_pct: optionalNumber,
-  diretriz_producao: z.string().trim().optional(),
-  tempo_producao: optionalNumber,
-});
-type SkuValues = z.infer<typeof skuSchema>;
+/**
+ * Constroi o sub-schema zod dos atributos definidos no Produto que o SKU
+ * preenche: tipo texto/numero/booleano + obrigatorio. O SKU e quem informa os
+ * VALORES; o backend exige os obrigatorios do schema do Produto.
+ */
+function buildAtributosSchema(schema: AtributoSchema[]) {
+  const shape: Record<string, z.ZodTypeAny> = {};
+  for (const a of schema) {
+    if (a.tipo === "numero") {
+      shape[a.chave] = z.preprocess(
+        (v) =>
+          v === "" || v === null || (typeof v === "number" && Number.isNaN(v))
+            ? undefined
+            : v,
+        a.obrigatorio
+          ? z.number({
+              required_error: "Campo obrigatório.",
+              invalid_type_error: "Informe um número.",
+            })
+          : z.number({ invalid_type_error: "Informe um número." }).optional(),
+      );
+    } else if (a.tipo === "booleano") {
+      shape[a.chave] = z.boolean().optional();
+    } else {
+      shape[a.chave] = a.obrigatorio
+        ? z.string().trim().min(1, "Campo obrigatório.")
+        : z.string().trim().optional();
+    }
+  }
+  return z.object(shape);
+}
+
+type SkuValues = {
+  codigo_sku: string;
+  tipo_origem: SkuTipoOrigem;
+  atributos: Record<string, string | number | boolean | undefined>;
+  acabamento?: string;
+  peso_gr?: number;
+  tolerancia_pct?: number;
+  diretriz_producao?: string;
+  tempo_producao?: number;
+};
 
 /**
  * cmp-sku-form — cria/edita um SKU (produto_skus). Expoe tipo_origem
  * (fabricado/comprado); os campos diretriz_producao e tempo_producao SO
  * aparecem (e SO sao enviados) quando fabricado — o backend bloqueia
  * incoerencias de tipo_origem (400). Em edicao o tipo_origem fica travado para
- * evitar inverter origem de um SKU ja com BOM/custo. Validacao zod inline.
+ * evitar inverter origem de um SKU ja com BOM/custo. Os ATRIBUTOS definidos no
+ * Produto sao preenchidos POR SKU; obrigatorios sao exigidos aqui.
+ * Validacao react-hook-form + zod inline.
  */
 export function SkuForm({
   produtoId,
+  schema,
   sku,
   onSuccess,
   onCancel,
 }: {
   produtoId: string;
+  schema: AtributoSchema[];
   sku?: ProdutoSku;
   onSuccess?: (sku: ProdutoSku) => void;
   onCancel?: () => void;
@@ -54,16 +90,48 @@ export function SkuForm({
 
   const [apiError, setApiError] = useState<string | null>(null);
 
+  const formSchema = useMemo(
+    () =>
+      z.object({
+        codigo_sku: z.string().trim().min(1, "Informe o código do SKU."),
+        tipo_origem: z.enum(["fabricado", "comprado"]),
+        atributos: buildAtributosSchema(schema),
+        acabamento: z.string().trim().optional(),
+        peso_gr: optionalNumber,
+        tolerancia_pct: optionalNumber,
+        diretriz_producao: z.string().trim().optional(),
+        tempo_producao: optionalNumber,
+      }),
+    [schema],
+  );
+
+  const defaultAtributos = useMemo(() => {
+    const base: Record<string, string | number | boolean | undefined> = {};
+    for (const a of schema) {
+      const current = sku?.atributos?.[a.chave];
+      if (a.tipo === "booleano") {
+        base[a.chave] = Boolean(current);
+      } else if (a.tipo === "numero") {
+        base[a.chave] =
+          typeof current === "number" ? current : (current as string) ?? "";
+      } else {
+        base[a.chave] = current != null ? String(current) : "";
+      }
+    }
+    return base;
+  }, [schema, sku]);
+
   const {
     register,
     handleSubmit,
     watch,
     formState: { errors },
   } = useForm<SkuValues>({
-    resolver: zodResolver(skuSchema),
+    resolver: zodResolver(formSchema) as Resolver<SkuValues>,
     defaultValues: {
       codigo_sku: sku?.codigo_sku ?? "",
       tipo_origem: sku?.tipo_origem ?? "fabricado",
+      atributos: defaultAtributos,
       acabamento: sku?.acabamento ?? "",
       peso_gr: sku?.peso_gr ?? undefined,
       tolerancia_pct: sku?.tolerancia_pct ?? undefined,
@@ -75,12 +143,31 @@ export function SkuForm({
   const tipoOrigem = watch("tipo_origem") as SkuTipoOrigem;
   const fabricado = tipoOrigem === "fabricado";
 
+  const atributoErrors = errors.atributos as
+    | Record<string, { message?: string } | undefined>
+    | undefined;
+
   async function onSubmit(values: SkuValues) {
     setApiError(null);
+
+    // Monta o JSONB de atributos so com valores informados, conforme o schema
+    // mesclado (Linha + Produto); o backend rejeita chave fora do schema.
+    const atributos: Record<string, unknown> = {};
+    for (const a of schema) {
+      const v = values.atributos?.[a.chave];
+      if (a.tipo === "booleano") {
+        atributos[a.chave] = Boolean(v);
+      } else if (a.tipo === "numero") {
+        if (typeof v === "number" && !Number.isNaN(v)) atributos[a.chave] = v;
+      } else if (typeof v === "string" && v.trim() !== "") {
+        atributos[a.chave] = v.trim();
+      }
+    }
 
     const base = {
       codigo_sku: values.codigo_sku,
       tipo_origem: values.tipo_origem,
+      atributos,
       acabamento: values.acabamento?.trim() ? values.acabamento.trim() : null,
       peso_gr: values.peso_gr ?? null,
       tolerancia_pct: values.tolerancia_pct ?? null,
@@ -183,6 +270,56 @@ export function SkuForm({
           />
         </div>
       </div>
+
+      {schema.length > 0 && (
+        <>
+          <div className="section-title" style={{ margin: "20px 0 13px" }}>
+            <h3>Atributos do produto</h3>
+          </div>
+          <div className="grid-fields">
+            {schema.map((a) => {
+              const fieldError = atributoErrors?.[a.chave]?.message;
+              if (a.tipo === "booleano") {
+                return (
+                  <label
+                    key={a.chave}
+                    className="chk"
+                    style={{ alignSelf: "end", height: 40 }}
+                  >
+                    <input type="checkbox" {...register(`atributos.${a.chave}`)} />
+                    <div className="t">
+                      {a.chave}
+                      {a.obrigatorio ? " *" : ""}
+                    </div>
+                  </label>
+                );
+              }
+              return (
+                <div key={a.chave} className={cn("field", fieldError && "invalid")}>
+                  <label htmlFor={`sku-attr-${a.chave}`}>
+                    {a.chave}
+                    {a.obrigatorio ? " *" : ""}
+                  </label>
+                  <input
+                    id={`sku-attr-${a.chave}`}
+                    type={a.tipo === "numero" ? "number" : "text"}
+                    step={a.tipo === "numero" ? "any" : undefined}
+                    aria-invalid={Boolean(fieldError)}
+                    {...register(
+                      `atributos.${a.chave}`,
+                      a.tipo === "numero" ? { valueAsNumber: true } : {},
+                    )}
+                  />
+                  <div className="err-msg">
+                    <TriangleAlert aria-hidden="true" />
+                    {fieldError ?? "Campo obrigatório."}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {fabricado && (
         <>

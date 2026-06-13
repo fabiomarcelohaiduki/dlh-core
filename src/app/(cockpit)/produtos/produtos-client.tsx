@@ -249,6 +249,7 @@ function ProdutosDaLinha({ linha }: { linha: ProdutoLinha }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const items = produtos.data?.items ?? [];
+  // O ProdutoForm preenche os atributos definidos na Linha.
   const schema: AtributoSchema[] = (atributos.data?.items ?? []).map((a) => ({
     chave: a.chave,
     tipo: a.tipo,

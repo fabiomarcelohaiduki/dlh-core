@@ -50,7 +50,7 @@ export function CadastroWizard() {
   const [produtoId, setProdutoId] = useState<string | null>(null);
   const [sku, setSku] = useState<ProdutoSku | null>(null);
 
-  // Schema de atributos da Linha escolhida (alimenta o ProdutoForm no passo 2).
+  // Schema de atributos da Linha escolhida (o ProdutoForm preenche estes).
   const atributos = useLinhaAtributos(linhaId ?? undefined);
   const schema: AtributoSchema[] = useMemo(
     () =>
@@ -114,6 +114,7 @@ export function CadastroWizard() {
           <StepWrap onBack={() => setStep(1)} backLabel="Voltar para Linha & Produto">
             <SkuForm
               produtoId={produtoId}
+              schema={[]}
               onSuccess={(novo) => {
                 setSku(novo);
                 setStep(3);

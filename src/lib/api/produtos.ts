@@ -214,6 +214,7 @@ export function deleteProdutoAtributo(
 export interface SkuInput {
   codigo_sku: string;
   tipo_origem: SkuTipoOrigem;
+  atributos?: Record<string, unknown>;
   dimensoes?: Record<string, unknown> | null;
   tolerancia_pct?: number | null;
   acabamento?: string | null;

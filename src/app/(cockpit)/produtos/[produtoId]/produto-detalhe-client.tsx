@@ -25,7 +25,7 @@ import { FotosUploader } from "@/components/cockpit/produtos/fotos-uploader";
 import { PrecoRegionalGrid } from "@/components/cockpit/produtos/preco-regional-grid";
 import { ApoioPrecosForm } from "@/components/cockpit/produtos/apoio-precos-form";
 import { CriteriosPanel } from "@/components/cockpit/produtos/criterios-panel";
-import type { ProdutoDetalhe, ProdutoSku } from "@/lib/api/types";
+import type { AtributoSchema, ProdutoDetalhe, ProdutoSku } from "@/lib/api/types";
 
 function BackToProdutos({ router }: { router: ReturnType<typeof useRouter> }) {
   return (
@@ -131,6 +131,9 @@ function ProdutoDetalhe({
   router: ReturnType<typeof useRouter>;
 }) {
   const { produto, atributos_schema, skus } = detalhe;
+  // Produto preenche os atributos da Linha; SKU preenche os proprios do Produto.
+  const linhaSchema = atributos_schema.filter((a) => a.origem === "linha");
+  const produtoSchema = atributos_schema.filter((a) => a.origem === "produto");
   const deleteProduto = useDeleteProduto();
   const [confirming, setConfirming] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -215,15 +218,11 @@ function ProdutoDetalhe({
         </div>
       )}
 
-      <ProdutoForm
-        linhaId={produto.linha_id}
-        schema={atributos_schema}
-        produto={produto}
-      />
+      <ProdutoForm linhaId={produto.linha_id} schema={linhaSchema} produto={produto} />
 
       <AtributosEditor scope="produto" produtoId={produto.id} linhaId={produto.linha_id} />
 
-      <SkusSection produtoId={produto.id} skus={skus} />
+      <SkusSection produtoId={produto.id} schema={produtoSchema} skus={skus} />
 
       <div className="section-title">
         <h3>Critérios de cotação do Produto</h3>
@@ -237,9 +236,11 @@ function ProdutoDetalhe({
 /** Sub-secao de SKUs: lista (master) + detalhe do SKU selecionado + criacao. */
 function SkusSection({
   produtoId,
+  schema,
   skus,
 }: {
   produtoId: string;
+  schema: AtributoSchema[];
   skus: ProdutoSku[];
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -308,6 +309,7 @@ function SkusSection({
           <div style={{ marginTop: 16 }}>
             <SkuForm
               produtoId={produtoId}
+              schema={schema}
               onSuccess={(sku) => {
                 setCreating(false);
                 setSelectedId(sku.id);
@@ -336,6 +338,7 @@ function SkusSection({
         <SkuDetail
           key={selected.id}
           sku={selected}
+          schema={schema}
           onDeleted={() => setSelectedId(null)}
         />
       )}
@@ -346,9 +349,11 @@ function SkusSection({
 /** Detalhe do SKU selecionado: edicao, fotos, grid de precos e apoio. */
 function SkuDetail({
   sku,
+  schema,
   onDeleted,
 }: {
   sku: ProdutoSku;
+  schema: AtributoSchema[];
   onDeleted: () => void;
 }) {
   const deleteSku = useDeleteSku();
@@ -376,6 +381,7 @@ function SkuDetail({
       {editing ? (
         <SkuForm
           produtoId={sku.produto_id}
+          schema={schema}
           sku={sku}
           onSuccess={() => setEditing(false)}
           onCancel={() => setEditing(false)}

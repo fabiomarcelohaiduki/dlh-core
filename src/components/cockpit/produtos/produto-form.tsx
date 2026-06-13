@@ -11,8 +11,8 @@ import { cn } from "@/lib/utils";
 import type { AtributoSchema, Produto } from "@/lib/api/types";
 
 /**
- * Constroi o sub-schema zod dos atributos flexiveis a partir do schema da
- * Linha: tipo texto/numero/booleano + obrigatorio. Numeros aceitam vazio
+ * Constroi o sub-schema zod dos atributos definidos na Linha que o Produto
+ * preenche: tipo texto/numero/booleano + obrigatorio. Numeros aceitam vazio
  * (tratado como ausente) e exigem valor quando obrigatorio.
  */
 function buildAtributosSchema(schema: AtributoSchema[]) {
@@ -51,11 +51,12 @@ type ProdutoFormValues = {
 };
 
 /**
- * cmp-produto-form — dados do Produto: nome, ATRIBUTOS FLEXIVEIS renderizados
- * dinamicamente do schema da Linha (texto/numero/booleano, obrigatorios
- * marcados) e campos comerciais. Quando a Linha nao define atributos, mostra o
- * estado vazio orientando a defini-los na Linha. Validacao react-hook-form +
- * zod inline; nao cria registro parcial em erro.
+ * cmp-produto-form — dados do Produto: nome, ATRIBUTOS definidos na Linha
+ * (texto/numero/booleano, obrigatorios marcados) preenchidos POR PRODUTO, e
+ * condicoes comerciais. Quando a Linha nao define atributos, mostra o estado
+ * vazio orientando a defini-los na Linha. Os atributos PROPRIOS do Produto sao
+ * preenchidos no nivel do SKU. Validacao react-hook-form + zod inline; nao cria
+ * registro parcial em erro.
  */
 export function ProdutoForm({
   linhaId,
@@ -127,8 +128,8 @@ export function ProdutoForm({
   async function onSubmit(values: ProdutoFormValues) {
     setApiError(null);
 
-    // Monta o JSONB de atributos somente com os valores informados, conforme o
-    // schema da Linha (o backend rejeita chave fora do schema).
+    // Monta o JSONB de atributos so com valores informados, conforme o schema
+    // da Linha (o backend rejeita chave fora do schema).
     const atributos: Record<string, unknown> = {};
     for (const a of schema) {
       const v = values.atributos?.[a.chave];
