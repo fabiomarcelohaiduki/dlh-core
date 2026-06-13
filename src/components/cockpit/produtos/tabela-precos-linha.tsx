@@ -77,10 +77,12 @@ function SkuRow({ sku, patamar }: { sku: TabelaPrecoSku; patamar: Patamar }) {
   return (
     <tr>
       <td>
-        <span className="mono">{sku.codigo_sku}</span>
-      </td>
-      <td>
-        <StatusPill state={desc.state} label={desc.label} />
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <StatusPill state={desc.state} label={desc.label} iconOnly />
+          <span className="mono" style={{ whiteSpace: "nowrap" }}>
+            {sku.codigo_sku}
+          </span>
+        </span>
       </td>
       {REGIOES.map((r) => (
         <td key={r.value} style={{ textAlign: "right" }}>
@@ -100,9 +102,11 @@ function SkuRow({ sku, patamar }: { sku: TabelaPrecoSku; patamar: Patamar }) {
 export function TabelaPrecosLinha({
   linhaId,
   produtoId,
+  embedded = false,
 }: {
   linhaId: string;
   produtoId?: string | null;
+  embedded?: boolean;
 }) {
   const tabela = useTabelaPrecos(linhaId);
   const [patamar, setPatamar] = useState<Patamar>("CIF_ALVO");
@@ -114,7 +118,10 @@ export function TabelaPrecosLinha({
   const temSkus = produtos.some((p) => p.skus.length > 0);
 
   return (
-    <div className="card">
+    <div
+      className={embedded ? undefined : "card"}
+      style={embedded ? { padding: "14px 16px 4px" } : undefined}
+    >
       <div className="section-title" style={{ margin: "0 0 6px" }}>
         <h3>Tabela de preços</h3>
         <div
@@ -135,11 +142,12 @@ export function TabelaPrecosLinha({
           ))}
         </div>
       </div>
-      <p style={{ margin: "0 0 14px", fontSize: "12.5px", color: "var(--muted)" }}>
-        {produtoId
-          ? "SKUs do produto selecionado por região, no patamar selecionado. Preço + IFP por célula — calculado pelo motor."
-          : "Todos os SKUs da linha por região, no patamar selecionado. Preço + IFP por célula — calculado pelo motor."}
-      </p>
+      {embedded ? null : (
+        <p style={{ margin: "0 0 14px", fontSize: "12.5px", color: "var(--muted)" }}>
+          Todos os SKUs da linha por região, no patamar selecionado. Preço + IFP
+          por célula — calculado pelo motor.
+        </p>
+      )}
 
       {tabela.isLoading ? (
         <div style={{ display: "grid", gap: 8 }}>
@@ -166,14 +174,10 @@ export function TabelaPrecosLinha({
           <table>
             <thead>
               <tr>
-                <th style={{ width: 160 }}>SKU</th>
-                <th style={{ width: 110 }}>Estado</th>
+                <th>SKU</th>
                 {REGIOES.map((r) => (
                   <th key={r.value} style={{ textAlign: "right" }}>
-                    {r.value}{" "}
-                    <span className="sub" style={{ fontWeight: 400 }}>
-                      {r.label}
-                    </span>
+                    {r.label}
                   </th>
                 ))}
               </tr>
@@ -186,6 +190,7 @@ export function TabelaPrecosLinha({
                     nome={produto.nome}
                     skus={produto.skus}
                     patamar={patamar}
+                    hideHeader={embedded}
                   />
                 ),
               )}
@@ -197,21 +202,26 @@ export function TabelaPrecosLinha({
   );
 }
 
-/** Cabecalho do Produto (linha-titulo) seguido das linhas dos seus SKUs. */
+/** Cabecalho do Produto (linha-titulo) seguido das linhas dos seus SKUs. No
+ * modo embedded (tabela aberta sob o Produto) o cabecalho e omitido — o nome
+ * do Produto ja aparece na linha selecionada logo acima. */
 function ProdutoGroup({
   nome,
   skus,
   patamar,
+  hideHeader = false,
 }: {
   nome: string;
   skus: TabelaPrecoSku[];
   patamar: Patamar;
+  hideHeader?: boolean;
 }) {
   return (
     <>
+      {hideHeader ? null : (
       <tr>
         <td
-          colSpan={2 + REGIOES.length}
+          colSpan={1 + REGIOES.length}
           style={{
             background: "var(--accent-soft)",
             fontWeight: 600,
@@ -224,6 +234,7 @@ function ProdutoGroup({
           </span>
         </td>
       </tr>
+      )}
       {skus.map((sku) => (
         <SkuRow key={sku.sku_id} sku={sku} patamar={patamar} />
       ))}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -228,18 +228,9 @@ function LinhaEditPanel({
 /** Painel DETAIL de uma Linha: produtos + tabela de precos + criterios. A
  * identidade e as acoes vivem na lista a esquerda (simbolo laranja = editar). */
 function LinhaDetail({ linha }: { linha: ProdutoLinha }) {
-  const [selectedProdutoId, setSelectedProdutoId] = useState<string | null>(null);
   return (
     <>
-      <ProdutosDaLinha
-        linha={linha}
-        selectedId={selectedProdutoId}
-        onSelect={(id) =>
-          setSelectedProdutoId((cur) => (cur === id ? null : id))
-        }
-      />
-
-      <TabelaPrecosLinha linhaId={linha.id} produtoId={selectedProdutoId} />
+      <ProdutosDaLinha linha={linha} />
 
       <div className="section-title">
         <h3>Critérios de cotação da Linha</h3>
@@ -251,20 +242,14 @@ function LinhaDetail({ linha }: { linha: ProdutoLinha }) {
 }
 
 /** Drill-down dos Produtos da Linha + criacao de Produto com o schema da Linha.
- * Selecionar um Produto (clique na linha) filtra a tabela de precos da Linha. */
-function ProdutosDaLinha({
-  linha,
-  selectedId,
-  onSelect,
-}: {
-  linha: ProdutoLinha;
-  selectedId: string | null;
-  onSelect: (id: string) => void;
-}) {
+ * Selecionar um Produto (clique na linha) abre, inline abaixo dele, a tabela de
+ * precos com os SKUs daquele Produto. */
+function ProdutosDaLinha({ linha }: { linha: ProdutoLinha }) {
   const router = useRouter();
   const produtos = useProdutos({ linha_id: linha.id });
   const atributos = useLinhaAtributos(linha.id);
   const [creating, setCreating] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const items = produtos.data?.items ?? [];
   const schema: AtributoSchema[] = (atributos.data?.items ?? []).map((a) => ({
@@ -332,16 +317,31 @@ function ProdutosDaLinha({
               {items.map((p) => {
                 const active = p.id === selectedId;
                 return (
+                <Fragment key={p.id}>
                 <tr
-                  key={p.id}
                   className={active ? "clk active-row" : "clk"}
                   aria-selected={active}
-                  onClick={() => onSelect(p.id)}
+                  onClick={() =>
+                    setSelectedId((cur) => (cur === p.id ? null : p.id))
+                  }
                   style={active ? { background: "var(--accent-soft)" } : undefined}
                 >
                   <td>
                     <div className="cell-stack">
-                      <b style={{ fontSize: "13.5px" }}>{p.nome}</b>
+                      <b
+                        style={{
+                          fontSize: "13.5px",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <Package
+                          aria-hidden="true"
+                          style={{ width: 14, height: 14 }}
+                        />
+                        {p.nome}
+                      </b>
                       {p.disponibilidade ? (
                         <span className="sub">{p.disponibilidade}</span>
                       ) : null}
@@ -377,6 +377,14 @@ function ProdutosDaLinha({
                     </div>
                   </td>
                 </tr>
+                {active ? (
+                  <tr className="expanded-row">
+                    <td colSpan={2} style={{ padding: 0, background: "var(--surface-2)" }}>
+                      <TabelaPrecosLinha linhaId={linha.id} produtoId={p.id} embedded />
+                    </td>
+                  </tr>
+                ) : null}
+                </Fragment>
                 );
               })}
             </tbody>
