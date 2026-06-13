@@ -130,18 +130,12 @@ function DiretrizesBlock({
         <span className="count">{items.length}</span>
       </div>
       <p style={{ margin: "0 0 14px", fontSize: "12px", lineHeight: 1.5, color: "var(--faint)" }}>
-        Orientações em texto livre que a Lia lê ao montar uma cotação. Não são
-        travas rígidas, são instruções gerais (ex.: priorizar acabamento fosco em
-        licitações públicas). Ficam indexadas semanticamente para a IA consultar.
+        Como cotar depois que a DLH decide entrar. Preferências de estratégia que
+        a Lia segue ao montar o preço (não são travas).
       </p>
       {diretrizes.isLoading ? (
         <span className="skel skel-line" style={{ width: "70%" }} />
-      ) : items.length === 0 ? (
-        <p style={{ margin: "0 0 14px", fontSize: "12.5px", color: "var(--muted)" }}>
-          Nenhuma diretriz textual neste escopo. Adicione orientações livres para
-          a cotação.
-        </p>
-      ) : (
+      ) : items.length === 0 ? null : (
         <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
           {items.map((d) =>
             editingId === d.id ? (
@@ -242,7 +236,7 @@ function DiretrizesBlock({
         <textarea
           id={`diretriz-${escopoId}`}
           rows={3}
-          placeholder="ex.: Priorizar acabamento fosco em cotações públicas."
+          placeholder="ex.: Mouse pad em gel pode ir no valor-alvo: o concorrente cota em espuma e é desclassificado."
           value={texto}
           onChange={(e) => {
             setTexto(e.target.value);
@@ -384,9 +378,8 @@ function PoliticaBlock({
         <h3>Política de participação</h3>
       </div>
       <p style={{ margin: "0 0 14px", fontSize: "12px", lineHeight: 1.5, color: "var(--faint)" }}>
-        Define se a DLH participa de licitação neste escopo (Sim / Não /
-        Condicional) e sob qual condição. A diretriz textual orienta a decisão da
-        Lia quando o caso não é um sim ou não direto.
+        Se a DLH entra ou não na licitação deste escopo (Sim / Não / Condicional)
+        e por quê.
       </p>
 
       {politica.isLoading ? (
@@ -422,11 +415,11 @@ function PoliticaBlock({
           )}
 
           <div className="field">
-            <label htmlFor={`pol-diretriz-${escopoId}`}>Diretriz</label>
+            <label htmlFor={`pol-diretriz-${escopoId}`}>Justificativa</label>
             <textarea
               id={`pol-diretriz-${escopoId}`}
               rows={2}
-              placeholder="Orientação textual da política (indexada para a Lia)."
+              placeholder="ex.: Linha ergonomia é prioritária, tem a melhor margem."
               {...register("diretriz_texto")}
             />
           </div>
