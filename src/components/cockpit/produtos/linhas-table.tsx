@@ -56,27 +56,30 @@ export function LinhasTable({
   }
 
   return (
-    <div className="tbl-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Linha</th>
-            <th style={{ width: 150 }}>
-              <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                <button
-                  type="button"
-                  className="btn btn-sm btn-icon"
-                  onClick={onNew}
-                  aria-label="Nova linha"
-                  title="Nova linha"
-                >
-                  <Plus aria-hidden="true" />
-                </button>
-              </div>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
+    <div className="card">
+      <div className="section-title" style={{ margin: "0 0 14px" }}>
+        <h3>Linhas</h3>
+        <span className="count">{linhas.length}</span>
+        <button
+          type="button"
+          className="btn btn-sm btn-icon"
+          style={{ marginLeft: "auto" }}
+          onClick={onNew}
+          aria-label="Nova linha"
+          title="Nova linha"
+        >
+          <Plus aria-hidden="true" />
+        </button>
+      </div>
+      <div className="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Linha</th>
+              <th style={{ width: 150 }} aria-label="Status" />
+            </tr>
+          </thead>
+          <tbody>
           {loading ? (
             Array.from({ length: 5 }).map((_, i) => (
               <tr key={i}>
@@ -160,8 +163,9 @@ export function LinhasTable({
               );
             })
           )}
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
