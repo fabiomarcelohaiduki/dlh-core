@@ -54,9 +54,6 @@ type SkuValues = {
   codigo_sku: string;
   tipo_origem: SkuTipoOrigem;
   atributos: Record<string, string | number | boolean | undefined>;
-  acabamento?: string;
-  peso_gr?: number;
-  tolerancia_pct?: number;
   diretriz_producao?: string;
   tempo_producao?: number;
 };
@@ -98,9 +95,6 @@ export function SkuForm({
         codigo_sku: z.string().trim().min(1, "Informe o código do SKU."),
         tipo_origem: z.enum(["fabricado", "comprado"]),
         atributos: buildAtributosSchema(schema),
-        acabamento: z.string().trim().optional(),
-        peso_gr: optionalNumber,
-        tolerancia_pct: optionalNumber,
         diretriz_producao: z.string().trim().optional(),
         tempo_producao: optionalNumber,
       }),
@@ -140,9 +134,6 @@ export function SkuForm({
       codigo_sku: sku?.codigo_sku ?? "",
       tipo_origem: sku?.tipo_origem ?? "fabricado",
       atributos: defaultAtributos,
-      acabamento: sku?.acabamento ?? "",
-      peso_gr: sku?.peso_gr ?? undefined,
-      tolerancia_pct: sku?.tolerancia_pct ?? undefined,
       diretriz_producao: sku?.diretriz_producao ?? "",
       tempo_producao: sku?.tempo_producao ?? undefined,
     },
@@ -176,9 +167,6 @@ export function SkuForm({
       codigo_sku: values.codigo_sku,
       tipo_origem: values.tipo_origem,
       atributos,
-      acabamento: values.acabamento?.trim() ? values.acabamento.trim() : null,
-      peso_gr: values.peso_gr ?? null,
-      tolerancia_pct: values.tolerancia_pct ?? null,
     };
 
     // diretriz/tempo so existem para SKU fabricado (coerencia de tipo_origem).
@@ -246,37 +234,6 @@ export function SkuForm({
           </div>
         </div>
 
-        <div className="field">
-          <label htmlFor="sku-acabamento">Acabamento</label>
-          <input
-            id="sku-acabamento"
-            type="text"
-            placeholder="Opcional"
-            {...register("acabamento")}
-          />
-        </div>
-
-        <div className="field">
-          <label htmlFor="sku-peso">Peso (g)</label>
-          <input
-            id="sku-peso"
-            type="number"
-            step="any"
-            placeholder="Opcional"
-            {...register("peso_gr", { valueAsNumber: true })}
-          />
-        </div>
-
-        <div className="field">
-          <label htmlFor="sku-tol">Tolerância (%)</label>
-          <input
-            id="sku-tol"
-            type="number"
-            step="any"
-            placeholder="Opcional"
-            {...register("tolerancia_pct", { valueAsNumber: true })}
-          />
-        </div>
       </div>
 
       {schema.length > 0 && (
