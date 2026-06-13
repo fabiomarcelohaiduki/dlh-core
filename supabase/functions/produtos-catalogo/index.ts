@@ -48,6 +48,7 @@ import {
   produtoUpdateSchema,
   skuCreateSchema,
   type SkuTipoOrigem,
+  type SkuUnidadeTempo,
   skuUpdateSchema,
 } from "../_shared/validation.ts";
 
@@ -60,7 +61,7 @@ const CHUNK_TIPO = "produto-cotacao";
 const PRODUTO_COLUMNS =
   "id, linha_id, nome, atributos, prazo_entrega, disponibilidade, pedido_minimo, ativo, created_at, updated_at";
 const SKU_COLUMNS =
-  "id, produto_id, codigo_sku, tipo_origem, atributos, dimensoes, tolerancia_pct, acabamento, peso_gr, diretriz_producao, tempo_producao, estado_calculo, ativo, created_at, updated_at";
+  "id, produto_id, codigo_sku, tipo_origem, atributos, dimensoes, tolerancia_pct, acabamento, peso_gr, diretriz_producao, tamanho_lote, tempo_lote, unidade_tempo, tempo_producao, estado_calculo, ativo, created_at, updated_at";
 const PRODUTO_ATRIBUTO_COLUMNS =
   "id, produto_id, chave, tipo, obrigatorio, created_at, updated_at";
 
@@ -74,7 +75,42 @@ interface LinhaAtributoRow {
 interface SkuCoerenciaRow {
   tipo_origem: SkuTipoOrigem;
   diretriz_producao: string | null;
-  tempo_producao: number | null;
+  tamanho_lote: number | null;
+  tempo_lote: number | null;
+  unidade_tempo: SkuUnidadeTempo | null;
+}
+
+/**
+ * Jornada (horas/dia) do nivel global; usada para converter lote em "dia"
+ * para horas. Fallback 8h quando nao configurada em Parametros.
+ */
+async function getHorasPorDia(db: SupabaseClient): Promise<number> {
+  const { data } = await db
+    .from("parametros_calculo")
+    .select("horas_por_dia")
+    .eq("nivel", "global")
+    .is("escopo_id", null)
+    .maybeSingle();
+  const h = (data as { horas_por_dia: number | null } | null)?.horas_por_dia;
+  return typeof h === "number" && h > 0 ? h : 8;
+}
+
+/**
+ * Deriva tempo_producao (h por unidade) a partir do lote:
+ *   tempo_producao = tempo_lote * fator(unidade) / tamanho_lote
+ *   fator: hora = 1 ; dia = horas_por_dia.
+ * Lote incompleto (tamanho ausente/<=0 ou tempo ausente) => null (sem MOD).
+ */
+function deriveTempoProducao(
+  tamanhoLote: number | null | undefined,
+  tempoLote: number | null | undefined,
+  unidadeTempo: SkuUnidadeTempo | null | undefined,
+  horasPorDia: number,
+): number | null {
+  if (tamanhoLote == null || tamanhoLote <= 0) return null;
+  if (tempoLote == null) return null;
+  const fator = unidadeTempo === "dia" ? horasPorDia : 1;
+  return (tempoLote * fator) / tamanhoLote;
 }
 
 /** True quando a diretriz tem conteudo indexavel (nao-vazia apos trim). */
@@ -542,21 +578,24 @@ async function deleteProdutoAtributo(
 // ---------------------------------------------------------------------
 
 /**
- * Garante a coerencia entre tipo_origem e diretriz/tempo de producao:
- * um SKU 'comprado' NAO pode carregar diretriz_producao nem tempo_producao
+ * Garante a coerencia entre tipo_origem e diretriz/lote de producao:
+ * um SKU 'comprado' NAO pode carregar diretriz_producao nem lote de producao
  * (conceitos exclusivos de SKU fabricado). Violacao -> 400.
  */
 function assertTipoOrigemCoerente(state: {
   tipoOrigem: SkuTipoOrigem;
   diretriz: string | null | undefined;
-  tempo: number | null | undefined;
+  tamanhoLote: number | null | undefined;
+  tempoLote: number | null | undefined;
 }): void {
   if (state.tipoOrigem !== "comprado") return;
-  if (hasDiretriz(state.diretriz) || (state.tempo !== null && state.tempo !== undefined)) {
+  const temLote = (state.tamanhoLote !== null && state.tamanhoLote !== undefined) ||
+    (state.tempoLote !== null && state.tempoLote !== undefined);
+  if (hasDiretriz(state.diretriz) || temLote) {
     throw new HttpError(
       400,
       "tipo_origem_incoerente",
-      "SKU comprado nao pode ter diretriz_producao nem tempo_producao",
+      "SKU comprado nao pode ter diretriz_producao nem lote de producao",
     );
   }
 }
@@ -569,7 +608,8 @@ async function createSku(req: Request, produtoId: string, email: string): Promis
   assertTipoOrigemCoerente({
     tipoOrigem: input.tipo_origem,
     diretriz: input.diretriz_producao ?? null,
-    tempo: input.tempo_producao ?? null,
+    tamanhoLote: input.tamanho_lote ?? null,
+    tempoLote: input.tempo_lote ?? null,
   });
 
   // Valores de atributo do SKU validados contra o schema mesclado (Linha +
@@ -579,18 +619,29 @@ async function createSku(req: Request, produtoId: string, email: string): Promis
   const schema = await loadSkuSchema(db, produtoId);
   validateAtributos(atributos, schema);
 
+  // tempo_producao e DERIVADO do lote (nunca informado pelo cliente).
+  const tempoProducao = deriveTempoProducao(
+    input.tamanho_lote,
+    input.tempo_lote,
+    input.unidade_tempo ?? null,
+    await getHorasPorDia(db),
+  );
+
   const payload: Record<string, unknown> = {
     produto_id: produtoId,
     codigo_sku: input.codigo_sku,
     tipo_origem: input.tipo_origem,
     atributos,
+    tempo_producao: tempoProducao,
     ...pickDefined(input, [
       "dimensoes",
       "tolerancia_pct",
       "acabamento",
       "peso_gr",
       "diretriz_producao",
-      "tempo_producao",
+      "tamanho_lote",
+      "tempo_lote",
+      "unidade_tempo",
       "ativo",
     ]),
   };
@@ -654,7 +705,7 @@ async function updateSku(req: Request, skuId: string, email: string): Promise<Re
 
   const { data: existing, error: existingError } = await db
     .from("produto_skus")
-    .select("produto_id, tipo_origem, diretriz_producao, tempo_producao")
+    .select("produto_id, tipo_origem, diretriz_producao, tamanho_lote, tempo_lote, unidade_tempo")
     .eq("id", skuId)
     .maybeSingle();
   if (existingError) {
@@ -677,13 +728,24 @@ async function updateSku(req: Request, skuId: string, email: string): Promise<Re
   const diretrizEff = input.diretriz_producao !== undefined
     ? input.diretriz_producao
     : current.diretriz_producao;
-  const tempoEff = input.tempo_producao !== undefined
-    ? input.tempo_producao
-    : current.tempo_producao;
+  const tamanhoLoteEff = input.tamanho_lote !== undefined
+    ? input.tamanho_lote
+    : current.tamanho_lote;
+  const tempoLoteEff = input.tempo_lote !== undefined
+    ? input.tempo_lote
+    : current.tempo_lote;
+  const unidadeTempoEff = input.unidade_tempo !== undefined
+    ? input.unidade_tempo
+    : current.unidade_tempo;
 
-  // Coerencia: bloqueia comprado com diretriz/tempo (incl. troca de tipo_origem
-  // incompativel com diretriz/tempo ja existentes).
-  assertTipoOrigemCoerente({ tipoOrigem: tipoOrigemEff, diretriz: diretrizEff, tempo: tempoEff });
+  // Coerencia: bloqueia comprado com diretriz/lote (incl. troca de tipo_origem
+  // incompativel com diretriz/lote ja existentes).
+  assertTipoOrigemCoerente({
+    tipoOrigem: tipoOrigemEff,
+    diretriz: diretrizEff,
+    tamanhoLote: tamanhoLoteEff,
+    tempoLote: tempoLoteEff,
+  });
 
   const payload = pickDefined(input, [
     "codigo_sku",
@@ -694,13 +756,31 @@ async function updateSku(req: Request, skuId: string, email: string): Promise<Re
     "acabamento",
     "peso_gr",
     "diretriz_producao",
-    "tempo_producao",
+    "tamanho_lote",
+    "tempo_lote",
+    "unidade_tempo",
     "ativo",
   ]);
 
   if (Object.keys(payload).length === 0) {
     throw new HttpError(400, "validation_error", "nenhum campo para atualizar");
   }
+
+  // Recalcula tempo_producao (derivado) quando o lote ou o tipo de origem
+  // foram tocados; o trigger so dispara recalculo se o valor mudar de fato.
+  const loteTocado = input.tamanho_lote !== undefined ||
+    input.tempo_lote !== undefined ||
+    input.unidade_tempo !== undefined ||
+    input.tipo_origem !== undefined;
+  if (loteTocado) {
+    payload.tempo_producao = deriveTempoProducao(
+      tamanhoLoteEff,
+      tempoLoteEff,
+      unidadeTempoEff,
+      await getHorasPorDia(db),
+    );
+  }
+
   payload.updated_at = new Date().toISOString();
 
   const { data, error } = await db

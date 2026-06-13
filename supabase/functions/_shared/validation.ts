@@ -913,6 +913,14 @@ export const skuTipoOrigemEnum = z.enum(SKU_TIPOS_ORIGEM, {
   errorMap: () => ({ message: `tipo_origem invalido (use: ${SKU_TIPOS_ORIGEM.join(", ")})` }),
 });
 
+/** Unidade do tempo de lote (converte para horas na derivacao do Edge). */
+export const SKU_UNIDADES_TEMPO = ["hora", "dia"] as const;
+export type SkuUnidadeTempo = (typeof SKU_UNIDADES_TEMPO)[number];
+
+export const skuUnidadeTempoEnum = z.enum(SKU_UNIDADES_TEMPO, {
+  errorMap: () => ({ message: `unidade_tempo invalida (use: ${SKU_UNIDADES_TEMPO.join(", ")})` }),
+});
+
 const skuJsonbField = (label: string) =>
   z.record(z.string(), z.unknown(), { invalid_type_error: `${label} deve ser um objeto` })
     .nullish();
@@ -937,7 +945,9 @@ export const skuCreateSchema = z
     peso_gr: skuNumberField("peso_gr"),
     diretriz_producao: z.string({ invalid_type_error: "diretriz_producao deve ser string" })
       .nullish(),
-    tempo_producao: skuNumberField("tempo_producao"),
+    tamanho_lote: skuNumberField("tamanho_lote"),
+    tempo_lote: skuNumberField("tempo_lote"),
+    unidade_tempo: skuUnidadeTempoEnum.nullish(),
     ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
   })
   .strict();
@@ -959,7 +969,9 @@ export const skuUpdateSchema = z
     peso_gr: skuNumberField("peso_gr"),
     diretriz_producao: z.string({ invalid_type_error: "diretriz_producao deve ser string" })
       .nullish(),
-    tempo_producao: skuNumberField("tempo_producao"),
+    tamanho_lote: skuNumberField("tamanho_lote"),
+    tempo_lote: skuNumberField("tempo_lote"),
+    unidade_tempo: skuUnidadeTempoEnum.nullish(),
     ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
   })
   .strict();
@@ -1245,6 +1257,7 @@ export const parametrosUpsertSchema = z
     lucro_pct: scalarField("lucro_pct"),
     lucro_minimo_pct: scalarField("lucro_minimo_pct"),
     taxa_horaria: scalarField("taxa_horaria"),
+    horas_por_dia: scalarField("horas_por_dia"),
   })
   .strict()
   .superRefine(refineEscopoCoerente);

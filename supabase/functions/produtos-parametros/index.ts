@@ -38,7 +38,7 @@ import {
 const FUNCTION_SEGMENT = "produtos-parametros";
 
 const PARAMETROS_COLUMNS =
-  "id, nivel, escopo_id, impostos_pct, frete_pct, despesas_pct, lucro_pct, lucro_minimo_pct, taxa_horaria, created_at, updated_at";
+  "id, nivel, escopo_id, impostos_pct, frete_pct, despesas_pct, lucro_pct, lucro_minimo_pct, taxa_horaria, horas_por_dia, created_at, updated_at";
 const REGIONAL_COLUMNS = "id, nivel, escopo_id, regiao, percentual, created_at, updated_at";
 
 /** Campos escalares dos parametros (ordem estavel para merge/log). */
@@ -51,6 +51,10 @@ const SCALAR_FIELDS = [
   "taxa_horaria",
 ] as const;
 type ScalarField = (typeof SCALAR_FIELDS)[number];
+
+// horas_por_dia (jornada) e persistido no upsert mas resolvido SO no nivel
+// global (constante da empresa) -> fora do SCALAR_FIELDS/endpoint resolvido.
+const UPSERT_FIELDS = [...SCALAR_FIELDS, "horas_por_dia"] as const;
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
@@ -122,7 +126,7 @@ async function upsertParametros(req: Request, email: string): Promise<Response> 
     throw new HttpError(500, "parametros_query_failed", "falha ao consultar parametros");
   }
 
-  const scalarPayload = pickDefined(input, SCALAR_FIELDS);
+  const scalarPayload = pickDefined(input, UPSERT_FIELDS);
 
   let row: unknown;
   if (existing) {

@@ -10,6 +10,7 @@ import type {
   ProdutoLinha,
   ProdutoSku,
   SkuTipoOrigem,
+  SkuUnidadeTempo,
 } from "@/lib/api/types";
 
 // ---------------------------------------------------------------------
@@ -220,7 +221,10 @@ export interface SkuInput {
   acabamento?: string | null;
   peso_gr?: number | null;
   diretriz_producao?: string | null;
-  tempo_producao?: number | null;
+  /** Lote de producao (so fabricado); tempo_producao e derivado no backend. */
+  tamanho_lote?: number | null;
+  tempo_lote?: number | null;
+  unidade_tempo?: SkuUnidadeTempo | null;
   ativo?: boolean;
 }
 

@@ -485,6 +485,8 @@ export interface DispararDriveResponse {
 export type AtributoTipo = "texto" | "numero" | "booleano";
 /** Origem do SKU: fabricado (BOM) ou comprado (custo de aquisicao). */
 export type SkuTipoOrigem = "fabricado" | "comprado";
+/** Unidade do tempo de lote do SKU (convertida para horas na derivacao). */
+export type SkuUnidadeTempo = "hora" | "dia";
 /** Estado do calculo de preco do SKU/linha de preco. */
 export type EstadoCalculo = "vigente" | "pendente" | "erro";
 /** Categoria do insumo (insumos.categoria). */
@@ -588,6 +590,13 @@ export interface ProdutoSku {
   acabamento: string | null;
   peso_gr: number | null;
   diretriz_producao: string | null;
+  /** Lote de producao (so fabricado): qtd de unidades por lote. */
+  tamanho_lote: number | null;
+  /** Tempo do lote inteiro, na unidade `unidade_tempo`. */
+  tempo_lote: number | null;
+  /** Unidade do tempo do lote (convertida para horas na derivacao). */
+  unidade_tempo: SkuUnidadeTempo | null;
+  /** Derivado do lote (read-only): tempo_lote em horas / tamanho_lote. */
   tempo_producao: number | null;
   estado_calculo: EstadoCalculo;
   ativo: boolean;
@@ -692,6 +701,8 @@ export interface ParametrosCalculo {
   lucro_pct: number | null;
   lucro_minimo_pct: number | null;
   taxa_horaria: number | null;
+  /** Jornada (horas/dia) p/ converter lote em "dia"; so usada no nivel global. */
+  horas_por_dia: number | null;
   created_at: string;
   updated_at: string;
 }

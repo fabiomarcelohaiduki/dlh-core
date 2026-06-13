@@ -6,9 +6,15 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Check, Loader2, Trash2, TriangleAlert, X } from "lucide-react";
 import { useCreateSku, useUpdateSku } from "@/hooks/use-skus";
+import { useParametros } from "@/hooks/use-parametros";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
-import type { AtributoSchema, ProdutoSku, SkuTipoOrigem } from "@/lib/api/types";
+import type {
+  AtributoSchema,
+  ProdutoSku,
+  SkuTipoOrigem,
+  SkuUnidadeTempo,
+} from "@/lib/api/types";
 
 const optionalNumber = z.preprocess(
   (v) =>
@@ -55,17 +61,20 @@ type SkuValues = {
   tipo_origem: SkuTipoOrigem;
   atributos: Record<string, string | number | boolean | undefined>;
   diretriz_producao?: string;
-  tempo_producao?: number;
+  tamanho_lote?: number;
+  tempo_lote?: number;
+  unidade_tempo: SkuUnidadeTempo;
 };
 
 /**
  * cmp-sku-form — cria/edita um SKU (produto_skus). Expoe tipo_origem
- * (fabricado/comprado); os campos diretriz_producao e tempo_producao SO
- * aparecem (e SO sao enviados) quando fabricado — o backend bloqueia
- * incoerencias de tipo_origem (400). Em edicao o tipo_origem fica travado para
- * evitar inverter origem de um SKU ja com BOM/custo. Os ATRIBUTOS definidos no
- * Produto sao preenchidos POR SKU; obrigatorios sao exigidos aqui.
- * Validacao react-hook-form + zod inline.
+ * (fabricado/comprado); os campos diretriz_producao e lote de producao
+ * (tamanho/tempo/unidade) SO aparecem (e SO sao enviados) quando fabricado — o
+ * backend bloqueia incoerencias de tipo_origem (400). O tempo por unidade e
+ * DERIVADO do lote (preview read-only; o backend recalcula). Em edicao o
+ * tipo_origem fica travado para evitar inverter origem de um SKU ja com
+ * BOM/custo. Os ATRIBUTOS definidos no Produto sao preenchidos POR SKU;
+ * obrigatorios sao exigidos aqui. Validacao react-hook-form + zod inline.
  */
 export function SkuForm({
   produtoId,
@@ -101,7 +110,9 @@ export function SkuForm({
         tipo_origem: z.enum(["fabricado", "comprado"]),
         atributos: buildAtributosSchema(schema),
         diretriz_producao: z.string().trim().optional(),
-        tempo_producao: optionalNumber,
+        tamanho_lote: optionalNumber,
+        tempo_lote: optionalNumber,
+        unidade_tempo: z.enum(["hora", "dia"]),
       }),
     [schema],
   );
@@ -140,12 +151,29 @@ export function SkuForm({
       tipo_origem: sku?.tipo_origem ?? "fabricado",
       atributos: defaultAtributos,
       diretriz_producao: sku?.diretriz_producao ?? "",
-      tempo_producao: sku?.tempo_producao ?? undefined,
+      tamanho_lote: sku?.tamanho_lote ?? undefined,
+      tempo_lote: sku?.tempo_lote ?? undefined,
+      unidade_tempo: sku?.unidade_tempo ?? "hora",
     },
   });
 
   const tipoOrigem = watch("tipo_origem") as SkuTipoOrigem;
   const fabricado = tipoOrigem === "fabricado";
+
+  // Jornada (horas/dia) global, p/ converter lote em "dia" no preview.
+  const globalParametros = useParametros({ nivel: "global", escopo_id: null });
+  const horasPorDia = globalParametros.data?.items?.[0]?.horas_por_dia ?? 8;
+
+  // Preview read-only do tempo por unidade (mesma formula do backend):
+  // tempo_lote * fator(unidade) / tamanho_lote. O backend e a fonte da verdade.
+  const tamanhoLoteW = watch("tamanho_lote");
+  const tempoLoteW = watch("tempo_lote");
+  const unidadeTempoW = watch("unidade_tempo");
+  const tempoPorUnidade =
+    typeof tamanhoLoteW === "number" && tamanhoLoteW > 0 &&
+    typeof tempoLoteW === "number" && Number.isFinite(tempoLoteW)
+      ? (tempoLoteW * (unidadeTempoW === "dia" ? horasPorDia : 1)) / tamanhoLoteW
+      : null;
 
   const atributoErrors = errors.atributos as
     | Record<string, { message?: string } | undefined>
@@ -174,14 +202,17 @@ export function SkuForm({
       atributos,
     };
 
-    // diretriz/tempo so existem para SKU fabricado (coerencia de tipo_origem).
+    // diretriz/lote so existem para SKU fabricado (coerencia de tipo_origem);
+    // tempo_producao e derivado no backend a partir do lote.
     const input = fabricado
       ? {
           ...base,
           diretriz_producao: values.diretriz_producao?.trim()
             ? values.diretriz_producao.trim()
             : null,
-          tempo_producao: values.tempo_producao ?? null,
+          tamanho_lote: values.tamanho_lote ?? null,
+          tempo_lote: values.tempo_lote ?? null,
+          unidade_tempo: values.unidade_tempo,
         }
       : base;
 
@@ -327,15 +358,45 @@ export function SkuForm({
               Ao salvar, o texto é reindexado semanticamente; esvaziar remove o índice.
             </div>
           </div>
-          <div className="field" style={{ maxWidth: 260 }}>
-            <label htmlFor="sku-tempo">Tempo de produção por unidade (h)</label>
-            <input
-              id="sku-tempo"
-              type="number"
-              step="any"
-              placeholder="Opcional"
-              {...register("tempo_producao", { valueAsNumber: true })}
-            />
+          <div
+            className="grid-fields"
+            style={{ gridTemplateColumns: "1fr 1fr 1fr", alignItems: "start" }}
+          >
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label htmlFor="sku-tamanho-lote">Tamanho do lote (un)</label>
+              <input
+                id="sku-tamanho-lote"
+                type="number"
+                step="any"
+                placeholder="Opcional"
+                {...register("tamanho_lote", { valueAsNumber: true })}
+              />
+            </div>
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label htmlFor="sku-tempo-lote">Tempo do lote</label>
+              <input
+                id="sku-tempo-lote"
+                type="number"
+                step="any"
+                placeholder="Opcional"
+                {...register("tempo_lote", { valueAsNumber: true })}
+              />
+            </div>
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label htmlFor="sku-unidade-tempo">Unidade</label>
+              <select id="sku-unidade-tempo" {...register("unidade_tempo")}>
+                <option value="hora">Horas</option>
+                <option value="dia">Dias</option>
+              </select>
+            </div>
+          </div>
+          <div className="helper" style={{ marginTop: 8 }}>
+            Tempo por unidade:{" "}
+            <strong className="tnum">
+              {tempoPorUnidade == null ? "—" : `${tempoPorUnidade.toFixed(4)} h`}
+            </strong>
+            {unidadeTempoW === "dia" && ` · ${horasPorDia} h/dia (jornada)`}
+            {" · derivado do lote (o motor recalcula no salvar)."}
           </div>
         </>
       )}

@@ -107,6 +107,7 @@ export function ParametrosForm({
 
   const [escalares, setEscalares] = useState<Record<string, string>>({});
   const [regioes, setRegioes] = useState<Record<string, string>>({});
+  const [jornada, setJornada] = useState<string>("");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
 
   // Hidrata os campos a partir dos valores brutos do escopo (e re-hidrata ao
@@ -124,6 +125,8 @@ export function ParametrosForm({
       nextReg[value] = v == null ? "" : String(v);
     }
     setRegioes(nextReg);
+    const hpd = rawEscalar?.horas_por_dia ?? null;
+    setJornada(hpd == null ? "" : String(hpd));
     setFeedback(null);
   }, [rawEscalar, rawRegionalMap]);
 
@@ -142,6 +145,8 @@ export function ParametrosForm({
         lucro_pct: toNumber(escalares.lucro_pct ?? ""),
         lucro_minimo_pct: toNumber(escalares.lucro_minimo_pct ?? ""),
         taxa_horaria: toNumber(escalares.taxa_horaria ?? ""),
+        // Jornada e uma constante da empresa: so persiste no nivel global.
+        ...(nivel === "global" ? { horas_por_dia: toNumber(jornada) } : {}),
       });
       await upsertRegional.mutateAsync({
         nivel,
@@ -236,6 +241,31 @@ export function ParametrosForm({
               );
             })}
           </div>
+
+          {nivel === "global" && (
+            <div className="grid-fields" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginTop: 14 }}>
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label htmlFor="param-horas-por-dia">Jornada</label>
+                <div className="input-affix">
+                  <input
+                    id="param-horas-por-dia"
+                    type="number"
+                    step="any"
+                    placeholder="8"
+                    value={jornada}
+                    onChange={(e) => {
+                      setJornada(e.target.value);
+                      setFeedback(null);
+                    }}
+                  />
+                  <span className="suffix">h/dia</span>
+                </div>
+                <div className="helper">
+                  Converte lotes em &quot;dias&quot; para horas no tempo de produção.
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="section-title" style={{ margin: "24px 0 13px" }}>
             <h3>Vetor regional</h3>

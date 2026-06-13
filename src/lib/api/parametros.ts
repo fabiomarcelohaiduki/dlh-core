@@ -47,6 +47,8 @@ export interface ParametrosCalculoInput {
   lucro_pct?: number | null;
   lucro_minimo_pct?: number | null;
   taxa_horaria?: number | null;
+  /** Jornada (horas/dia) — so persiste no nivel global. */
+  horas_por_dia?: number | null;
 }
 
 export function upsertParametros(
