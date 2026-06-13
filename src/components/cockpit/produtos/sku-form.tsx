@@ -225,18 +225,27 @@ export function SkuForm({
         </div>
 
         <div className="field">
-          <label htmlFor="sku-tipo">Origem</label>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              gap: 8,
+            }}
+          >
+            <label htmlFor="sku-tipo">Origem</label>
+            <span className="helper" style={{ margin: 0 }}>
+              {isEdit
+                ? "A origem não muda após a criação."
+                : fabricado
+                  ? "Custo via composição (BOM) + mão de obra."
+                  : "Custo via custo de aquisição vigente."}
+            </span>
+          </div>
           <select id="sku-tipo" disabled={isEdit} {...register("tipo_origem")}>
             <option value="fabricado">Fabricado (BOM)</option>
             <option value="comprado">Comprado (aquisição)</option>
           </select>
-          <div className="helper">
-            {isEdit
-              ? "A origem não muda após a criação."
-              : fabricado
-                ? "Custo via composição (BOM) + mão de obra."
-                : "Custo via custo de aquisição vigente."}
-          </div>
         </div>
 
       </div>
