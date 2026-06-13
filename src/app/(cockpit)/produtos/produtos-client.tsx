@@ -6,14 +6,18 @@ import { useRouter } from "next/navigation";
 import {
   ChevronRight,
   Layers,
+  Loader2,
   Package,
   Plus,
   TriangleAlert,
+  Trash2,
   Wand2,
+  X,
 } from "lucide-react";
-import { useLinhas } from "@/hooks/use-linhas";
+import { useLinhas, useDeleteLinha } from "@/hooks/use-linhas";
 import { useLinhaAtributos } from "@/hooks/use-linha-atributos";
 import { useProdutos } from "@/hooks/use-produtos";
+import { ApiError } from "@/lib/api/client";
 import { StatusPill } from "@/components/cockpit/status-pill";
 import { LinhasTable } from "@/components/cockpit/produtos/linhas-table";
 import { LinhaForm } from "@/components/cockpit/produtos/linha-form";
@@ -84,10 +88,6 @@ export function ProdutosClient() {
             setSelectedId(linha.id);
             setFormMode("edit");
           }}
-          onDeleted={() => {
-            setSelectedId(null);
-            setFormMode("none");
-          }}
         />
 
         <div style={{ display: "grid", gap: 16 }}>
@@ -100,14 +100,14 @@ export function ProdutosClient() {
               onCancel={() => setFormMode("none")}
             />
           ) : formMode === "edit" && selected ? (
-            <>
-              <LinhaForm
-                linha={selected}
-                onSuccess={() => setFormMode("none")}
-                onCancel={() => setFormMode("none")}
-              />
-              <AtributosEditor linhaId={selected.id} />
-            </>
+            <LinhaEditPanel
+              linha={selected}
+              onExit={() => setFormMode("none")}
+              onDeleted={() => {
+                setSelectedId(null);
+                setFormMode("none");
+              }}
+            />
           ) : selected ? (
             <LinhaDetail linha={selected} />
           ) : (
@@ -128,14 +128,118 @@ export function ProdutosClient() {
   );
 }
 
-/** Painel DETAIL de uma Linha: produtos + tabela de precos + criterios. A
- * identidade e as acoes (Editar/Excluir) da Linha vivem na lista a esquerda. */
-function LinhaDetail({ linha }: { linha: ProdutoLinha }) {
+/** Painel de EDICAO de uma Linha: form + atributos + exclusao. O excluir vive
+ * aqui dentro do editar (a lista a esquerda so abre via simbolo laranja). */
+function LinhaEditPanel({
+  linha,
+  onExit,
+  onDeleted,
+}: {
+  linha: ProdutoLinha;
+  onExit: () => void;
+  onDeleted: () => void;
+}) {
+  const deleteLinha = useDeleteLinha();
+  const [confirming, setConfirming] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  async function onConfirmDelete() {
+    setErro(null);
+    try {
+      await deleteLinha.mutateAsync(linha.id);
+      onDeleted();
+    } catch (err) {
+      setErro(
+        err instanceof ApiError && err.status === 409
+          ? "Linha possui produtos vinculados. Remova os Produtos antes de excluir."
+          : "Não foi possível excluir a linha. Tente novamente.",
+      );
+    }
+  }
+
   return (
     <>
-      <ProdutosDaLinha linha={linha} />
+      <LinhaForm linha={linha} onSuccess={onExit} onCancel={onExit} />
+      <AtributosEditor linhaId={linha.id} />
+      <div className="card">
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <span className="sub">Excluir esta linha permanentemente.</span>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {confirming ? (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  style={{ color: "var(--err)" }}
+                  onClick={onConfirmDelete}
+                  disabled={deleteLinha.isPending}
+                >
+                  {deleteLinha.isPending ? (
+                    <Loader2 className="spin" aria-hidden="true" />
+                  ) : (
+                    <Trash2 aria-hidden="true" />
+                  )}
+                  <span>Confirmar exclusão</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => {
+                    setConfirming(false);
+                    setErro(null);
+                  }}
+                  disabled={deleteLinha.isPending}
+                >
+                  <X aria-hidden="true" />
+                  <span>Cancelar</span>
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setConfirming(true)}
+              >
+                <Trash2 aria-hidden="true" />
+                <span>Excluir linha</span>
+              </button>
+            )}
+          </div>
+        </div>
+        {erro && (
+          <div className="err-msg" style={{ display: "flex", marginTop: 14 }}>
+            <TriangleAlert aria-hidden="true" />
+            {erro}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
 
-      <TabelaPrecosLinha linhaId={linha.id} />
+/** Painel DETAIL de uma Linha: produtos + tabela de precos + criterios. A
+ * identidade e as acoes vivem na lista a esquerda (simbolo laranja = editar). */
+function LinhaDetail({ linha }: { linha: ProdutoLinha }) {
+  const [selectedProdutoId, setSelectedProdutoId] = useState<string | null>(null);
+  return (
+    <>
+      <ProdutosDaLinha
+        linha={linha}
+        selectedId={selectedProdutoId}
+        onSelect={(id) =>
+          setSelectedProdutoId((cur) => (cur === id ? null : id))
+        }
+      />
+
+      <TabelaPrecosLinha linhaId={linha.id} produtoId={selectedProdutoId} />
 
       <div className="section-title">
         <h3>Critérios de cotação da Linha</h3>
@@ -146,8 +250,17 @@ function LinhaDetail({ linha }: { linha: ProdutoLinha }) {
   );
 }
 
-/** Drill-down dos Produtos da Linha + criacao de Produto com o schema da Linha. */
-function ProdutosDaLinha({ linha }: { linha: ProdutoLinha }) {
+/** Drill-down dos Produtos da Linha + criacao de Produto com o schema da Linha.
+ * Selecionar um Produto (clique na linha) filtra a tabela de precos da Linha. */
+function ProdutosDaLinha({
+  linha,
+  selectedId,
+  onSelect,
+}: {
+  linha: ProdutoLinha;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
   const router = useRouter();
   const produtos = useProdutos({ linha_id: linha.id });
   const atributos = useLinhaAtributos(linha.id);
@@ -165,6 +278,18 @@ function ProdutosDaLinha({ linha }: { linha: ProdutoLinha }) {
       <div className="section-title" style={{ margin: "0 0 14px" }}>
         <h3>Produtos da linha</h3>
         <span className="count">{items.length}</span>
+        {!creating ? (
+          <button
+            type="button"
+            className="btn btn-sm btn-icon"
+            style={{ marginLeft: "auto" }}
+            onClick={() => setCreating(true)}
+            aria-label="Novo produto"
+            title="Novo produto"
+          >
+            <Plus aria-hidden="true" />
+          </button>
+        ) : null}
       </div>
 
       {produtos.isLoading ? (
@@ -183,6 +308,16 @@ function ProdutosDaLinha({ linha }: { linha: ProdutoLinha }) {
           <Package aria-hidden="true" />
           <h4>Nenhum produto nesta linha</h4>
           <p>Crie o primeiro produto para detalhar atributos, SKUs e preços.</p>
+          <div style={{ marginTop: 14 }}>
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              onClick={() => setCreating(true)}
+            >
+              <Plus aria-hidden="true" />
+              <span>Novo produto</span>
+            </button>
+          </div>
         </div>
       ) : (
         <div className="tbl-wrap">
@@ -190,16 +325,19 @@ function ProdutosDaLinha({ linha }: { linha: ProdutoLinha }) {
             <thead>
               <tr>
                 <th>Produto</th>
-                <th style={{ width: 110 }}>Status</th>
-                <th style={{ width: 44 }} />
+                <th style={{ width: 150 }} aria-label="Status" />
               </tr>
             </thead>
             <tbody>
-              {items.map((p) => (
+              {items.map((p) => {
+                const active = p.id === selectedId;
+                return (
                 <tr
                   key={p.id}
-                  className="clk"
-                  onClick={() => router.push(`/produtos/${p.id}`)}
+                  className={active ? "clk active-row" : "clk"}
+                  aria-selected={active}
+                  onClick={() => onSelect(p.id)}
+                  style={active ? { background: "var(--accent-soft)" } : undefined}
                 >
                   <td>
                     <div className="cell-stack">
@@ -210,23 +348,37 @@ function ProdutosDaLinha({ linha }: { linha: ProdutoLinha }) {
                     </div>
                   </td>
                   <td>
-                    <StatusPill
-                      state={p.ativo ? "ok" : "idle"}
-                      label={p.ativo ? "Ativo" : "Inativo"}
-                    />
-                  </td>
-                  <td>
-                    <Link
-                      href={`/produtos/${p.id}`}
-                      className="link"
-                      aria-label={`Abrir ${p.nome}`}
-                      onClick={(e) => e.stopPropagation()}
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "flex-end",
+                        gap: 8,
+                      }}
                     >
-                      <ChevronRight aria-hidden="true" />
-                    </Link>
+                      <StatusPill
+                        state={p.ativo ? "ok" : "idle"}
+                        label={p.ativo ? "Ativo" : "Inativo"}
+                        iconOnly
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-icon"
+                        style={{ color: "var(--accent)" }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push(`/produtos/${p.id}`);
+                        }}
+                        aria-label="Editar produto"
+                        title="Editar"
+                      >
+                        <ChevronRight aria-hidden="true" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -244,18 +396,7 @@ function ProdutosDaLinha({ linha }: { linha: ProdutoLinha }) {
             onCancel={() => setCreating(false)}
           />
         </div>
-      ) : (
-        <div className="form-foot" style={{ marginTop: 16 }}>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => setCreating(true)}
-          >
-            <Plus aria-hidden="true" />
-            <span>Novo produto</span>
-          </button>
-        </div>
-      )}
+      ) : null}
     </div>
   );
 }

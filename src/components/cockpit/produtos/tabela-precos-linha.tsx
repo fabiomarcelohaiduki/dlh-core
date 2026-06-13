@@ -97,11 +97,20 @@ function SkuRow({ sku, patamar }: { sku: TabelaPrecoSku; patamar: Patamar }) {
  * por padrão; toggle FOB / CIF Mínimo / CIF Alvo). Preço + IFP por célula,
  * somente leitura (motor). Replica a visão de planilha consolidada da DLH.
  */
-export function TabelaPrecosLinha({ linhaId }: { linhaId: string }) {
+export function TabelaPrecosLinha({
+  linhaId,
+  produtoId,
+}: {
+  linhaId: string;
+  produtoId?: string | null;
+}) {
   const tabela = useTabelaPrecos(linhaId);
   const [patamar, setPatamar] = useState<Patamar>("CIF_ALVO");
 
-  const produtos = tabela.data?.produtos ?? [];
+  const todos = tabela.data?.produtos ?? [];
+  const produtos = produtoId
+    ? todos.filter((p) => p.produto_id === produtoId)
+    : todos;
   const temSkus = produtos.some((p) => p.skus.length > 0);
 
   return (
@@ -127,8 +136,9 @@ export function TabelaPrecosLinha({ linhaId }: { linhaId: string }) {
         </div>
       </div>
       <p style={{ margin: "0 0 14px", fontSize: "12.5px", color: "var(--muted)" }}>
-        Todos os SKUs da linha por região, no patamar selecionado. Preço + IFP
-        por célula — calculado pelo motor.
+        {produtoId
+          ? "SKUs do produto selecionado por região, no patamar selecionado. Preço + IFP por célula — calculado pelo motor."
+          : "Todos os SKUs da linha por região, no patamar selecionado. Preço + IFP por célula — calculado pelo motor."}
       </p>
 
       {tabela.isLoading ? (

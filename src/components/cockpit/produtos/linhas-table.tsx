@@ -1,9 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { Layers, Loader2, Pencil, Plus, TriangleAlert, Trash2, X } from "lucide-react";
-import { useDeleteLinha } from "@/hooks/use-linhas";
-import { ApiError } from "@/lib/api/client";
+import { ChevronRight, Layers, Plus, TriangleAlert } from "lucide-react";
 import type { ProdutoLinha } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { StatusPill } from "@/components/cockpit/status-pill";
@@ -17,9 +14,8 @@ function ativoDescriptor(ativo: boolean) {
 /**
  * cmp-linhas-table — lado MASTER do /produtos: lista as Linhas com status
  * ativo/inativo (status-pill) e linhas clicaveis para o drill-down dos Produtos
- * da Linha. A linha SELECIONADA exibe as acoes (Editar/Excluir) inline — a
- * identidade da Linha vive so aqui, o detalhe a direita nao a repete.
- * Estados travados loading (skeleton) / error / empty (com CTA).
+ * da Linha. O simbolo laranja (chevron) abre a edicao da Linha; a exclusao vive
+ * dentro do editar. Estados travados loading (skeleton) / error / empty (com CTA).
  */
 export function LinhasTable({
   linhas,
@@ -30,7 +26,6 @@ export function LinhasTable({
   onSelect,
   onNew,
   onEdit,
-  onDeleted,
 }: {
   linhas: ProdutoLinha[];
   loading?: boolean;
@@ -40,27 +35,7 @@ export function LinhasTable({
   onSelect: (linha: ProdutoLinha) => void;
   onNew: () => void;
   onEdit: (linha: ProdutoLinha) => void;
-  onDeleted: () => void;
 }) {
-  const deleteLinha = useDeleteLinha();
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
-
-  async function onConfirmDelete(linha: ProdutoLinha) {
-    setErro(null);
-    try {
-      await deleteLinha.mutateAsync(linha.id);
-      setConfirmingId(null);
-      onDeleted();
-    } catch (err) {
-      setErro(
-        err instanceof ApiError && err.status === 409
-          ? "Linha possui produtos vinculados. Remova os Produtos antes de excluir."
-          : "Não foi possível excluir a linha. Tente novamente.",
-      );
-    }
-  }
-
   if (isError) {
     return (
       <div className="tbl-wrap">
@@ -155,15 +130,6 @@ export function LinhasTable({
                         <span className="sub">{l.descricao}</span>
                       ) : null}
                     </div>
-                    {active && erro && confirmingId === l.id ? (
-                      <div
-                        className="err-msg"
-                        style={{ display: "flex", marginTop: 8 }}
-                      >
-                        <TriangleAlert aria-hidden="true" />
-                        {erro}
-                      </div>
-                    ) : null}
                   </td>
                   <td>
                     <div
@@ -174,71 +140,20 @@ export function LinhasTable({
                         gap: 8,
                       }}
                     >
-                      {active ? (
-                        <div
-                          onClick={(e) => e.stopPropagation()}
-                          style={{
-                            display: "flex",
-                            gap: 6,
-                          }}
-                        >
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-icon"
-                            onClick={() => onEdit(l)}
-                            aria-label="Editar linha"
-                            title="Editar"
-                          >
-                            <Pencil aria-hidden="true" />
-                          </button>
-                          {confirmingId === l.id ? (
-                            <>
-                              <button
-                                type="button"
-                                className="btn btn-sm btn-icon"
-                                style={{ color: "var(--err)" }}
-                                onClick={() => onConfirmDelete(l)}
-                                disabled={deleteLinha.isPending}
-                                aria-label="Confirmar exclusão"
-                                title="Confirmar exclusão"
-                              >
-                                {deleteLinha.isPending ? (
-                                  <Loader2 className="spin" aria-hidden="true" />
-                                ) : (
-                                  <Trash2 aria-hidden="true" />
-                                )}
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn-sm btn-icon"
-                                onClick={() => {
-                                  setConfirmingId(null);
-                                  setErro(null);
-                                }}
-                                disabled={deleteLinha.isPending}
-                                aria-label="Cancelar"
-                                title="Cancelar"
-                              >
-                                <X aria-hidden="true" />
-                              </button>
-                            </>
-                          ) : (
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-icon"
-                              onClick={() => {
-                                setConfirmingId(l.id);
-                                setErro(null);
-                              }}
-                              aria-label="Excluir linha"
-                              title="Excluir"
-                            >
-                              <Trash2 aria-hidden="true" />
-                            </button>
-                          )}
-                        </div>
-                      ) : null}
                       <StatusPill state={desc.state} label={desc.label} iconOnly />
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-icon"
+                        style={{ color: "var(--accent)" }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEdit(l);
+                        }}
+                        aria-label="Editar linha"
+                        title="Editar"
+                      >
+                        <ChevronRight aria-hidden="true" />
+                      </button>
                     </div>
                   </td>
                 </tr>

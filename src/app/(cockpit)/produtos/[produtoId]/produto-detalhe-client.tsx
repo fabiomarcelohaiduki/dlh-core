@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { useProduto } from "@/hooks/use-produto";
+import { useDeleteProduto } from "@/hooks/use-produtos";
 import { useDeleteSku } from "@/hooks/use-skus";
 import { ApiError } from "@/lib/api/client";
 import { precoEstadoDescriptor } from "@/lib/status";
@@ -129,6 +130,23 @@ function ProdutoDetalhe({
   router: ReturnType<typeof useRouter>;
 }) {
   const { produto, atributos_schema, skus } = detalhe;
+  const deleteProduto = useDeleteProduto();
+  const [confirming, setConfirming] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  async function onConfirmDelete() {
+    setErro(null);
+    try {
+      await deleteProduto.mutateAsync(produto.id);
+      router.push("/produtos");
+    } catch (err) {
+      setErro(
+        err instanceof ApiError && err.status === 409
+          ? "Produto possui vínculos (SKUs/preços) e não pode ser removido."
+          : "Não foi possível excluir o produto. Tente novamente.",
+      );
+    }
+  }
 
   return (
     <section className="screen">
@@ -147,7 +165,54 @@ function ProdutoDetalhe({
             SKUs e preços calculados.
           </p>
         </div>
+        <div className="actions" style={{ alignItems: "center" }}>
+          {confirming ? (
+            <>
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ color: "var(--err)" }}
+                onClick={onConfirmDelete}
+                disabled={deleteProduto.isPending}
+              >
+                {deleteProduto.isPending ? (
+                  <Loader2 className="spin" aria-hidden="true" />
+                ) : (
+                  <Trash2 aria-hidden="true" />
+                )}
+                <span>Confirmar exclusão</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => {
+                  setConfirming(false);
+                  setErro(null);
+                }}
+                disabled={deleteProduto.isPending}
+              >
+                <X aria-hidden="true" />
+                <span>Cancelar</span>
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => setConfirming(true)}
+            >
+              <Trash2 aria-hidden="true" />
+              <span>Excluir produto</span>
+            </button>
+          )}
+        </div>
       </div>
+      {erro && (
+        <div className="err-msg" style={{ display: "flex", marginBottom: 4 }}>
+          <TriangleAlert aria-hidden="true" />
+          {erro}
+        </div>
+      )}
 
       <ProdutoForm
         linhaId={produto.linha_id}
