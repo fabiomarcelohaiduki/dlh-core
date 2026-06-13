@@ -60,7 +60,7 @@ const CHUNK_TIPO = "produto-cotacao";
 const PRODUTO_COLUMNS =
   "id, linha_id, nome, atributos, prazo_entrega, disponibilidade, pedido_minimo, ativo, created_at, updated_at";
 const SKU_COLUMNS =
-  "id, produto_id, codigo_sku, tipo_origem, dimensoes, tolerancia_pct, acabamento, peso_gr, diretriz_producao, tempo_producao, estado_calculo, ativo, created_at, updated_at";
+  "id, produto_id, codigo_sku, tipo_origem, atributos, dimensoes, tolerancia_pct, acabamento, peso_gr, diretriz_producao, tempo_producao, estado_calculo, ativo, created_at, updated_at";
 const PRODUTO_ATRIBUTO_COLUMNS =
   "id, produto_id, chave, tipo, obrigatorio, created_at, updated_at";
 
@@ -131,7 +131,31 @@ async function loadProdutoAtributos(
 }
 
 /**
- * Valida o mapa de atributos contra o schema da Linha:
+ * Schema que o SKU preenche: os atributos PROPRIOS do Produto (produto_atributos).
+ * Valida a existencia do Produto (404) antes de devolver o schema.
+ */
+async function loadSkuSchema(
+  db: SupabaseClient,
+  produtoId: string,
+): Promise<LinhaAtributoRow[]> {
+  const { data: produto, error } = await db
+    .from("produtos")
+    .select("id")
+    .eq("id", produtoId)
+    .maybeSingle();
+  if (error) {
+    throw new HttpError(500, "produto_query_failed", "falha ao consultar o produto");
+  }
+  if (!produto) {
+    throw new HttpError(404, "nao_encontrado", "produto nao encontrado");
+  }
+  return loadProdutoAtributos(db, produtoId);
+}
+
+/**
+ * Valida o mapa de atributos de um nivel contra o schema que ele preenche
+ * (Produto preenche o schema da Linha; SKU preenche o schema proprio do
+ * Produto):
  *   - rejeita qualquer chave fora do schema (400);
  *   - exige toda chave obrigatorio=true presente e nao-vazia (400).
  */
@@ -146,7 +170,7 @@ function validateAtributos(
       throw new HttpError(
         400,
         "atributo_fora_do_schema",
-        `atributo '${chave}' nao pertence ao schema da Linha`,
+        `atributo '${chave}' nao pertence ao schema deste nivel`,
       );
     }
   }
@@ -262,6 +286,7 @@ async function createProduto(req: Request, email: string): Promise<Response> {
   const db = createServiceClient();
 
   const atributos = (input.atributos ?? {}) as Record<string, unknown>;
+  // Produto preenche os atributos definidos na Linha (obrigatorios exigidos).
   const schema = await loadLinhaSchema(db, input.linha_id, true);
   validateAtributos(atributos, schema);
 
@@ -310,11 +335,9 @@ async function updateProduto(req: Request, produtoId: string, email: string): Pr
   const atributosEff = (input.atributos ?? existing.atributos ?? {}) as Record<string, unknown>;
 
   if (input.linha_id !== undefined || input.atributos !== undefined) {
-    const [linhaSchema, produtoSchema] = await Promise.all([
-      loadLinhaSchema(db, linhaIdEff, input.linha_id !== undefined),
-      loadProdutoAtributos(db, produtoId),
-    ]);
-    validateAtributos(atributosEff, [...linhaSchema, ...produtoSchema]);
+    // Produto preenche os atributos definidos na Linha (obrigatorios exigidos).
+    const linhaSchema = await loadLinhaSchema(db, linhaIdEff, input.linha_id !== undefined);
+    validateAtributos(atributosEff, linhaSchema);
   }
 
   const payload = pickDefined(input, [
@@ -544,10 +567,18 @@ async function createSku(req: Request, produtoId: string, email: string): Promis
     tempo: input.tempo_producao ?? null,
   });
 
+  // Valores de atributo do SKU validados contra o schema mesclado (Linha +
+  // Produto); aqui os obrigatorios sao exigidos. Tambem valida a existencia
+  // do produto (404).
+  const atributos = (input.atributos ?? {}) as Record<string, unknown>;
+  const schema = await loadSkuSchema(db, produtoId);
+  validateAtributos(atributos, schema);
+
   const payload: Record<string, unknown> = {
     produto_id: produtoId,
     codigo_sku: input.codigo_sku,
     tipo_origem: input.tipo_origem,
+    atributos,
     ...pickDefined(input, [
       "dimensoes",
       "tolerancia_pct",
@@ -618,7 +649,7 @@ async function updateSku(req: Request, skuId: string, email: string): Promise<Re
 
   const { data: existing, error: existingError } = await db
     .from("produto_skus")
-    .select("tipo_origem, diretriz_producao, tempo_producao")
+    .select("produto_id, tipo_origem, diretriz_producao, tempo_producao")
     .eq("id", skuId)
     .maybeSingle();
   if (existingError) {
@@ -627,7 +658,14 @@ async function updateSku(req: Request, skuId: string, email: string): Promise<Re
   if (!existing) {
     throw new HttpError(404, "nao_encontrado", "SKU nao encontrado");
   }
-  const current = existing as SkuCoerenciaRow;
+  const current = existing as SkuCoerenciaRow & { produto_id: string };
+
+  // Quando os atributos sao tocados, revalida o mapa (substituicao total)
+  // contra o schema mesclado (Linha + Produto), exigindo os obrigatorios.
+  if (input.atributos !== undefined) {
+    const schema = await loadSkuSchema(db, current.produto_id);
+    validateAtributos((input.atributos ?? {}) as Record<string, unknown>, schema);
+  }
 
   // Estado efetivo apos o merge (campos ausentes preservam o valor atual).
   const tipoOrigemEff = input.tipo_origem ?? current.tipo_origem;
@@ -645,6 +683,7 @@ async function updateSku(req: Request, skuId: string, email: string): Promise<Re
   const payload = pickDefined(input, [
     "codigo_sku",
     "tipo_origem",
+    "atributos",
     "dimensoes",
     "tolerancia_pct",
     "acabamento",

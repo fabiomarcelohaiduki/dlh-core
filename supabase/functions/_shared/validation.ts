@@ -930,6 +930,7 @@ export const skuCreateSchema = z
       .trim()
       .min(1, "codigo_sku nao pode ser vazio"),
     tipo_origem: skuTipoOrigemEnum.default(SKU_TIPO_ORIGEM_DEFAULT),
+    atributos: atributosRecord.optional(),
     dimensoes: skuJsonbField("dimensoes"),
     tolerancia_pct: skuNumberField("tolerancia_pct"),
     acabamento: z.string({ invalid_type_error: "acabamento deve ser string" }).trim().nullish(),
@@ -951,6 +952,7 @@ export const skuUpdateSchema = z
       .min(1, "codigo_sku nao pode ser vazio")
       .optional(),
     tipo_origem: skuTipoOrigemEnum.optional(),
+    atributos: atributosRecord.optional(),
     dimensoes: skuJsonbField("dimensoes"),
     tolerancia_pct: skuNumberField("tolerancia_pct"),
     acabamento: z.string({ invalid_type_error: "acabamento deve ser string" }).trim().nullish(),
