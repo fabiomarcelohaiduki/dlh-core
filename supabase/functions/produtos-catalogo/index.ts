@@ -11,6 +11,9 @@
 //   PUT    /produtos-catalogo/produtos/:id             atualiza produto (mesma validacao)
 //   DELETE /produtos-catalogo/produtos/:id             remove produto (409 se ha SKUs)
 //   POST   /produtos-catalogo/produtos/:id/skus        cria SKU (+ reindex diretriz)
+//   GET    /produtos-catalogo/produtos/:id/atributos       lista atributos do Produto
+//   POST   /produtos-catalogo/produtos/:id/atributos       cria atributo (chave unica/sem colisao Linha -> 409)
+//   DELETE /produtos-catalogo/produtos/:id/atributos/:aid  remove atributo do Produto
 //   GET    /produtos-catalogo/skus/:skuId              detalhe do SKU
 //   PUT    /produtos-catalogo/skus/:skuId              atualiza SKU (+ sync diretriz)
 //   DELETE /produtos-catalogo/skus/:skuId              remove SKU (+ remove chunks)
@@ -38,6 +41,7 @@ import {
   routeSegments,
 } from "../_shared/rest.ts";
 import {
+  linhaAtributoCreateSchema,
   parseJsonBody,
   parsePagination,
   produtoCreateSchema,
@@ -57,6 +61,8 @@ const PRODUTO_COLUMNS =
   "id, linha_id, nome, atributos, prazo_entrega, disponibilidade, pedido_minimo, ativo, created_at, updated_at";
 const SKU_COLUMNS =
   "id, produto_id, codigo_sku, tipo_origem, dimensoes, tolerancia_pct, acabamento, peso_gr, diretriz_producao, tempo_producao, estado_calculo, ativo, created_at, updated_at";
+const PRODUTO_ATRIBUTO_COLUMNS =
+  "id, produto_id, chave, tipo, obrigatorio, created_at, updated_at";
 
 interface LinhaAtributoRow {
   chave: string;
@@ -107,6 +113,21 @@ async function loadLinhaSchema(
     throw new HttpError(500, "atributos_query_failed", "falha ao consultar o schema da Linha");
   }
   return (atributosRes.data ?? []) as LinhaAtributoRow[];
+}
+
+/** Schema de atributos PROPRIOS do Produto (produto_atributos). */
+async function loadProdutoAtributos(
+  db: SupabaseClient,
+  produtoId: string,
+): Promise<LinhaAtributoRow[]> {
+  const { data, error } = await db
+    .from("produto_atributos")
+    .select("chave, tipo, obrigatorio")
+    .eq("produto_id", produtoId);
+  if (error) {
+    throw new HttpError(500, "atributos_query_failed", "falha ao consultar o schema do Produto");
+  }
+  return (data ?? []) as LinhaAtributoRow[];
 }
 
 /**
@@ -190,11 +211,16 @@ async function getProduto(produtoId: string): Promise<Response> {
     throw new HttpError(404, "nao_encontrado", "produto nao encontrado");
   }
 
-  const [schemaRes, skusRes, imagensRes] = await Promise.all([
+  const [linhaSchemaRes, produtoSchemaRes, skusRes, imagensRes] = await Promise.all([
     db
       .from("produto_linha_atributos")
       .select("chave, tipo, obrigatorio")
       .eq("linha_id", produto.linha_id)
+      .order("chave", { ascending: true }),
+    db
+      .from("produto_atributos")
+      .select("chave, tipo, obrigatorio")
+      .eq("produto_id", produtoId)
       .order("chave", { ascending: true }),
     db
       .from("produto_skus")
@@ -208,14 +234,22 @@ async function getProduto(produtoId: string): Promise<Response> {
       .order("ordem", { ascending: true }),
   ]);
 
-  if (schemaRes.error || skusRes.error || imagensRes.error) {
+  if (linhaSchemaRes.error || produtoSchemaRes.error || skusRes.error || imagensRes.error) {
     throw new HttpError(500, "produto_detalhe_failed", "falha ao montar o detalhe do produto");
   }
+
+  // Schema efetivo = atributos da Linha (herdados) + atributos proprios do
+  // Produto. origem discrimina a procedencia para a UI; sem colisao de chave
+  // (barrada na criacao do atributo do Produto).
+  const atributos_schema = [
+    ...(linhaSchemaRes.data ?? []).map((a) => ({ ...a, origem: "linha" as const })),
+    ...(produtoSchemaRes.data ?? []).map((a) => ({ ...a, origem: "produto" as const })),
+  ];
 
   return jsonResponse(
     {
       produto,
-      atributos_schema: schemaRes.data ?? [],
+      atributos_schema,
       skus: skusRes.data ?? [],
       imagens: imagensRes.data ?? [],
     },
@@ -276,8 +310,11 @@ async function updateProduto(req: Request, produtoId: string, email: string): Pr
   const atributosEff = (input.atributos ?? existing.atributos ?? {}) as Record<string, unknown>;
 
   if (input.linha_id !== undefined || input.atributos !== undefined) {
-    const schema = await loadLinhaSchema(db, linhaIdEff, input.linha_id !== undefined);
-    validateAtributos(atributosEff, schema);
+    const [linhaSchema, produtoSchema] = await Promise.all([
+      loadLinhaSchema(db, linhaIdEff, input.linha_id !== undefined),
+      loadProdutoAtributos(db, produtoId),
+    ]);
+    validateAtributos(atributosEff, [...linhaSchema, ...produtoSchema]);
   }
 
   const payload = pickDefined(input, [
@@ -343,6 +380,130 @@ async function deleteProduto(produtoId: string, email: string): Promise<Response
     acao: "remover",
     registroId: produtoId,
     usuario: email,
+  });
+
+  return jsonResponse({ ok: true }, 200);
+}
+
+// ---------------------------------------------------------------------
+// Atributos proprios do Produto (/produtos/:id/atributos)
+// ---------------------------------------------------------------------
+
+async function listProdutoAtributos(produtoId: string): Promise<Response> {
+  const db = createServiceClient();
+
+  const { data: produto, error: produtoError } = await db
+    .from("produtos")
+    .select("id")
+    .eq("id", produtoId)
+    .maybeSingle();
+  if (produtoError) {
+    throw new HttpError(500, "produto_query_failed", "falha ao consultar o produto");
+  }
+  if (!produto) {
+    throw new HttpError(404, "nao_encontrado", "produto nao encontrado");
+  }
+
+  const { data, error } = await db
+    .from("produto_atributos")
+    .select(PRODUTO_ATRIBUTO_COLUMNS)
+    .eq("produto_id", produtoId)
+    .order("chave", { ascending: true });
+  if (error) {
+    throw new HttpError(500, "atributos_query_failed", "falha ao listar os atributos do Produto");
+  }
+
+  return jsonResponse({ items: data ?? [] }, 200);
+}
+
+async function createProdutoAtributo(
+  req: Request,
+  produtoId: string,
+  email: string,
+): Promise<Response> {
+  const input = await parseJsonBody(req, linhaAtributoCreateSchema);
+  const db = createServiceClient();
+
+  const { data: produto, error: produtoError } = await db
+    .from("produtos")
+    .select("id, linha_id")
+    .eq("id", produtoId)
+    .maybeSingle();
+  if (produtoError) {
+    throw new HttpError(500, "produto_query_failed", "falha ao consultar o produto");
+  }
+  if (!produto) {
+    throw new HttpError(404, "nao_encontrado", "produto nao encontrado");
+  }
+
+  // Colisao com atributo herdado da Linha -> 409 (sem ambiguidade de precedencia).
+  const { data: colisao, error: colisaoError } = await db
+    .from("produto_linha_atributos")
+    .select("id")
+    .eq("linha_id", produto.linha_id)
+    .eq("chave", input.chave)
+    .maybeSingle();
+  if (colisaoError) {
+    throw new HttpError(500, "atributos_query_failed", "falha ao verificar o schema da Linha");
+  }
+  if (colisao) {
+    throw new HttpError(
+      409,
+      "atributo_colide_linha",
+      "ja existe um atributo com essa chave herdado da Linha",
+    );
+  }
+
+  const payload = { produto_id: produtoId, ...pickDefined(input, ["chave", "tipo", "obrigatorio"]) };
+
+  const { data, error } = await db
+    .from("produto_atributos")
+    .insert(payload)
+    .select(PRODUTO_ATRIBUTO_COLUMNS)
+    .single();
+  if (error) {
+    if (isUniqueViolation(error)) {
+      throw new HttpError(
+        409,
+        "atributo_duplicado",
+        "ja existe um atributo com essa chave no Produto",
+      );
+    }
+    throw new HttpError(500, "atributo_insert_failed", "falha ao criar o atributo");
+  }
+
+  await logSensitiveAction({
+    tabela: "produto_atributos",
+    acao: "criar",
+    registroId: data.id,
+    usuario: email,
+    dadosNovos: { produto_id: produtoId, chave: data.chave, tipo: data.tipo },
+  });
+
+  return jsonResponse(data, 201);
+}
+
+async function deleteProdutoAtributo(
+  produtoId: string,
+  atributoId: string,
+  email: string,
+): Promise<Response> {
+  const db = createServiceClient();
+
+  await deleteRowById(db, {
+    table: "produto_atributos",
+    id: atributoId,
+    extraEq: { produto_id: produtoId },
+    recurso: "atributo",
+    errorCode: "atributo_delete_failed",
+  });
+
+  await logSensitiveAction({
+    tabela: "produto_atributos",
+    acao: "remover",
+    registroId: atributoId,
+    usuario: email,
+    dadosAnteriores: { produto_id: produtoId },
   });
 
   return jsonResponse({ ok: true }, 200);
@@ -609,6 +770,24 @@ async function handler(req: Request): Promise<Response> {
         }
         if (req.method === "POST") return await createSku(req, produtoId, email);
         throw new HttpError(405, "method_not_allowed", "metodo nao permitido: use POST");
+      }
+
+      // Sub-rota de atributos proprios: /produtos/:id/atributos[/:aid]
+      if (segments[2] === "atributos") {
+        const atributoIdRaw = segments[3];
+        if (atributoIdRaw === undefined) {
+          if (req.method === "GET") return await listProdutoAtributos(produtoId);
+          if (req.method === "POST") return await createProdutoAtributo(req, produtoId, email);
+          throw new HttpError(405, "method_not_allowed", "metodo nao permitido: use GET ou POST");
+        }
+        const atributoId = assertUuid(atributoIdRaw, "atributo");
+        if (segments.length > 4) {
+          throw new HttpError(404, "nao_encontrado", "rota nao encontrada");
+        }
+        if (req.method === "DELETE") {
+          return await deleteProdutoAtributo(produtoId, atributoId, email);
+        }
+        throw new HttpError(405, "method_not_allowed", "metodo nao permitido: use DELETE");
       }
       if (segments.length > 2) {
         throw new HttpError(404, "nao_encontrado", "rota nao encontrada");

@@ -7,9 +7,14 @@ import {
   useDeleteLinhaAtributo,
   useLinhaAtributos,
 } from "@/hooks/use-linha-atributos";
+import {
+  useCreateProdutoAtributo,
+  useDeleteProdutoAtributo,
+  useProdutoAtributos,
+} from "@/hooks/use-produto-atributos";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
-import type { AtributoTipo, LinhaAtributo } from "@/lib/api/types";
+import type { AtributoTipo } from "@/lib/api/types";
 
 const TIPOS: { value: AtributoTipo; label: string }[] = [
   { value: "texto", label: "Texto" },
@@ -21,26 +26,45 @@ function tipoLabel(tipo: AtributoTipo): string {
   return TIPOS.find((t) => t.value === tipo)?.label ?? tipo;
 }
 
+/** Atributo exibido na tabela (campos comuns a Linha e Produto). */
+interface AtributoRow {
+  id: string;
+  chave: string;
+  tipo: AtributoTipo;
+  obrigatorio: boolean;
+}
+
+type AtributosEditorProps =
+  | { scope?: "linha"; linhaId: string; produtoId?: undefined; embedded?: boolean }
+  | { scope: "produto"; produtoId: string; linhaId?: undefined; embedded?: boolean };
+
 /**
- * cmp-atributos-editor — define o conjunto de atributos de uma Linha como pares
- * chave/tipo/obrigatorio (produto_linha_atributos). E este schema que o
- * produto-form renderiza dinamicamente: criar/remover atributo aqui muda os
- * campos disponiveis em todos os Produtos da Linha. A chave e unica por Linha
- * (o backend rejeita duplicata com 409, exibido inline).
+ * cmp-atributos-editor — define um conjunto de atributos como pares
+ * chave/tipo/obrigatorio. Dois escopos:
+ *   - 'linha' (produto_linha_atributos): schema que TODO Produto da Linha
+ *     preenche; criar/remover aqui muda os campos de todos os Produtos.
+ *   - 'produto' (produto_atributos): atributos PROPRIOS de um Produto, somados
+ *     aos herdados da Linha. Colisao de chave com a Linha e barrada (409).
+ * A chave e unica por escopo (o backend rejeita duplicata com 409, inline).
  *
  * `embedded`: renderiza como SECAO (sem o card proprio), para ficar DENTRO do
- * cadastro/detalhe da Linha em vez de um card irmao solto.
+ * cadastro/detalhe em vez de um card irmao solto.
  */
-export function AtributosEditor({
-  linhaId,
-  embedded = false,
-}: {
-  linhaId: string;
-  embedded?: boolean;
-}) {
-  const atributos = useLinhaAtributos(linhaId);
-  const createAtributo = useCreateLinhaAtributo();
-  const deleteAtributo = useDeleteLinhaAtributo();
+export function AtributosEditor(props: AtributosEditorProps) {
+  const isProduto = props.scope === "produto";
+  const linhaId = isProduto ? undefined : props.linhaId;
+  const produtoId = isProduto ? props.produtoId : undefined;
+
+  // Hooks chamados incondicionalmente; so o do escopo ativo fica habilitado.
+  const linhaList = useLinhaAtributos(linhaId, { enabled: !isProduto });
+  const produtoList = useProdutoAtributos(produtoId, { enabled: isProduto });
+  const list = isProduto ? produtoList : linhaList;
+
+  const createLinha = useCreateLinhaAtributo();
+  const createProduto = useCreateProdutoAtributo();
+  const deleteLinha = useDeleteLinhaAtributo();
+  const deleteProduto = useDeleteProdutoAtributo();
+  const createPending = isProduto ? createProduto.isPending : createLinha.isPending;
 
   const [chave, setChave] = useState("");
   const [tipo, setTipo] = useState<AtributoTipo>("texto");
@@ -48,7 +72,25 @@ export function AtributosEditor({
   const [erro, setErro] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
 
-  const items = atributos.data?.items ?? [];
+  const items = (list.data?.items ?? []) as AtributoRow[];
+
+  const copy = isProduto
+    ? {
+        titulo: "Atributos do produto",
+        helper:
+          "Atributos próprios deste Produto, além dos herdados da Linha. Marque como obrigatório os que todo SKU/cotação deve informar.",
+        emptyHelp:
+          "Adicione abaixo características específicas deste Produto (que não valem para a linha inteira).",
+        placeholder: "ex.: acabamento",
+      }
+    : {
+        titulo: "Atributos da linha",
+        helper:
+          "Estes pares definem o schema que cada Produto da linha preenche. Marque como obrigatório os atributos que todo Produto deve informar.",
+        emptyHelp:
+          "Adicione abaixo as características que os Produtos desta linha terão (ex.: cor, voltagem, capacidade).",
+        placeholder: "ex.: voltagem",
+      };
 
   async function onAdd() {
     const chaveTrim = chave.trim();
@@ -57,28 +99,46 @@ export function AtributosEditor({
       return;
     }
     setErro(null);
+    const input = { chave: chaveTrim, tipo, obrigatorio };
     try {
-      await createAtributo.mutateAsync({
-        linhaId,
-        input: { chave: chaveTrim, tipo, obrigatorio },
-      });
+      if (isProduto) {
+        await createProduto.mutateAsync({ produtoId: produtoId as string, input });
+      } else {
+        await createLinha.mutateAsync({ linhaId: linhaId as string, input });
+      }
       setChave("");
       setTipo("texto");
       setObrigatorio(false);
     } catch (err) {
-      setErro(
-        err instanceof ApiError && err.status === 409
-          ? `Já existe um atributo "${chaveTrim}" nesta linha.`
-          : "Não foi possível adicionar o atributo. Tente novamente.",
-      );
+      if (err instanceof ApiError && err.code === "atributo_colide_linha") {
+        setErro(`A chave "${chaveTrim}" já é um atributo herdado da Linha.`);
+      } else if (err instanceof ApiError && err.status === 409) {
+        setErro(
+          isProduto
+            ? `Já existe um atributo "${chaveTrim}" neste produto.`
+            : `Já existe um atributo "${chaveTrim}" nesta linha.`,
+        );
+      } else {
+        setErro("Não foi possível adicionar o atributo. Tente novamente.");
+      }
     }
   }
 
-  async function onRemove(atributo: LinhaAtributo) {
+  async function onRemove(atributo: AtributoRow) {
     setRemovingId(atributo.id);
     setErro(null);
     try {
-      await deleteAtributo.mutateAsync({ linhaId, atributoId: atributo.id });
+      if (isProduto) {
+        await deleteProduto.mutateAsync({
+          produtoId: produtoId as string,
+          atributoId: atributo.id,
+        });
+      } else {
+        await deleteLinha.mutateAsync({
+          linhaId: linhaId as string,
+          atributoId: atributo.id,
+        });
+      }
     } catch {
       setErro("Não foi possível remover o atributo. Tente novamente.");
     } finally {
@@ -92,20 +152,19 @@ export function AtributosEditor({
         className="section-title"
         style={{
           margin: "0 0 14px",
-          ...(embedded
+          ...(props.embedded
             ? { paddingTop: 18, borderTop: "1px solid var(--border)" }
             : null),
         }}
       >
-        <h3>Atributos da linha</h3>
+        <h3>{copy.titulo}</h3>
         <span className="count">{items.length} definidos</span>
       </div>
       <p style={{ margin: "0 0 14px", fontSize: "12.5px", color: "var(--muted)" }}>
-        Estes pares definem o schema que cada Produto da linha preenche. Marque
-        como obrigatório os atributos que todo Produto deve informar.
+        {copy.helper}
       </p>
 
-      {atributos.isLoading ? (
+      {list.isLoading ? (
         <div className="tbl-wrap">
           <table>
             <tbody>
@@ -119,7 +178,7 @@ export function AtributosEditor({
             </tbody>
           </table>
         </div>
-      ) : atributos.isError ? (
+      ) : list.isError ? (
         <div className="empty">
           <TriangleAlert aria-hidden="true" style={{ color: "var(--err)" }} />
           <h4>Não foi possível carregar os atributos</h4>
@@ -128,7 +187,7 @@ export function AtributosEditor({
             <button
               type="button"
               className="btn btn-sm"
-              onClick={() => atributos.refetch()}
+              onClick={() => list.refetch()}
             >
               Tentar novamente
             </button>
@@ -138,10 +197,7 @@ export function AtributosEditor({
         <div className="empty">
           <Plus aria-hidden="true" />
           <h4>Nenhum atributo definido</h4>
-          <p>
-            Adicione abaixo as características que os Produtos desta linha terão
-            (ex.: cor, voltagem, capacidade).
-          </p>
+          <p>{copy.emptyHelp}</p>
         </div>
       ) : (
         <div className="tbl-wrap">
@@ -196,7 +252,7 @@ export function AtributosEditor({
           <input
             id="atributo-chave"
             type="text"
-            placeholder="ex.: voltagem"
+            placeholder={copy.placeholder}
             value={chave}
             onChange={(e) => {
               setChave(e.target.value);
@@ -230,9 +286,9 @@ export function AtributosEditor({
           type="button"
           className="btn btn-primary"
           onClick={onAdd}
-          disabled={createAtributo.isPending}
+          disabled={createPending}
         >
-          {createAtributo.isPending ? (
+          {createPending ? (
             <Loader2 className="spin" aria-hidden="true" />
           ) : (
             <Plus aria-hidden="true" />
@@ -249,5 +305,5 @@ export function AtributosEditor({
     </>
   );
 
-  return embedded ? body : <div className="card">{body}</div>;
+  return props.embedded ? body : <div className="card">{body}</div>;
 }

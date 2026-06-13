@@ -540,11 +540,26 @@ export interface LinhaAtributo {
   updated_at: string;
 }
 
-/** Subconjunto do atributo exposto no detalhe do produto (atributos_schema). */
+/** Atributo PROPRIO de um Produto (produto_atributos). */
+export interface ProdutoAtributo {
+  id: string;
+  produto_id: string;
+  chave: string;
+  tipo: AtributoTipo;
+  obrigatorio: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Subconjunto do atributo exposto no detalhe do produto (atributos_schema).
+ * origem discrimina a procedencia: 'linha' (herdado) ou 'produto' (proprio).
+ */
 export interface AtributoSchema {
   chave: string;
   tipo: AtributoTipo;
   obrigatorio: boolean;
+  origem: "linha" | "produto";
 }
 
 /** Produto/Familia vinculado a uma Linha (produtos). atributos e JSONB livre. */

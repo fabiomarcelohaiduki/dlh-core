@@ -19,6 +19,7 @@ import { ApiError } from "@/lib/api/client";
 import { precoEstadoDescriptor } from "@/lib/status";
 import { StatusPill } from "@/components/cockpit/status-pill";
 import { ProdutoForm } from "@/components/cockpit/produtos/produto-form";
+import { AtributosEditor } from "@/components/cockpit/produtos/atributos-editor";
 import { SkuForm } from "@/components/cockpit/produtos/sku-form";
 import { FotosUploader } from "@/components/cockpit/produtos/fotos-uploader";
 import { PrecoRegionalGrid } from "@/components/cockpit/produtos/preco-regional-grid";
@@ -219,6 +220,12 @@ function ProdutoDetalhe({
         schema={atributos_schema}
         produto={produto}
       />
+
+      <div className="section-title">
+        <h3>Atributos do produto</h3>
+        <span className="count">próprios + herdados da Linha</span>
+      </div>
+      <AtributosEditor scope="produto" produtoId={produto.id} />
 
       <SkusSection produtoId={produto.id} skus={skus} />
 

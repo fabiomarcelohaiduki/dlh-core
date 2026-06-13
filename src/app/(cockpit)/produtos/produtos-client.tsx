@@ -161,6 +161,13 @@ function LinhaEditPanel({
     <>
       <LinhaForm linha={linha} onSuccess={onExit} onCancel={onExit} />
       <AtributosEditor linhaId={linha.id} />
+
+      <div className="section-title">
+        <h3>Critérios de cotação da Linha</h3>
+        <span className="count">nível linha</span>
+      </div>
+      <CriteriosPanel nivel="linha" escopoId={linha.id} />
+
       <div className="card">
         <div
           style={{
@@ -225,20 +232,10 @@ function LinhaEditPanel({
   );
 }
 
-/** Painel DETAIL de uma Linha: produtos + tabela de precos + criterios. A
- * identidade e as acoes vivem na lista a esquerda (simbolo laranja = editar). */
+/** Painel DETAIL de uma Linha: produtos da linha (com tabela de precos inline).
+ * Identidade/acoes vivem na lista a esquerda; criterios da Linha no editar. */
 function LinhaDetail({ linha }: { linha: ProdutoLinha }) {
-  return (
-    <>
-      <ProdutosDaLinha linha={linha} />
-
-      <div className="section-title">
-        <h3>Critérios de cotação da Linha</h3>
-        <span className="count">nível linha</span>
-      </div>
-      <CriteriosPanel nivel="linha" escopoId={linha.id} />
-    </>
-  );
+  return <ProdutosDaLinha linha={linha} />;
 }
 
 /** Drill-down dos Produtos da Linha + criacao de Produto com o schema da Linha.
@@ -256,6 +253,7 @@ function ProdutosDaLinha({ linha }: { linha: ProdutoLinha }) {
     chave: a.chave,
     tipo: a.tipo,
     obrigatorio: a.obrigatorio,
+    origem: "linha" as const,
   }));
 
   return (

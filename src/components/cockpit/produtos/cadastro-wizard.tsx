@@ -58,6 +58,7 @@ export function CadastroWizard() {
         chave: a.chave,
         tipo: a.tipo,
         obrigatorio: a.obrigatorio,
+        origem: "linha" as const,
       })),
     [atributos.data],
   );

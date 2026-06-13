@@ -4,6 +4,7 @@ import type {
   LinhaAtributo,
   Paginated,
   Produto,
+  ProdutoAtributo,
   ProdutoDetalhe,
   ProdutoImagem,
   ProdutoLinha,
@@ -169,6 +170,43 @@ export function deleteProduto(id: string): Promise<{ ok: boolean }> {
   return apiFetch<{ ok: boolean }>(`produtos-catalogo/produtos/${id}`, {
     method: "DELETE",
   });
+}
+
+// --- Atributos proprios do Produto ---------------------------------
+
+export function listProdutoAtributos(
+  produtoId: string,
+): Promise<{ items: ProdutoAtributo[] }> {
+  return apiFetch<{ items: ProdutoAtributo[] }>(
+    `produtos-catalogo/produtos/${produtoId}/atributos`,
+    { method: "GET" },
+  );
+}
+
+export interface ProdutoAtributoInput {
+  chave: string;
+  tipo: AtributoTipo;
+  obrigatorio?: boolean;
+}
+
+export function createProdutoAtributo(
+  produtoId: string,
+  input: ProdutoAtributoInput,
+): Promise<ProdutoAtributo> {
+  return apiFetch<ProdutoAtributo>(
+    `produtos-catalogo/produtos/${produtoId}/atributos`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export function deleteProdutoAtributo(
+  produtoId: string,
+  atributoId: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(
+    `produtos-catalogo/produtos/${produtoId}/atributos/${atributoId}`,
+    { method: "DELETE" },
+  );
 }
 
 // --- SKUs -----------------------------------------------------------
