@@ -363,7 +363,7 @@ export function SkuForm({
             style={{ gridTemplateColumns: "1fr 1fr 1fr", alignItems: "start" }}
           >
             <div className="field" style={{ marginBottom: 0 }}>
-              <label htmlFor="sku-tamanho-lote">Tamanho do lote (un)</label>
+              <label htmlFor="sku-tamanho-lote">Peças por lote</label>
               <input
                 id="sku-tamanho-lote"
                 type="number"
@@ -373,7 +373,7 @@ export function SkuForm({
               />
             </div>
             <div className="field" style={{ marginBottom: 0 }}>
-              <label htmlFor="sku-tempo-lote">Tempo do lote</label>
+              <label htmlFor="sku-tempo-lote">Tempo para produzir o lote</label>
               <input
                 id="sku-tempo-lote"
                 type="number"
@@ -383,7 +383,7 @@ export function SkuForm({
               />
             </div>
             <div className="field" style={{ marginBottom: 0 }}>
-              <label htmlFor="sku-unidade-tempo">Unidade</label>
+              <label htmlFor="sku-unidade-tempo">Unidade do tempo</label>
               <select id="sku-unidade-tempo" {...register("unidade_tempo")}>
                 <option value="hora">Horas</option>
                 <option value="dia">Dias</option>
@@ -393,7 +393,9 @@ export function SkuForm({
           <div className="helper" style={{ marginTop: 8 }}>
             Tempo por unidade:{" "}
             <strong className="tnum">
-              {tempoPorUnidade == null ? "—" : `${tempoPorUnidade.toFixed(4)} h`}
+              {tempoPorUnidade == null
+                ? "—"
+                : `${tempoPorUnidade.toFixed(4)} h (${Math.round(tempoPorUnidade * 3600)} s)`}
             </strong>
             {unidadeTempoW === "dia" && ` · ${horasPorDia} h/dia (jornada)`}
             {" · derivado do lote (o motor recalcula no salvar)."}
