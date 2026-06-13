@@ -3,10 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Check,
   ChevronLeft,
   Cpu,
   Loader2,
   PackageX,
+  Pencil,
   Plus,
   TriangleAlert,
   Trash2,
@@ -238,7 +240,8 @@ function ProdutoDetalhe({
   );
 }
 
-/** Sub-secao de SKUs: lista (master) + detalhe do SKU selecionado + criacao. */
+/** Sub-secao de SKUs: lista (master) com acoes na propria linha (editar/excluir
+ * como icones a direita, no padrao da tela de Linhas) + detalhe + criacao. */
 function SkusSection({
   produtoId,
   schema,
@@ -250,10 +253,31 @@ function SkusSection({
   produtoAtributos: Record<string, unknown>;
   skus: ProdutoSku[];
 }) {
+  const deleteSku = useDeleteSku();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
 
   const selected = skus.find((s) => s.id === selectedId) ?? null;
+
+  async function onConfirmDelete(id: string) {
+    setErro(null);
+    try {
+      await deleteSku.mutateAsync(id);
+      setConfirmingId(null);
+      if (selectedId === id) setSelectedId(null);
+      if (editingId === id) setEditingId(null);
+    } catch (err) {
+      setConfirmingId(null);
+      setErro(
+        err instanceof ApiError && err.status === 409
+          ? "SKU possui vínculos (composição/custo) e não pode ser removido."
+          : "Não foi possível remover o SKU. Tente novamente.",
+      );
+    }
+  }
 
   return (
     <>
@@ -279,13 +303,14 @@ function SkusSection({
                 <tr>
                   <th>Código</th>
                   <th>Origem</th>
-                  <th style={{ width: 130 }}>Preço</th>
+                  <th style={{ width: 200 }} aria-label="Preço e ações" />
                 </tr>
               </thead>
               <tbody>
                 {skus.map((sku) => {
                   const desc = precoEstadoDescriptor(sku.estado_calculo);
                   const active = sku.id === selectedId;
+                  const isConfirming = confirmingId === sku.id;
                   return (
                     <tr
                       key={sku.id}
@@ -294,6 +319,7 @@ function SkusSection({
                       style={active ? { background: "var(--accent-soft)" } : undefined}
                       onClick={() => {
                         setSelectedId(active ? null : sku.id);
+                        setEditingId(null);
                         setCreating(false);
                       }}
                     >
@@ -302,13 +328,96 @@ function SkusSection({
                         {sku.tipo_origem === "fabricado" ? "Fabricado" : "Comprado"}
                       </td>
                       <td>
-                        <StatusPill state={desc.state} label={desc.label} />
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "flex-end",
+                            gap: 8,
+                          }}
+                        >
+                          <StatusPill state={desc.state} label={desc.label} />
+                          {isConfirming ? (
+                            <>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-icon"
+                                style={{ color: "var(--err)" }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onConfirmDelete(sku.id);
+                                }}
+                                disabled={deleteSku.isPending}
+                                aria-label="Confirmar exclusão"
+                                title="Confirmar exclusão"
+                              >
+                                {deleteSku.isPending ? (
+                                  <Loader2 className="spin" aria-hidden="true" />
+                                ) : (
+                                  <Check aria-hidden="true" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-icon"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConfirmingId(null);
+                                }}
+                                disabled={deleteSku.isPending}
+                                aria-label="Cancelar"
+                                title="Cancelar"
+                              >
+                                <X aria-hidden="true" />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-icon"
+                                style={{ color: "var(--accent)" }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedId(sku.id);
+                                  setEditingId(sku.id);
+                                  setCreating(false);
+                                  setErro(null);
+                                }}
+                                aria-label="Editar SKU"
+                                title="Editar"
+                              >
+                                <Pencil aria-hidden="true" />
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-icon"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConfirmingId(sku.id);
+                                  setErro(null);
+                                }}
+                                aria-label="Excluir SKU"
+                                title="Excluir"
+                              >
+                                <Trash2 aria-hidden="true" />
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {erro && (
+          <div className="err-msg" style={{ display: "flex", marginTop: 14 }}>
+            <TriangleAlert aria-hidden="true" />
+            {erro}
           </div>
         )}
 
@@ -333,6 +442,7 @@ function SkusSection({
               onClick={() => {
                 setCreating(true);
                 setSelectedId(null);
+                setEditingId(null);
               }}
             >
               <Plus aria-hidden="true" />
@@ -348,132 +458,40 @@ function SkusSection({
           sku={selected}
           schema={schema}
           produtoAtributos={produtoAtributos}
-          onDeleted={() => setSelectedId(null)}
+          editing={editingId === selected.id}
+          onEditEnd={() => setEditingId(null)}
         />
       )}
     </>
   );
 }
 
-/** Detalhe do SKU selecionado: edicao, fotos, grid de precos e apoio. */
+/** Detalhe do SKU selecionado: edicao inline (controlada pela linha), fotos,
+ * grid de precos e apoio. Identidade e acoes vivem na linha da tabela acima. */
 function SkuDetail({
   sku,
   schema,
   produtoAtributos,
-  onDeleted,
+  editing,
+  onEditEnd,
 }: {
   sku: ProdutoSku;
   schema: AtributoSchema[];
   produtoAtributos: Record<string, unknown>;
-  onDeleted: () => void;
+  editing: boolean;
+  onEditEnd: () => void;
 }) {
-  const deleteSku = useDeleteSku();
-  const [editing, setEditing] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
-
-  async function onConfirmDelete() {
-    setErro(null);
-    try {
-      await deleteSku.mutateAsync(sku.id);
-      setConfirming(false);
-      onDeleted();
-    } catch (err) {
-      setErro(
-        err instanceof ApiError && err.status === 409
-          ? "SKU possui vínculos (composição/custo) e não pode ser removido."
-          : "Não foi possível remover o SKU. Tente novamente.",
-      );
-    }
-  }
-
   return (
     <div style={{ display: "grid", gap: 16, marginTop: 4 }}>
-      {editing ? (
+      {editing && (
         <SkuForm
           produtoId={sku.produto_id}
           schema={schema}
           produtoAtributos={produtoAtributos}
           sku={sku}
-          onSuccess={() => setEditing(false)}
-          onCancel={() => setEditing(false)}
+          onSuccess={onEditEnd}
+          onCancel={onEditEnd}
         />
-      ) : (
-        <div className="card">
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: 12,
-              flexWrap: "wrap",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <strong className="mono" style={{ fontSize: "14px" }}>
-                {sku.codigo_sku}
-              </strong>
-              <StatusPill
-                state={precoEstadoDescriptor(sku.estado_calculo).state}
-                label={precoEstadoDescriptor(sku.estado_calculo).label}
-              />
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={() => setEditing(true)}
-              >
-                <span>Editar SKU</span>
-              </button>
-              {confirming ? (
-                <>
-                  <button
-                    type="button"
-                    className="btn btn-sm"
-                    style={{ color: "var(--err)" }}
-                    onClick={onConfirmDelete}
-                    disabled={deleteSku.isPending}
-                  >
-                    {deleteSku.isPending ? (
-                      <Loader2 className="spin" aria-hidden="true" />
-                    ) : (
-                      <Trash2 aria-hidden="true" />
-                    )}
-                    <span>Confirmar</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-sm"
-                    onClick={() => {
-                      setConfirming(false);
-                      setErro(null);
-                    }}
-                    disabled={deleteSku.isPending}
-                  >
-                    <X aria-hidden="true" />
-                    <span>Cancelar</span>
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={() => setConfirming(true)}
-                >
-                  <Trash2 aria-hidden="true" />
-                  <span>Excluir</span>
-                </button>
-              )}
-            </div>
-          </div>
-          {erro && (
-            <div className="err-msg" style={{ display: "flex", marginTop: 14 }}>
-              <TriangleAlert aria-hidden="true" />
-              {erro}
-            </div>
-          )}
-        </div>
       )}
 
       <PrecoRegionalGrid skuId={sku.id} produtoId={sku.produto_id} />
