@@ -328,7 +328,7 @@ export function SkuForm({
             </div>
           </div>
           <div className="field" style={{ maxWidth: 260 }}>
-            <label htmlFor="sku-tempo">Tempo de produção (h)</label>
+            <label htmlFor="sku-tempo">Tempo de produção por unidade (h)</label>
             <input
               id="sku-tempo"
               type="number"
