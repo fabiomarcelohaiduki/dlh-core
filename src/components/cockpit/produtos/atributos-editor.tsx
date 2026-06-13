@@ -36,7 +36,7 @@ interface AtributoRow {
 
 type AtributosEditorProps =
   | { scope?: "linha"; linhaId: string; produtoId?: undefined; embedded?: boolean }
-  | { scope: "produto"; produtoId: string; linhaId?: undefined; embedded?: boolean };
+  | { scope: "produto"; produtoId: string; linhaId: string; embedded?: boolean };
 
 /**
  * cmp-atributos-editor — define um conjunto de atributos como pares
@@ -52,11 +52,14 @@ type AtributosEditorProps =
  */
 export function AtributosEditor(props: AtributosEditorProps) {
   const isProduto = props.scope === "produto";
-  const linhaId = isProduto ? undefined : props.linhaId;
+  const linhaId = props.linhaId;
   const produtoId = isProduto ? props.produtoId : undefined;
 
-  // Hooks chamados incondicionalmente; so o do escopo ativo fica habilitado.
-  const linhaList = useLinhaAtributos(linhaId, { enabled: !isProduto });
+  // Hooks chamados incondicionalmente.
+  //   - scope 'linha': linhaList e a lista EDITAVEL.
+  //   - scope 'produto': produtoList e a EDITAVEL; linhaList vira os HERDADOS
+  //     (read-only, exibidos so para contexto).
+  const linhaList = useLinhaAtributos(linhaId, { enabled: linhaId != null });
   const produtoList = useProdutoAtributos(produtoId, { enabled: isProduto });
   const list = isProduto ? produtoList : linhaList;
 
@@ -73,6 +76,11 @@ export function AtributosEditor(props: AtributosEditorProps) {
   const [removingId, setRemovingId] = useState<string | null>(null);
 
   const items = (list.data?.items ?? []) as AtributoRow[];
+  // No scope 'produto', os atributos da Linha sao exibidos como HERDADOS
+  // (read-only). No scope 'linha' nao ha herdados.
+  const herdados = isProduto ? ((linhaList.data?.items ?? []) as AtributoRow[]) : [];
+  const herdadosLoading = isProduto && linhaList.isLoading;
+  const hasNada = items.length === 0 && herdados.length === 0;
 
   const copy = isProduto
     ? {
@@ -158,13 +166,17 @@ export function AtributosEditor(props: AtributosEditorProps) {
         }}
       >
         <h3>{copy.titulo}</h3>
-        <span className="count">{items.length} definidos</span>
+        <span className="count">
+          {isProduto
+            ? `${items.length} próprios · ${herdados.length} herdados`
+            : `${items.length} definidos`}
+        </span>
       </div>
       <p style={{ margin: "0 0 14px", fontSize: "12.5px", color: "var(--muted)" }}>
         {copy.helper}
       </p>
 
-      {list.isLoading ? (
+      {list.isLoading || herdadosLoading ? (
         <div className="tbl-wrap">
           <table>
             <tbody>
@@ -193,7 +205,7 @@ export function AtributosEditor(props: AtributosEditorProps) {
             </button>
           </div>
         </div>
-      ) : items.length === 0 ? (
+      ) : hasNada ? (
         <div className="empty">
           <Plus aria-hidden="true" />
           <h4>Nenhum atributo definido</h4>
@@ -211,6 +223,19 @@ export function AtributosEditor(props: AtributosEditorProps) {
               </tr>
             </thead>
             <tbody>
+              {herdados.map((a) => (
+                <tr key={`herdado-${a.id}`}>
+                  <td className="mono">
+                    {a.chave}{" "}
+                    <span className="tag" style={{ marginLeft: 6 }}>
+                      Herdado
+                    </span>
+                  </td>
+                  <td className="sub">{tipoLabel(a.tipo)}</td>
+                  <td>{a.obrigatorio ? "Sim" : "Não"}</td>
+                  <td />
+                </tr>
+              ))}
               {items.map((a) => (
                 <tr key={a.id}>
                   <td className="mono">{a.chave}</td>

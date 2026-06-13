@@ -221,11 +221,7 @@ function ProdutoDetalhe({
         produto={produto}
       />
 
-      <div className="section-title">
-        <h3>Atributos do produto</h3>
-        <span className="count">próprios + herdados da Linha</span>
-      </div>
-      <AtributosEditor scope="produto" produtoId={produto.id} />
+      <AtributosEditor scope="produto" produtoId={produto.id} linhaId={produto.linha_id} />
 
       <SkusSection produtoId={produto.id} skus={skus} />
 
