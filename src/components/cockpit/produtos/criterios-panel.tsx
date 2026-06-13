@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Check, Loader2, Pencil, Plus, TriangleAlert, Trash2, X } from "lucide-react";
+import { Check, ChevronRight, Loader2, Plus, TriangleAlert, Trash2, X } from "lucide-react";
 import {
   useCreateDiretriz,
   useDeleteDiretriz,
@@ -68,6 +68,7 @@ function DiretrizesBlock({
 
   const [texto, setTexto] = useState("");
   const [erro, setErro] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
@@ -84,6 +85,7 @@ function DiretrizesBlock({
     try {
       await createDiretriz.mutateAsync({ nivel, escopo_id: escopoId, texto: t });
       setTexto("");
+      setCreating(false);
     } catch {
       setErro("Não foi possível salvar a diretriz. Tente novamente.");
     }
@@ -128,6 +130,21 @@ function DiretrizesBlock({
       <div className="section-title" style={{ margin: "0 0 8px" }}>
         <h3>Diretrizes de cotação</h3>
         <span className="count">{items.length}</span>
+        {!creating ? (
+          <button
+            type="button"
+            className="btn btn-sm btn-icon"
+            style={{ marginLeft: "auto" }}
+            onClick={() => {
+              setCreating(true);
+              setErro(null);
+            }}
+            aria-label="Nova diretriz"
+            title="Nova diretriz"
+          >
+            <Plus aria-hidden="true" />
+          </button>
+        ) : null}
       </div>
       <p style={{ margin: "0 0 14px", fontSize: "12px", lineHeight: 1.5, color: "var(--faint)" }}>
         Como cotar depois que a DLH decide entrar. Preferências de estratégia que
@@ -206,18 +223,21 @@ function DiretrizesBlock({
                 </p>
                 <button
                   type="button"
-                  className="btn btn-sm"
+                  className="btn btn-sm btn-icon"
+                  style={{ color: "var(--accent)" }}
                   onClick={() => startEdit(d.id, d.texto)}
                   aria-label="Editar diretriz"
+                  title="Editar"
                 >
-                  <Pencil aria-hidden="true" />
+                  <ChevronRight aria-hidden="true" />
                 </button>
                 <button
                   type="button"
-                  className="btn btn-sm"
+                  className="btn btn-sm btn-icon"
                   onClick={() => onRemove(d.id)}
                   disabled={removingId === d.id}
                   aria-label="Remover diretriz"
+                  title="Excluir"
                 >
                   {removingId === d.id ? (
                     <Loader2 className="spin" aria-hidden="true" />
@@ -231,40 +251,57 @@ function DiretrizesBlock({
         </div>
       )}
 
-      <div className="field" style={{ marginBottom: 0 }}>
-        <label htmlFor={`diretriz-${escopoId}`}>Nova diretriz</label>
-        <textarea
-          id={`diretriz-${escopoId}`}
-          rows={3}
-          placeholder="ex.: Mouse pad em gel pode ir no valor-alvo: o concorrente cota em espuma e é desclassificado."
-          value={texto}
-          onChange={(e) => {
-            setTexto(e.target.value);
-            setErro(null);
-          }}
-        />
-      </div>
-      <div className="form-foot" style={{ marginTop: 12 }}>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={onAdd}
-          disabled={createDiretriz.isPending}
-        >
-          {createDiretriz.isPending ? (
-            <Loader2 className="spin" aria-hidden="true" />
-          ) : (
-            <Plus aria-hidden="true" />
-          )}
-          <span>Adicionar diretriz</span>
-        </button>
-        {erro && (
-          <span className="save-note err">
-            <TriangleAlert aria-hidden="true" />
-            {erro}
-          </span>
-        )}
-      </div>
+      {creating && (
+        <>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label htmlFor={`diretriz-${escopoId}`}>Nova diretriz</label>
+            <textarea
+              id={`diretriz-${escopoId}`}
+              rows={3}
+              placeholder="ex.: Mouse pad em gel pode ir no valor-alvo: o concorrente cota em espuma e é desclassificado."
+              value={texto}
+              onChange={(e) => {
+                setTexto(e.target.value);
+                setErro(null);
+              }}
+            />
+          </div>
+          <div className="form-foot" style={{ marginTop: 12 }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={onAdd}
+              disabled={createDiretriz.isPending}
+            >
+              {createDiretriz.isPending ? (
+                <Loader2 className="spin" aria-hidden="true" />
+              ) : (
+                <Plus aria-hidden="true" />
+              )}
+              <span>Adicionar diretriz</span>
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setCreating(false);
+                setTexto("");
+                setErro(null);
+              }}
+              disabled={createDiretriz.isPending}
+            >
+              <X aria-hidden="true" />
+              <span>Cancelar</span>
+            </button>
+            {erro && (
+              <span className="save-note err">
+                <TriangleAlert aria-hidden="true" />
+                {erro}
+              </span>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

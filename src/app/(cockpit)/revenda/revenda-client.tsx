@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Pencil, Plus, Store } from "lucide-react";
+import { Store } from "lucide-react";
 import { useClientesRevenda } from "@/hooks/use-revenda";
 import { StatusPill } from "@/components/cockpit/status-pill";
 import { ClientesRevendaTable } from "@/components/cockpit/produtos/clientes-revenda-table";
@@ -48,12 +48,6 @@ export function RevendaClient() {
             vigência e histórico. Este canal é separado do preço de licitação.
           </p>
         </div>
-        <div className="actions">
-          <button type="button" className="btn btn-primary" onClick={onNew}>
-            <Plus aria-hidden="true" />
-            <span>Novo cliente</span>
-          </button>
-        </div>
       </div>
 
       <div
@@ -72,6 +66,10 @@ export function RevendaClient() {
           selectedId={selectedId}
           onSelect={onSelect}
           onNew={onNew}
+          onEdit={(cliente) => {
+            setSelectedId(cliente.id);
+            setFormMode("edit");
+          }}
         />
 
         <div style={{ display: "grid", gap: 16 }}>
@@ -90,7 +88,7 @@ export function RevendaClient() {
               onCancel={() => setFormMode("none")}
             />
           ) : selected ? (
-            <ClienteDetail cliente={selected} onEdit={() => setFormMode("edit")} />
+            <ClienteDetail cliente={selected} />
           ) : (
             <div className="card">
               <div className="empty">
@@ -109,44 +107,23 @@ export function RevendaClient() {
   );
 }
 
-/** Painel DETAIL de um cliente: cabecalho + acoes + tabela de precos por SKU. */
-function ClienteDetail({
-  cliente,
-  onEdit,
-}: {
-  cliente: ClienteRevenda;
-  onEdit: () => void;
-}) {
+/** Painel DETAIL de um cliente: cabecalho + tabela de precos por SKU. A edicao
+ * vive no editar (aberto pelo simbolo laranja da lista). */
+function ClienteDetail({ cliente }: { cliente: ClienteRevenda }) {
   return (
     <>
       <div className="card">
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: 12,
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={{ display: "grid", gap: 6 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <strong style={{ fontSize: "15px" }}>{cliente.nome}</strong>
-              <StatusPill
-                state={cliente.ativo ? "ok" : "idle"}
-                label={cliente.ativo ? "Ativo" : "Inativo"}
-              />
-            </div>
-            <p style={{ margin: 0, fontSize: "12.5px", color: "var(--muted)" }}>
-              Cliente do canal de revenda.
-            </p>
+        <div style={{ display: "grid", gap: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <strong style={{ fontSize: "15px" }}>{cliente.nome}</strong>
+            <StatusPill
+              state={cliente.ativo ? "ok" : "idle"}
+              label={cliente.ativo ? "Ativo" : "Inativo"}
+            />
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button type="button" className="btn btn-sm" onClick={onEdit}>
-              <Pencil aria-hidden="true" />
-              <span>Editar</span>
-            </button>
-          </div>
+          <p style={{ margin: 0, fontSize: "12.5px", color: "var(--muted)" }}>
+            Cliente do canal de revenda.
+          </p>
         </div>
       </div>
 

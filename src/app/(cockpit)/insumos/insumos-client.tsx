@@ -1,16 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  Cpu,
-  Loader2,
-  Package,
-  Pencil,
-  Plus,
-  TriangleAlert,
-  Trash2,
-  X,
-} from "lucide-react";
+import { Cpu, Package } from "lucide-react";
 import { useDeleteInsumo, useInsumos } from "@/hooks/use-insumos";
 import { useProdutos } from "@/hooks/use-produtos";
 import { useProduto } from "@/hooks/use-produto";
@@ -66,12 +57,6 @@ export function InsumosClient() {
             aquisição dos comprados — toda escrita recalcula os preços afetados.
           </p>
         </div>
-        <div className="actions">
-          <button type="button" className="btn btn-primary" onClick={onNew}>
-            <Plus aria-hidden="true" />
-            <span>Novo insumo</span>
-          </button>
-        </div>
       </div>
 
       <div
@@ -90,6 +75,10 @@ export function InsumosClient() {
           selectedId={selectedId}
           onSelect={onSelect}
           onNew={onNew}
+          onEdit={(insumo) => {
+            setSelectedId(insumo.id);
+            setFormMode("edit");
+          }}
         />
 
         <div style={{ display: "grid", gap: 16 }}>
@@ -102,17 +91,16 @@ export function InsumosClient() {
               onCancel={() => setFormMode("none")}
             />
           ) : formMode === "edit" && selected ? (
-            <InsumoForm
+            <InsumoEditPanel
               insumo={selected}
-              onSuccess={() => setFormMode("none")}
-              onCancel={() => setFormMode("none")}
+              onExit={() => setFormMode("none")}
+              onDeleted={() => {
+                setSelectedId(null);
+                setFormMode("none");
+              }}
             />
           ) : selected ? (
-            <InsumoDetail
-              insumo={selected}
-              onEdit={() => setFormMode("edit")}
-              onDeleted={() => setSelectedId(null)}
-            />
+            <InsumoDetail insumo={selected} />
           ) : (
             <div className="card">
               <div className="empty">
@@ -137,25 +125,50 @@ export function InsumosClient() {
   );
 }
 
-/** Painel DETAIL de um insumo: cabecalho + acoes + precos de fornecedor. */
-function InsumoDetail({
+/** Painel DETAIL de um insumo: cabecalho + precos de fornecedor. A edicao e a
+ * exclusao vivem no editar (aberto pelo simbolo laranja da lista). */
+function InsumoDetail({ insumo }: { insumo: Insumo }) {
+  return (
+    <>
+      <div className="card">
+        <div style={{ display: "grid", gap: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <strong style={{ fontSize: "15px" }}>{insumo.nome}</strong>
+            <StatusPill
+              state={insumo.ativo ? "ok" : "idle"}
+              label={insumo.ativo ? "Ativo" : "Inativo"}
+            />
+          </div>
+          <p style={{ margin: 0, fontSize: "12.5px", color: "var(--muted)" }}>
+            {categoriaLabel(insumo.categoria)} · unidade{" "}
+            <span className="mono">{insumo.unidade}</span>
+          </p>
+        </div>
+      </div>
+
+      <InsumoPrecosLoteForm insumo={insumo} />
+    </>
+  );
+}
+
+/** Painel de EDICAO de um insumo: form + exclusao (o excluir vive dentro do
+ * editar; a lista a esquerda so abre via simbolo laranja). */
+function InsumoEditPanel({
   insumo,
-  onEdit,
+  onExit,
   onDeleted,
 }: {
   insumo: Insumo;
-  onEdit: () => void;
+  onExit: () => void;
   onDeleted: () => void;
 }) {
   const deleteInsumo = useDeleteInsumo();
-  const [confirming, setConfirming] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
   async function onConfirmDelete() {
     setErro(null);
     try {
       await deleteInsumo.mutateAsync(insumo.id);
-      setConfirming(false);
       onDeleted();
     } catch (err) {
       setErro(
@@ -167,86 +180,14 @@ function InsumoDetail({
   }
 
   return (
-    <>
-      <div className="card">
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: 12,
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={{ display: "grid", gap: 6 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <strong style={{ fontSize: "15px" }}>{insumo.nome}</strong>
-              <StatusPill
-                state={insumo.ativo ? "ok" : "idle"}
-                label={insumo.ativo ? "Ativo" : "Inativo"}
-              />
-            </div>
-            <p style={{ margin: 0, fontSize: "12.5px", color: "var(--muted)" }}>
-              {categoriaLabel(insumo.categoria)} · unidade{" "}
-              <span className="mono">{insumo.unidade}</span>
-            </p>
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button type="button" className="btn btn-sm" onClick={onEdit}>
-              <Pencil aria-hidden="true" />
-              <span>Editar</span>
-            </button>
-            {confirming ? (
-              <>
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  style={{ color: "var(--err)" }}
-                  onClick={onConfirmDelete}
-                  disabled={deleteInsumo.isPending}
-                >
-                  {deleteInsumo.isPending ? (
-                    <Loader2 className="spin" aria-hidden="true" />
-                  ) : (
-                    <Trash2 aria-hidden="true" />
-                  )}
-                  <span>Confirmar</span>
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={() => {
-                    setConfirming(false);
-                    setErro(null);
-                  }}
-                  disabled={deleteInsumo.isPending}
-                >
-                  <X aria-hidden="true" />
-                  <span>Cancelar</span>
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={() => setConfirming(true)}
-              >
-                <Trash2 aria-hidden="true" />
-                <span>Excluir</span>
-              </button>
-            )}
-          </div>
-        </div>
-        {erro && (
-          <div className="err-msg" style={{ display: "flex", marginTop: 14 }}>
-            <TriangleAlert aria-hidden="true" />
-            {erro}
-          </div>
-        )}
-      </div>
-
-      <InsumoPrecosLoteForm insumo={insumo} />
-    </>
+    <InsumoForm
+      insumo={insumo}
+      onSuccess={onExit}
+      onCancel={onExit}
+      onDelete={onConfirmDelete}
+      deleting={deleteInsumo.isPending}
+      deleteError={erro}
+    />
   );
 }
 

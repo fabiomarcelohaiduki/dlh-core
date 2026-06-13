@@ -28,7 +28,7 @@ const ESCALARES: {
   { campo: "despesas_pct", label: "Despesas", suffix: "%" },
   { campo: "lucro_pct", label: "Lucro alvo", suffix: "%" },
   { campo: "lucro_minimo_pct", label: "Lucro mínimo", suffix: "%" },
-  { campo: "taxa_horaria", label: "Taxa horária", suffix: "R$/h" },
+  { campo: "taxa_horaria", label: "Custo hora de produção", suffix: "R$/h" },
 ];
 
 const REGIOES: { value: Regiao; label: string }[] = [

@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Store, TriangleAlert } from "lucide-react";
+import { ChevronRight, Plus, Store, TriangleAlert } from "lucide-react";
 import type { ClienteRevenda } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { StatusPill } from "@/components/cockpit/status-pill";
@@ -26,6 +26,7 @@ export function ClientesRevendaTable({
   selectedId,
   onSelect,
   onNew,
+  onEdit,
 }: {
   clientes: ClienteRevenda[];
   loading?: boolean;
@@ -34,6 +35,7 @@ export function ClientesRevendaTable({
   selectedId?: string | null;
   onSelect: (cliente: ClienteRevenda) => void;
   onNew: () => void;
+  onEdit: (cliente: ClienteRevenda) => void;
 }) {
   if (isError) {
     return (
@@ -55,15 +57,33 @@ export function ClientesRevendaTable({
   }
 
   return (
-    <div className="tbl-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Cliente de revenda</th>
-            <th style={{ width: 100 }}>Status</th>
-          </tr>
-        </thead>
-        <tbody>
+    <div className="card">
+      <div className="section-title" style={{ margin: "0 0 14px" }}>
+        <h3>Clientes de revenda</h3>
+        <span className="count">{clientes.length}</span>
+      </div>
+      <div className="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Cliente de revenda</th>
+              <th style={{ width: 100 }}>Status</th>
+              <th style={{ width: 56 }}>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-icon"
+                    onClick={onNew}
+                    aria-label="Novo cliente"
+                    title="Novo cliente"
+                  >
+                    <Plus aria-hidden="true" />
+                  </button>
+                </div>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
           {loading ? (
             Array.from({ length: 5 }).map((_, i) => (
               <tr key={i}>
@@ -76,11 +96,14 @@ export function ClientesRevendaTable({
                 <td>
                   <span className="skel skel-pill" />
                 </td>
+                <td>
+                  <span className="skel skel-line" style={{ width: "40%" }} />
+                </td>
               </tr>
             ))
           ) : clientes.length === 0 ? (
             <tr>
-              <td colSpan={2}>
+              <td colSpan={3}>
                 <div className="empty">
                   <Store aria-hidden="true" />
                   <h4>Nenhum cliente de revenda</h4>
@@ -122,12 +145,36 @@ export function ClientesRevendaTable({
                   <td>
                     <StatusPill state={desc.state} label={desc.label} />
                   </td>
+                  <td>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "flex-end",
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-icon"
+                        style={{ color: "var(--accent)" }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEdit(cliente);
+                        }}
+                        aria-label="Editar cliente"
+                        title="Editar"
+                      >
+                        <ChevronRight aria-hidden="true" />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               );
             })
           )}
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

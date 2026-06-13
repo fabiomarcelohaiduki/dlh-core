@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Check, Loader2, TriangleAlert, X } from "lucide-react";
+import { Check, Loader2, Trash2, TriangleAlert, X } from "lucide-react";
 import { useCreateInsumo, useUpdateInsumo } from "@/hooks/use-insumos";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
@@ -34,10 +34,16 @@ export function InsumoForm({
   insumo,
   onSuccess,
   onCancel,
+  onDelete,
+  deleting = false,
+  deleteError,
 }: {
   insumo?: Insumo;
   onSuccess?: (insumo: Insumo) => void;
   onCancel?: () => void;
+  onDelete?: () => void;
+  deleting?: boolean;
+  deleteError?: string | null;
 }) {
   const isEdit = Boolean(insumo);
   const createInsumo = useCreateInsumo();
@@ -45,6 +51,7 @@ export function InsumoForm({
   const pending = createInsumo.isPending || updateInsumo.isPending;
 
   const [apiError, setApiError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const {
     register,
@@ -177,7 +184,54 @@ export function InsumoForm({
             {apiError}
           </span>
         )}
+        {isEdit && onDelete && (
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+            {confirmingDelete ? (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  style={{ color: "var(--err)" }}
+                  onClick={onDelete}
+                  disabled={deleting}
+                >
+                  {deleting ? (
+                    <Loader2 className="spin" aria-hidden="true" />
+                  ) : (
+                    <Trash2 aria-hidden="true" />
+                  )}
+                  <span>Confirmar exclusão</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setConfirmingDelete(false)}
+                  disabled={deleting}
+                >
+                  <X aria-hidden="true" />
+                  <span>Cancelar</span>
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setConfirmingDelete(true)}
+                disabled={pending}
+              >
+                <Trash2 aria-hidden="true" />
+                <span>Excluir insumo</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
+      {deleteError && (
+        <div className="err-msg" style={{ display: "flex", marginTop: 14 }}>
+          <TriangleAlert aria-hidden="true" />
+          {deleteError}
+        </div>
+      )}
     </form>
   );
 }

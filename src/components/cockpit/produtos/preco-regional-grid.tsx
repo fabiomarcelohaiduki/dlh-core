@@ -38,7 +38,7 @@ const ESCALARES: { campo: ParametroEscalarCampo; label: string; suffix: string }
   { campo: "despesas_pct", label: "Despesas", suffix: "%" },
   { campo: "lucro_pct", label: "Lucro alvo", suffix: "%" },
   { campo: "lucro_minimo_pct", label: "Lucro mín.", suffix: "%" },
-  { campo: "taxa_horaria", label: "Taxa horária", suffix: "R$/h" },
+  { campo: "taxa_horaria", label: "Custo produção", suffix: "R$/h" },
 ];
 
 /** Rotulo + classe do badge de origem (nivel efetivo) de cada parametro. */
@@ -207,15 +207,21 @@ export function PrecoRegionalGrid({
                 <tr>
                   <th>Região</th>
                   <th style={{ textAlign: "right" }}>
-                    Frete{" "}
-                    <span className="sub" style={{ fontWeight: 400 }}>
+                    Frete
+                    <span
+                      className="sub"
+                      style={{ fontWeight: 400, display: "block" }}
+                    >
                       (regional)
                     </span>
                   </th>
                   {PATAMARES.map((p) => (
                     <th key={p.value} style={{ textAlign: "right" }}>
-                      {p.label}{" "}
-                      <span className="sub" style={{ fontWeight: 400 }}>
+                      {p.label}
+                      <span
+                        className="sub"
+                        style={{ fontWeight: 400, display: "block" }}
+                      >
                         ({p.hint})
                       </span>
                     </th>
@@ -227,12 +233,7 @@ export function PrecoRegionalGrid({
                   const frete = resolvidos.data?.regional[regiao.value] ?? null;
                   return (
                     <tr key={regiao.value}>
-                      <td>
-                        <span className="mono">{regiao.value}</span>
-                        <span className="sub" style={{ marginLeft: 8 }}>
-                          {regiao.label}
-                        </span>
-                      </td>
+                      <td>{regiao.label}</td>
                       <td style={{ textAlign: "right" }}>
                         {frete && frete.percentual != null ? (
                           <span

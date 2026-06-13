@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Check, Loader2, TriangleAlert, X } from "lucide-react";
+import { Check, Loader2, Trash2, TriangleAlert, X } from "lucide-react";
 import { useCreateSku, useUpdateSku } from "@/hooks/use-skus";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
@@ -74,6 +74,8 @@ export function SkuForm({
   sku,
   onSuccess,
   onCancel,
+  onDelete,
+  deleting,
 }: {
   produtoId: string;
   schema: AtributoSchema[];
@@ -81,6 +83,8 @@ export function SkuForm({
   sku?: ProdutoSku;
   onSuccess?: (sku: ProdutoSku) => void;
   onCancel?: () => void;
+  onDelete?: () => void;
+  deleting?: boolean;
 }) {
   const isEdit = Boolean(sku);
   const createSku = useCreateSku();
@@ -88,6 +92,7 @@ export function SkuForm({
   const pending = createSku.isPending || updateSku.isPending;
 
   const [apiError, setApiError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const formSchema = useMemo(
     () =>
@@ -340,6 +345,46 @@ export function SkuForm({
             <X aria-hidden="true" />
             <span>Cancelar</span>
           </button>
+        )}
+        {isEdit && onDelete && (
+          confirmingDelete ? (
+            <>
+              <button
+                type="button"
+                className="btn"
+                style={{ color: "var(--err)", marginLeft: "auto" }}
+                onClick={onDelete}
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <Loader2 className="spin" aria-hidden="true" />
+                ) : (
+                  <Trash2 aria-hidden="true" />
+                )}
+                <span>Confirmar exclusão</span>
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setConfirmingDelete(false)}
+                disabled={deleting}
+              >
+                <X aria-hidden="true" />
+                <span>Cancelar</span>
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="btn"
+              style={{ color: "var(--err)", marginLeft: "auto" }}
+              onClick={() => setConfirmingDelete(true)}
+              disabled={pending}
+            >
+              <Trash2 aria-hidden="true" />
+              <span>Excluir SKU</span>
+            </button>
+          )
         )}
         {apiError && (
           <span className="save-note err">

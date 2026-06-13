@@ -1,6 +1,6 @@
 "use client";
 
-import { Package, Plus, TriangleAlert } from "lucide-react";
+import { ChevronRight, Package, Plus, TriangleAlert } from "lucide-react";
 import type { Insumo, InsumoCategoria } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { StatusPill } from "@/components/cockpit/status-pill";
@@ -40,6 +40,7 @@ export function InsumosTable({
   selectedId,
   onSelect,
   onNew,
+  onEdit,
 }: {
   insumos: Insumo[];
   loading?: boolean;
@@ -48,6 +49,7 @@ export function InsumosTable({
   selectedId?: string | null;
   onSelect: (insumo: Insumo) => void;
   onNew: () => void;
+  onEdit: (insumo: Insumo) => void;
 }) {
   if (isError) {
     return (
@@ -69,16 +71,34 @@ export function InsumosTable({
   }
 
   return (
-    <div className="tbl-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Insumo</th>
-            <th style={{ width: 90 }}>Unidade</th>
-            <th style={{ width: 100 }}>Status</th>
-          </tr>
-        </thead>
-        <tbody>
+    <div className="card">
+      <div className="section-title" style={{ margin: "0 0 14px" }}>
+        <h3>Insumos</h3>
+        <span className="count">{insumos.length}</span>
+      </div>
+      <div className="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Insumo</th>
+              <th style={{ width: 90 }}>Unidade</th>
+              <th style={{ width: 100 }}>Status</th>
+              <th style={{ width: 56 }}>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-icon"
+                    onClick={onNew}
+                    aria-label="Novo insumo"
+                    title="Novo insumo"
+                  >
+                    <Plus aria-hidden="true" />
+                  </button>
+                </div>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
           {loading ? (
             Array.from({ length: 5 }).map((_, i) => (
               <tr key={i}>
@@ -91,11 +111,14 @@ export function InsumosTable({
                 <td>
                   <span className="skel skel-pill" />
                 </td>
+                <td>
+                  <span className="skel skel-line" style={{ width: "40%" }} />
+                </td>
               </tr>
             ))
           ) : insumos.length === 0 ? (
             <tr>
-              <td colSpan={3}>
+              <td colSpan={4}>
                 <div className="empty">
                   <Package aria-hidden="true" />
                   <h4>Nenhum insumo cadastrado</h4>
@@ -134,12 +157,36 @@ export function InsumosTable({
                   <td>
                     <StatusPill state={desc.state} label={desc.label} />
                   </td>
+                  <td>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "flex-end",
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-icon"
+                        style={{ color: "var(--accent)" }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEdit(insumo);
+                        }}
+                        aria-label="Editar insumo"
+                        title="Editar"
+                      >
+                        <ChevronRight aria-hidden="true" />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               );
             })
           )}
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

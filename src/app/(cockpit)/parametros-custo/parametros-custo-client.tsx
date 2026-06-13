@@ -52,7 +52,8 @@ export function ParametrosCustoClient() {
         <div className="titles">
           <h2>Parâmetros de custo</h2>
           <p>
-            Impostos, frete, despesas, lucro, taxa horária e vetor regional em
+            Impostos, frete, despesas, lucro, custo hora de produção e vetor
+            regional em
             três níveis com herança (Produto → Linha → Global). Salvar dispara o
             recálculo dos SKUs do escopo.
           </p>
