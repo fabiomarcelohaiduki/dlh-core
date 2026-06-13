@@ -7,11 +7,8 @@ import { z } from "zod";
 import { Check, Loader2, Pencil, Plus, TriangleAlert, Trash2, X } from "lucide-react";
 import {
   useCreateDiretriz,
-  useCreateRegra,
   useDeleteDiretriz,
-  useDeleteRegra,
   useDiretrizes,
-  useRegras,
   useUpdateDiretriz,
 } from "@/hooks/use-criterios";
 import {
@@ -19,19 +16,8 @@ import {
   usePolitica,
   useUpdatePolitica,
 } from "@/hooks/use-politica";
-import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
-import type {
-  CotacaoNivel,
-  CotacaoTipoRegra,
-  PoliticaParticipa,
-} from "@/lib/api/types";
-
-const TIPOS_REGRA: { value: CotacaoTipoRegra; label: string }[] = [
-  { value: "faixa", label: "Faixa" },
-  { value: "opcional", label: "Opcional" },
-  { value: "substituicao", label: "Substituição" },
-];
+import type { CotacaoNivel, PoliticaParticipa } from "@/lib/api/types";
 
 const PARTICIPA: { value: PoliticaParticipa; label: string }[] = [
   { value: "sim", label: "Sim" },
@@ -57,10 +43,7 @@ export function CriteriosPanel({
   return (
     <div className="grid-dlh g2" style={{ alignItems: "start" }}>
       <DiretrizesBlock params={params} nivel={nivel} escopoId={escopoId} />
-      <div style={{ display: "grid", gap: 18 }}>
-        <PoliticaBlock params={params} nivel={nivel} escopoId={escopoId} />
-        <RegrasBlock params={params} nivel={nivel} escopoId={escopoId} />
-      </div>
+      <PoliticaBlock params={params} nivel={nivel} escopoId={escopoId} />
     </div>
   );
 }
@@ -142,10 +125,15 @@ function DiretrizesBlock({
 
   return (
     <div className="card">
-      <div className="section-title" style={{ margin: "0 0 14px" }}>
+      <div className="section-title" style={{ margin: "0 0 8px" }}>
         <h3>Diretrizes de cotação</h3>
         <span className="count">{items.length}</span>
       </div>
+      <p style={{ margin: "0 0 14px", fontSize: "12px", lineHeight: 1.5, color: "var(--faint)" }}>
+        Orientações em texto livre que a Lia lê ao montar uma cotação. Não são
+        travas rígidas, são instruções gerais (ex.: priorizar acabamento fosco em
+        licitações públicas). Ficam indexadas semanticamente para a IA consultar.
+      </p>
       {diretrizes.isLoading ? (
         <span className="skel skel-line" style={{ width: "70%" }} />
       ) : items.length === 0 ? (
@@ -287,231 +275,6 @@ function DiretrizesBlock({
   );
 }
 
-// --- Regras ---------------------------------------------------------
-
-function RegrasBlock({
-  params,
-  nivel,
-  escopoId,
-}: {
-  params: ListParams;
-  nivel: CotacaoNivel;
-  escopoId: string;
-}) {
-  const regras = useRegras(params);
-  const createRegra = useCreateRegra();
-  const deleteRegra = useDeleteRegra();
-
-  const [atributo, setAtributo] = useState("");
-  const [tipoRegra, setTipoRegra] = useState<CotacaoTipoRegra>("faixa");
-  const [valorMin, setValorMin] = useState("");
-  const [valorMax, setValorMax] = useState("");
-  const [substituicao, setSubstituicao] = useState("");
-  const [erro, setErro] = useState<string | null>(null);
-  const [removingId, setRemovingId] = useState<string | null>(null);
-
-  const items = regras.data?.items ?? [];
-
-  async function onAdd() {
-    if (!atributo.trim()) {
-      setErro("Informe o atributo da regra.");
-      return;
-    }
-    const min = valorMin.trim() === "" ? null : Number(valorMin);
-    const max = valorMax.trim() === "" ? null : Number(valorMax);
-    if ((min !== null && Number.isNaN(min)) || (max !== null && Number.isNaN(max))) {
-      setErro("Valores mínimo/máximo devem ser numéricos.");
-      return;
-    }
-    if (min !== null && max !== null && min > max) {
-      setErro("O valor mínimo não pode ser maior que o máximo.");
-      return;
-    }
-    setErro(null);
-    try {
-      await createRegra.mutateAsync({
-        nivel,
-        escopo_id: escopoId,
-        atributo: atributo.trim(),
-        tipo_regra: tipoRegra,
-        valor_min: min,
-        valor_max: max,
-        substituicao: substituicao.trim() ? substituicao.trim() : null,
-      });
-      setAtributo("");
-      setValorMin("");
-      setValorMax("");
-      setSubstituicao("");
-      setTipoRegra("faixa");
-    } catch (err) {
-      setErro(
-        err instanceof ApiError && err.status === 400
-          ? "Regra inválida: revise os valores."
-          : "Não foi possível salvar a regra. Tente novamente.",
-      );
-    }
-  }
-
-  async function onRemove(id: string) {
-    setRemovingId(id);
-    try {
-      await deleteRegra.mutateAsync(id);
-    } catch {
-      setErro("Não foi possível remover a regra.");
-    } finally {
-      setRemovingId(null);
-    }
-  }
-
-  return (
-    <div className="card">
-      <div className="section-title" style={{ margin: "0 0 14px" }}>
-        <h3>Regras estruturadas</h3>
-        <span className="count">{items.length}</span>
-      </div>
-
-      {regras.isLoading ? (
-        <span className="skel skel-line" style={{ width: "70%" }} />
-      ) : items.length > 0 ? (
-        <div className="tbl-wrap" style={{ marginBottom: 14 }}>
-          <table>
-            <thead>
-              <tr>
-                <th>Atributo</th>
-                <th>Tipo</th>
-                <th>Mín</th>
-                <th>Máx</th>
-                <th style={{ width: 56 }} />
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((r) => (
-                <tr key={r.id}>
-                  <td className="mono">{r.atributo}</td>
-                  <td className="sub">
-                    {TIPOS_REGRA.find((t) => t.value === r.tipo_regra)?.label ??
-                      r.tipo_regra}
-                  </td>
-                  <td className="tnum">{r.valor_min ?? "—"}</td>
-                  <td className="tnum">{r.valor_max ?? "—"}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn btn-sm"
-                      onClick={() => onRemove(r.id)}
-                      disabled={removingId === r.id}
-                      aria-label={`Remover regra ${r.atributo}`}
-                    >
-                      {removingId === r.id ? (
-                        <Loader2 className="spin" aria-hidden="true" />
-                      ) : (
-                        <Trash2 aria-hidden="true" />
-                      )}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <p style={{ margin: "0 0 14px", fontSize: "12.5px", color: "var(--muted)" }}>
-          Nenhuma regra estruturada neste escopo.
-        </p>
-      )}
-
-      <div className="grid-fields" style={{ gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <div className="field" style={{ marginBottom: 0 }}>
-          <label htmlFor={`regra-atributo-${escopoId}`}>Atributo</label>
-          <input
-            id={`regra-atributo-${escopoId}`}
-            type="text"
-            placeholder="ex.: dimensao"
-            value={atributo}
-            onChange={(e) => {
-              setAtributo(e.target.value);
-              setErro(null);
-            }}
-          />
-        </div>
-        <div className="field" style={{ marginBottom: 0 }}>
-          <label htmlFor={`regra-tipo-${escopoId}`}>Tipo</label>
-          <select
-            id={`regra-tipo-${escopoId}`}
-            value={tipoRegra}
-            onChange={(e) => setTipoRegra(e.target.value as CotacaoTipoRegra)}
-          >
-            {TIPOS_REGRA.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="field" style={{ marginBottom: 0 }}>
-          <label htmlFor={`regra-min-${escopoId}`}>Valor mínimo</label>
-          <input
-            id={`regra-min-${escopoId}`}
-            type="number"
-            step="any"
-            placeholder="—"
-            value={valorMin}
-            onChange={(e) => {
-              setValorMin(e.target.value);
-              setErro(null);
-            }}
-          />
-        </div>
-        <div className="field" style={{ marginBottom: 0 }}>
-          <label htmlFor={`regra-max-${escopoId}`}>Valor máximo</label>
-          <input
-            id={`regra-max-${escopoId}`}
-            type="number"
-            step="any"
-            placeholder="—"
-            value={valorMax}
-            onChange={(e) => {
-              setValorMax(e.target.value);
-              setErro(null);
-            }}
-          />
-        </div>
-        <div className="field" style={{ marginBottom: 0, gridColumn: "1 / -1" }}>
-          <label htmlFor={`regra-sub-${escopoId}`}>Substituição</label>
-          <input
-            id={`regra-sub-${escopoId}`}
-            type="text"
-            placeholder="Opcional (para regra de substituição)"
-            value={substituicao}
-            onChange={(e) => setSubstituicao(e.target.value)}
-          />
-        </div>
-      </div>
-      <div className="form-foot" style={{ marginTop: 12 }}>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={onAdd}
-          disabled={createRegra.isPending}
-        >
-          {createRegra.isPending ? (
-            <Loader2 className="spin" aria-hidden="true" />
-          ) : (
-            <Plus aria-hidden="true" />
-          )}
-          <span>Adicionar regra</span>
-        </button>
-        {erro && (
-          <span className="save-note err">
-            <TriangleAlert aria-hidden="true" />
-            {erro}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // --- Politica de participacao --------------------------------------
 
 const politicaSchema = z
@@ -617,9 +380,14 @@ function PoliticaBlock({
 
   return (
     <form className="card" onSubmit={handleSubmit(onSubmit)} noValidate>
-      <div className="section-title" style={{ margin: "0 0 14px" }}>
+      <div className="section-title" style={{ margin: "0 0 8px" }}>
         <h3>Política de participação</h3>
       </div>
+      <p style={{ margin: "0 0 14px", fontSize: "12px", lineHeight: 1.5, color: "var(--faint)" }}>
+        Define se a DLH participa de licitação neste escopo (Sim / Não /
+        Condicional) e sob qual condição. A diretriz textual orienta a decisão da
+        Lia quando o caso não é um sim ou não direto.
+      </p>
 
       {politica.isLoading ? (
         <span className="skel skel-line" style={{ width: "70%" }} />
