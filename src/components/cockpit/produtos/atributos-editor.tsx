@@ -6,11 +6,13 @@ import {
   useCreateLinhaAtributo,
   useDeleteLinhaAtributo,
   useLinhaAtributos,
+  useUpdateLinhaAtributo,
 } from "@/hooks/use-linha-atributos";
 import {
   useCreateProdutoAtributo,
   useDeleteProdutoAtributo,
   useProdutoAtributos,
+  useUpdateProdutoAtributo,
 } from "@/hooks/use-produto-atributos";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
@@ -26,12 +28,17 @@ function tipoLabel(tipo: AtributoTipo): string {
   return TIPOS.find((t) => t.value === tipo)?.label ?? tipo;
 }
 
+/** Flags de visibilidade do atributo nos documentos imprimiveis. */
+type FlagCampo = "mostra_catalogo" | "mostra_ficha";
+
 /** Atributo exibido na tabela (campos comuns a Linha e Produto). */
 interface AtributoRow {
   id: string;
   chave: string;
   tipo: AtributoTipo;
   obrigatorio: boolean;
+  mostra_catalogo: boolean;
+  mostra_ficha: boolean;
 }
 
 type AtributosEditorProps =
@@ -40,12 +47,15 @@ type AtributosEditorProps =
 
 /**
  * cmp-atributos-editor — define um conjunto de atributos como pares
- * chave/tipo/obrigatorio. Dois escopos:
+ * chave/tipo/obrigatorio + visibilidade nos documentos (Catálogo / Ficha).
+ * Dois escopos:
  *   - 'linha' (produto_linha_atributos): schema que TODO Produto da Linha
  *     preenche; criar/remover aqui muda os campos de todos os Produtos.
  *   - 'produto' (produto_atributos): atributos PROPRIOS de um Produto, somados
  *     aos herdados da Linha. Colisao de chave com a Linha e barrada (409).
  * A chave e unica por escopo (o backend rejeita duplicata com 409, inline).
+ * As flags Catálogo/Ficha sao editaveis inline nos atributos do proprio escopo;
+ * nos herdados (read-only) sao editadas la na Linha.
  *
  * `embedded`: renderiza como SECAO (sem o card proprio), para ficar DENTRO do
  * cadastro/detalhe em vez de um card irmao solto.
@@ -65,6 +75,8 @@ export function AtributosEditor(props: AtributosEditorProps) {
 
   const createLinha = useCreateLinhaAtributo();
   const createProduto = useCreateProdutoAtributo();
+  const updateLinha = useUpdateLinhaAtributo();
+  const updateProduto = useUpdateProdutoAtributo();
   const deleteLinha = useDeleteLinhaAtributo();
   const deleteProduto = useDeleteProdutoAtributo();
   const createPending = isProduto ? createProduto.isPending : createLinha.isPending;
@@ -72,8 +84,11 @@ export function AtributosEditor(props: AtributosEditorProps) {
   const [chave, setChave] = useState("");
   const [tipo, setTipo] = useState<AtributoTipo>("texto");
   const [obrigatorio, setObrigatorio] = useState(false);
+  const [mostraCatalogo, setMostraCatalogo] = useState(true);
+  const [mostraFicha, setMostraFicha] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
 
   const items = (list.data?.items ?? []) as AtributoRow[];
   // No scope 'produto', os atributos da Linha sao exibidos como HERDADOS
@@ -105,7 +120,13 @@ export function AtributosEditor(props: AtributosEditorProps) {
       return;
     }
     setErro(null);
-    const input = { chave: chaveTrim, tipo, obrigatorio };
+    const input = {
+      chave: chaveTrim,
+      tipo,
+      obrigatorio,
+      mostra_catalogo: mostraCatalogo,
+      mostra_ficha: mostraFicha,
+    };
     try {
       if (isProduto) {
         await createProduto.mutateAsync({ produtoId: produtoId as string, input });
@@ -115,6 +136,8 @@ export function AtributosEditor(props: AtributosEditorProps) {
       setChave("");
       setTipo("texto");
       setObrigatorio(false);
+      setMostraCatalogo(true);
+      setMostraFicha(true);
     } catch (err) {
       if (err instanceof ApiError && err.code === "atributo_colide_linha") {
         setErro(`A chave "${chaveTrim}" já é um atributo herdado da Linha.`);
@@ -127,6 +150,31 @@ export function AtributosEditor(props: AtributosEditorProps) {
       } else {
         setErro("Não foi possível adicionar o atributo. Tente novamente.");
       }
+    }
+  }
+
+  async function onToggleFlag(atributo: AtributoRow, campo: FlagCampo, value: boolean) {
+    setSavingId(atributo.id);
+    setErro(null);
+    const input = { [campo]: value };
+    try {
+      if (isProduto) {
+        await updateProduto.mutateAsync({
+          produtoId: produtoId as string,
+          atributoId: atributo.id,
+          input,
+        });
+      } else {
+        await updateLinha.mutateAsync({
+          linhaId: linhaId as string,
+          atributoId: atributo.id,
+          input,
+        });
+      }
+    } catch {
+      setErro("Não foi possível atualizar a visibilidade. Tente novamente.");
+    } finally {
+      setSavingId(null);
     }
   }
 
@@ -219,6 +267,8 @@ export function AtributosEditor(props: AtributosEditorProps) {
                 <th>Chave</th>
                 <th>Tipo</th>
                 <th>Obrigatório</th>
+                <th style={{ textAlign: "center" }}>Catálogo</th>
+                <th style={{ textAlign: "center" }}>Ficha</th>
                 <th style={{ width: 60 }} />
               </tr>
             </thead>
@@ -233,6 +283,12 @@ export function AtributosEditor(props: AtributosEditorProps) {
                   </td>
                   <td className="sub">{tipoLabel(a.tipo)}</td>
                   <td>{a.obrigatorio ? "Sim" : "Não"}</td>
+                  <td style={{ textAlign: "center" }}>
+                    <input type="checkbox" checked={a.mostra_catalogo} disabled readOnly />
+                  </td>
+                  <td style={{ textAlign: "center" }}>
+                    <input type="checkbox" checked={a.mostra_ficha} disabled readOnly />
+                  </td>
                   <td />
                 </tr>
               ))}
@@ -241,6 +297,24 @@ export function AtributosEditor(props: AtributosEditorProps) {
                   <td className="mono">{a.chave}</td>
                   <td className="sub">{tipoLabel(a.tipo)}</td>
                   <td>{a.obrigatorio ? "Sim" : "Não"}</td>
+                  <td style={{ textAlign: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={a.mostra_catalogo}
+                      disabled={savingId === a.id}
+                      onChange={(e) => onToggleFlag(a, "mostra_catalogo", e.target.checked)}
+                      aria-label={`Mostrar ${a.chave} no catálogo`}
+                    />
+                  </td>
+                  <td style={{ textAlign: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={a.mostra_ficha}
+                      disabled={savingId === a.id}
+                      onChange={(e) => onToggleFlag(a, "mostra_ficha", e.target.checked)}
+                      aria-label={`Mostrar ${a.chave} na ficha técnica`}
+                    />
+                  </td>
                   <td>
                     <button
                       type="button"
@@ -266,7 +340,7 @@ export function AtributosEditor(props: AtributosEditorProps) {
       <div
         className="grid-fields"
         style={{
-          gridTemplateColumns: "1fr 150px auto auto",
+          gridTemplateColumns: "1fr 150px auto auto auto auto",
           alignItems: "end",
           marginTop: 16,
           gap: 12,
@@ -306,6 +380,22 @@ export function AtributosEditor(props: AtributosEditorProps) {
             onChange={(e) => setObrigatorio(e.target.checked)}
           />
           <div className="t">Obrigatório</div>
+        </label>
+        <label className={cn("chk", mostraCatalogo && "on")} style={{ height: 40 }}>
+          <input
+            type="checkbox"
+            checked={mostraCatalogo}
+            onChange={(e) => setMostraCatalogo(e.target.checked)}
+          />
+          <div className="t">Catálogo</div>
+        </label>
+        <label className={cn("chk", mostraFicha && "on")} style={{ height: 40 }}>
+          <input
+            type="checkbox"
+            checked={mostraFicha}
+            onChange={(e) => setMostraFicha(e.target.checked)}
+          />
+          <div className="t">Ficha</div>
         </label>
         <button
           type="button"

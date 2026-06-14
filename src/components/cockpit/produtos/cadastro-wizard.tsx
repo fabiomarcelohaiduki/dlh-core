@@ -63,6 +63,8 @@ export function CadastroWizard() {
         chave: a.chave,
         tipo: a.tipo,
         obrigatorio: a.obrigatorio,
+        mostra_catalogo: a.mostra_catalogo,
+        mostra_ficha: a.mostra_ficha,
         origem: "linha" as const,
       })),
     [atributos.data],

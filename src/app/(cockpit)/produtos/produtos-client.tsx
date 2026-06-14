@@ -4,7 +4,9 @@ import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  BookOpen,
   ChevronRight,
+  ClipboardList,
   Layers,
   Loader2,
   Package,
@@ -27,7 +29,11 @@ import { CriteriosPanel } from "@/components/cockpit/produtos/criterios-panel";
 import { ProdutoForm } from "@/components/cockpit/produtos/produto-form";
 import { TabelaPrecosLinha } from "@/components/cockpit/produtos/tabela-precos-linha";
 import { GerarTabelaModal } from "@/components/cockpit/produtos/gerar-tabela-modal";
+import { GerarCatalogoModal } from "@/components/cockpit/produtos/gerar-catalogo-modal";
+import { GerarFichaModal } from "@/components/cockpit/produtos/gerar-ficha-modal";
 import type { AtributoSchema, ProdutoLinha } from "@/lib/api/types";
+
+type DocModal = "none" | "tabela" | "catalogo" | "ficha";
 
 type LinhaFormMode = "none" | "new" | "edit";
 
@@ -42,7 +48,7 @@ export function ProdutosClient() {
   const linhas = useLinhas();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<LinhaFormMode>("none");
-  const [gerando, setGerando] = useState(false);
+  const [docModal, setDocModal] = useState<DocModal>("none");
 
   const items = useMemo(() => linhas.data?.items ?? [], [linhas.data]);
   const selected = useMemo(
@@ -67,11 +73,29 @@ export function ProdutosClient() {
           <button
             type="button"
             className="btn"
-            onClick={() => setGerando(true)}
+            onClick={() => setDocModal("tabela")}
             disabled={items.length === 0}
           >
             <Printer aria-hidden="true" />
             <span>Gerar tabela de preços</span>
+          </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => setDocModal("catalogo")}
+            disabled={items.length === 0}
+          >
+            <BookOpen aria-hidden="true" />
+            <span>Gerar catálogo</span>
+          </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => setDocModal("ficha")}
+            disabled={items.length === 0}
+          >
+            <ClipboardList aria-hidden="true" />
+            <span>Gerar ficha técnica</span>
           </button>
           <Link href="/produtos/novo" className="btn btn-primary">
             <Wand2 aria-hidden="true" />
@@ -80,8 +104,14 @@ export function ProdutosClient() {
         </div>
       </div>
 
-      {gerando ? (
-        <GerarTabelaModal linhas={items} onClose={() => setGerando(false)} />
+      {docModal === "tabela" ? (
+        <GerarTabelaModal linhas={items} onClose={() => setDocModal("none")} />
+      ) : null}
+      {docModal === "catalogo" ? (
+        <GerarCatalogoModal linhas={items} onClose={() => setDocModal("none")} />
+      ) : null}
+      {docModal === "ficha" ? (
+        <GerarFichaModal linhas={items} onClose={() => setDocModal("none")} />
       ) : null}
 
       <div
@@ -270,6 +300,8 @@ function ProdutosDaLinha({ linha }: { linha: ProdutoLinha }) {
     chave: a.chave,
     tipo: a.tipo,
     obrigatorio: a.obrigatorio,
+    mostra_catalogo: a.mostra_catalogo,
+    mostra_ficha: a.mostra_ficha,
     origem: "linha" as const,
   }));
 

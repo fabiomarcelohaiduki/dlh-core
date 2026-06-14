@@ -2747,6 +2747,254 @@ select:focus {
   white-space: pre-wrap;
 }
 
+/* =====================================================================
+   CATALOGO — cards de produto em grade de 2 colunas, fluindo por paginas
+   ===================================================================== */
+.cat-linha {
+  margin-top: 18px;
+}
+.cat-linha:first-of-type {
+  margin-top: 14px;
+}
+.cat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+.cat-card {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--pp-line-strong);
+  border-radius: 8px;
+  background: #fff;
+  /* cada card e indivisivel; flui inteiro para a proxima pagina se nao couber */
+  break-inside: avoid;
+}
+.cat-card-foto {
+  flex: none;
+  width: 96px;
+  height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--pp-line);
+  border-radius: 6px;
+  background: var(--pp-zebra);
+  overflow: hidden;
+}
+.cat-card-foto img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.cat-card-foto-vazia {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pp-faint);
+}
+.cat-card-body {
+  min-width: 0;
+  flex: 1;
+}
+.cat-card-nome {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0 0 3px;
+  color: var(--pp-ink);
+  line-height: 1.25;
+  text-wrap: balance;
+}
+.cat-card-desc {
+  font-size: 10.5px;
+  color: var(--pp-muted);
+  margin: 0 0 7px;
+  line-height: 1.4;
+  text-wrap: pretty;
+}
+.cat-card-attrs {
+  margin: 0;
+  display: grid;
+  gap: 2px 10px;
+}
+.cat-attr {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  border-bottom: 1px dotted var(--pp-line);
+  padding-bottom: 1px;
+}
+.cat-attr dt {
+  color: var(--pp-muted);
+  letter-spacing: 0.01em;
+}
+.cat-attr dd {
+  margin: 0;
+  font-weight: 600;
+  color: var(--pp-ink);
+  text-align: right;
+}
+.cat-card-skus {
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid var(--pp-line);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cat-card-skus-label {
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--pp-faint);
+}
+.cat-card-skus-list {
+  font-size: 9.5px;
+  color: var(--pp-muted);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+/* =====================================================================
+   FICHA TECNICA — um SKU por pagina (cabecalho + foto + specs + atributos)
+   ===================================================================== */
+.ficha {
+  margin-bottom: 24px;
+}
+.ficha-id {
+  margin: 14px 0 16px;
+}
+.ficha-linha {
+  display: inline-block;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--pp-accent);
+}
+.ficha-produto {
+  font-size: 21px;
+  font-weight: 700;
+  margin: 2px 0 3px;
+  color: var(--pp-ink);
+  line-height: 1.1;
+  text-wrap: balance;
+}
+.ficha-sku {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pp-muted);
+  font-family: var(--font-mono), ui-monospace, monospace;
+}
+.ficha-corpo {
+  display: flex;
+  gap: 22px;
+  align-items: flex-start;
+}
+.ficha-foto {
+  flex: none;
+  width: 220px;
+  height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--pp-line-strong);
+  border-radius: 8px;
+  background: var(--pp-zebra);
+  overflow: hidden;
+}
+.ficha-foto img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.ficha-foto-vazia {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pp-faint);
+}
+.ficha-dados {
+  flex: 1;
+  min-width: 0;
+}
+.ficha-specs {
+  margin: 0;
+  display: grid;
+  gap: 0;
+}
+.ficha-spec {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--pp-line);
+  font-size: 12px;
+}
+.ficha-spec dt {
+  color: var(--pp-muted);
+  letter-spacing: 0.02em;
+}
+.ficha-spec dd {
+  margin: 0;
+  font-weight: 600;
+  color: var(--pp-ink);
+  text-align: right;
+}
+.ficha-desc {
+  font-size: 11.5px;
+  color: var(--pp-muted);
+  line-height: 1.5;
+  margin: 18px 0 0;
+  text-wrap: pretty;
+}
+.ficha-attrs {
+  margin-top: 20px;
+}
+.ficha-attrs-titulo {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--pp-ink);
+  margin: 0 0 8px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--pp-accent);
+}
+.ficha-attrs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.ficha-attrs-table tr {
+  break-inside: avoid;
+}
+.ficha-attrs-table th,
+.ficha-attrs-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--pp-line);
+  vertical-align: top;
+}
+.ficha-attrs-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--pp-muted);
+  width: 38%;
+}
+.ficha-attrs-table td {
+  font-weight: 600;
+  color: var(--pp-ink);
+}
+.ficha-attrs-table tbody tr:nth-of-type(even) td,
+.ficha-attrs-table tbody tr:nth-of-type(even) th {
+  background: var(--pp-zebra);
+}
+
 @media print {
   /* Anula o tema escuro do app: o documento de impressao e sempre papel claro,
      senao o fundo dark (var(--bg)) vaza e pinta as paginas de preto quando o
@@ -2786,6 +3034,13 @@ select:focus {
   .print-linha:first-of-type {
     break-before: avoid;
   }
+  /* cada ficha tecnica = um SKU em pagina propria; a 1a herda o cabecalho. */
+  .ficha {
+    break-before: page;
+  }
+  .ficha:first-of-type {
+    break-before: avoid;
+  }
   /* preserva os reforcos de cor (acento institucional, faixa do produto, zebra)
      quando o usuario imprime COM graficos de fundo / exporta PDF. Sem eles o
      documento permanece legivel (bordas + peso tipografico); com eles fica
@@ -2794,7 +3049,13 @@ select:focus {
   .print-linha-nome,
   .print-table thead th,
   .print-produto-row td,
-  .print-table tbody tr:nth-of-type(even) td {
+  .print-table tbody tr:nth-of-type(even) td,
+  .cat-card,
+  .cat-card-foto,
+  .ficha-foto,
+  .ficha-attrs-titulo,
+  .ficha-attrs-table tbody tr:nth-of-type(even) td,
+  .ficha-attrs-table tbody tr:nth-of-type(even) th {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
