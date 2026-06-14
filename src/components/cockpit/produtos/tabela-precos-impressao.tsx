@@ -178,9 +178,6 @@ export function TabelaPrecosImpressao() {
         <h2>Tabela de preços</h2>
         <div className="print-meta">
           <span>Emissão: {formatDate(new Date().toISOString())}</span>
-          {e && e.validadePadraoDias > 0 ? (
-            <span>Validade da proposta: {e.validadePadraoDias} dias</span>
-          ) : null}
         </div>
       </div>
 
