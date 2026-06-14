@@ -101,18 +101,23 @@ export function deleteInsumoPreco(
   );
 }
 
-/** Item da edicao em lote de precos (PUT /insumo-precos/batch). */
+/**
+ * Item da edicao em lote de precos (PUT /insumo-precos/batch). Append-only:
+ * cada item cria uma NOVA faixa de vigencia para o insumo (vigencia_inicio =
+ * hoje no backend), preservando o historico. O batch e chaveado por insumo_id,
+ * nao pelo id da faixa.
+ */
 export interface InsumoPrecoBatchItem {
-  id: string;
+  insumo_id: string;
   preco: number;
 }
 
 export function updateInsumoPrecosBatch(
-  itens: InsumoPrecoBatchItem[],
+  updates: InsumoPrecoBatchItem[],
 ): Promise<InsumoPrecoBatchResponse> {
   return apiFetch<InsumoPrecoBatchResponse>("produtos-insumos/insumo-precos/batch", {
     method: "PUT",
-    body: JSON.stringify({ itens }),
+    body: JSON.stringify({ updates }),
   });
 }
 
@@ -131,6 +136,11 @@ export interface ComposicaoItemInput {
   insumo_id: string;
   quantidade: number;
   unidade?: string | null;
+  /**
+   * Rendimento opcional: quantas pecas 1 unidade de material rende. Quando
+   * informado, o backend deriva quantidade = 1 / rendimento.
+   */
+  rendimento?: number | null;
 }
 
 export function createComposicaoItem(

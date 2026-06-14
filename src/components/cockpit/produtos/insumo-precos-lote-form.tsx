@@ -88,17 +88,20 @@ export function InsumoPrecosLoteForm({ insumo }: { insumo: Insumo }) {
   const [novoFim, setNovoFim] = useState("");
   const [novoErro, setNovoErro] = useState<string | null>(null);
 
+  // Append-only: cada celula alterada vira uma nova faixa de vigencia para o
+  // insumo (vigencia_inicio = hoje no backend). O batch e chaveado por
+  // insumo_id, nao pelo id da faixa exibida.
   const changed = useMemo(() => {
-    const list: { id: string; preco: number }[] = [];
+    const list: { insumo_id: string; preco: number }[] = [];
     for (const p of items) {
       const raw = edits[p.id];
       if (raw == null) continue;
       const n = toNumber(raw);
       if (n == null) continue;
-      if (n !== p.preco) list.push({ id: p.id, preco: n });
+      if (n !== p.preco) list.push({ insumo_id: insumo.id, preco: n });
     }
     return list;
-  }, [items, edits]);
+  }, [items, edits, insumo.id]);
 
   async function onSaveBatch() {
     setFeedback(null);
