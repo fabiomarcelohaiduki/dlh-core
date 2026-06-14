@@ -10,6 +10,7 @@ import {
 import { useInsumos } from "@/hooks/use-insumos";
 import { ApiError } from "@/lib/api/client";
 import { categoriaLabel } from "@/components/cockpit/produtos/insumos-table";
+import { cn } from "@/lib/utils";
 import type { Insumo, SkuComposicaoItem } from "@/lib/api/types";
 
 function toNumber(value: string): number | null {
@@ -18,6 +19,14 @@ function toNumber(value: string): number | null {
   const n = Number(trimmed);
   return Number.isNaN(n) ? null : n;
 }
+
+/** Numero pt-BR com ate 6 casas, sem zeros a direita (ex.: 0,0625). */
+function fmtNum(n: number): string {
+  return n.toLocaleString("pt-BR", { maximumFractionDigits: 6 });
+}
+
+/** Modo de entrada da quantidade na BOM. */
+type ModoQtd = "direto" | "rendimento";
 
 /**
  * cmp-composicao-editor — edita a BOM (sku_composicao) de um SKU FABRICADO:
@@ -34,7 +43,9 @@ export function ComposicaoEditor({ skuId }: { skuId: string }) {
   const remover = useDeleteComposicaoItem();
 
   const [insumoId, setInsumoId] = useState("");
+  const [modo, setModo] = useState<ModoQtd>("direto");
   const [quantidade, setQuantidade] = useState("");
+  const [rendimento, setRendimento] = useState("");
   const [unidade, setUnidade] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -66,16 +77,34 @@ export function ComposicaoEditor({ skuId }: { skuId: string }) {
 
   const insumoSelecionado = insumoMap.get(insumoId) ?? null;
 
+  // Unidade do material (referencia do rendimento) e quantidade derivada para
+  // o preview "cada peca usa X".
+  const unidadeMaterial = insumoSelecionado?.unidade ?? (unidade.trim() || "un");
+  const rendNum = toNumber(rendimento);
+  const qtdDerivada = rendNum != null && rendNum > 0 ? 1 / rendNum : null;
+
   async function onAdd() {
     setErro(null);
     if (!insumoId) {
       setErro("Selecione um material.");
       return;
     }
-    const qtd = toNumber(quantidade);
-    if (qtd == null || qtd <= 0) {
-      setErro("Informe uma quantidade maior que zero.");
-      return;
+    // Define quantidade por peca e, no modo rendimento, persiste o rendimento.
+    let qtd: number | null;
+    let rend: number | null = null;
+    if (modo === "rendimento") {
+      rend = toNumber(rendimento);
+      if (rend == null || rend <= 0) {
+        setErro("Informe um rendimento maior que zero (peças por unidade).");
+        return;
+      }
+      qtd = 1 / rend;
+    } else {
+      qtd = toNumber(quantidade);
+      if (qtd == null || qtd <= 0) {
+        setErro("Informe uma quantidade maior que zero.");
+        return;
+      }
     }
     try {
       await criar.mutateAsync({
@@ -84,10 +113,12 @@ export function ComposicaoEditor({ skuId }: { skuId: string }) {
           insumo_id: insumoId,
           quantidade: qtd,
           unidade: unidade.trim() ? unidade.trim() : null,
+          rendimento: rend,
         },
       });
       setInsumoId("");
       setQuantidade("");
+      setRendimento("");
       setUnidade("");
     } catch (err) {
       setErro(
@@ -178,7 +209,17 @@ export function ComposicaoEditor({ skuId }: { skuId: string }) {
                         ) : null}
                       </div>
                     </td>
-                    <td className="tnum">{item.quantidade}</td>
+                    <td className="tnum">
+                      <div className="cell-stack">
+                        <span>{fmtNum(item.quantidade)}</span>
+                        {item.rendimento != null ? (
+                          <span className="sub">
+                            {fmtNum(item.rendimento)} pç/
+                            {item.unidade ?? insumo?.unidade ?? "un"}
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
                     <td className="mono">{item.unidade ?? insumo?.unidade ?? "—"}</td>
                     <td>
                       <button
@@ -203,9 +244,42 @@ export function ComposicaoEditor({ skuId }: { skuId: string }) {
         </div>
       )}
 
+      <div className="field" style={{ marginTop: 16, marginBottom: 10 }}>
+        <label>Como informar a quantidade</label>
+        <div
+          className="filter-group segmented"
+          role="group"
+          aria-label="Modo de entrada da quantidade"
+          style={{ width: "fit-content" }}
+        >
+          <button
+            type="button"
+            className={cn("btn", "btn-sm", modo === "direto" && "btn-primary")}
+            aria-pressed={modo === "direto"}
+            onClick={() => {
+              setModo("direto");
+              setErro(null);
+            }}
+          >
+            Quantidade por peça
+          </button>
+          <button
+            type="button"
+            className={cn("btn", "btn-sm", modo === "rendimento" && "btn-primary")}
+            aria-pressed={modo === "rendimento"}
+            onClick={() => {
+              setModo("rendimento");
+              setErro(null);
+            }}
+          >
+            Rendimento
+          </button>
+        </div>
+      </div>
+
       <div
         className="grid-fields"
-        style={{ gridTemplateColumns: "1fr 140px 110px auto", alignItems: "end", marginTop: 16, gap: 12 }}
+        style={{ gridTemplateColumns: "1fr 150px 110px auto", alignItems: "end", gap: 12 }}
       >
         <div className="field" style={{ marginBottom: 0 }}>
           <label htmlFor="comp-insumo">Material</label>
@@ -232,21 +306,39 @@ export function ComposicaoEditor({ skuId }: { skuId: string }) {
             ))}
           </select>
         </div>
-        <div className="field" style={{ marginBottom: 0 }}>
-          <label htmlFor="comp-qtd">Quantidade</label>
-          <input
-            id="comp-qtd"
-            type="number"
-            step="any"
-            min={0}
-            placeholder="0"
-            value={quantidade}
-            onChange={(e) => {
-              setQuantidade(e.target.value);
-              setErro(null);
-            }}
-          />
-        </div>
+        {modo === "direto" ? (
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label htmlFor="comp-qtd">Quantidade</label>
+            <input
+              id="comp-qtd"
+              type="number"
+              step="any"
+              min={0}
+              placeholder="0"
+              value={quantidade}
+              onChange={(e) => {
+                setQuantidade(e.target.value);
+                setErro(null);
+              }}
+            />
+          </div>
+        ) : (
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label htmlFor="comp-rend">Peças por {unidadeMaterial}</label>
+            <input
+              id="comp-rend"
+              type="number"
+              step="any"
+              min={0}
+              placeholder="0"
+              value={rendimento}
+              onChange={(e) => {
+                setRendimento(e.target.value);
+                setErro(null);
+              }}
+            />
+          </div>
+        )}
         <div className="field" style={{ marginBottom: 0 }}>
           <label htmlFor="comp-unidade">Unidade</label>
           <input
@@ -271,6 +363,19 @@ export function ComposicaoEditor({ skuId }: { skuId: string }) {
           <span>Adicionar</span>
         </button>
       </div>
+      {modo === "rendimento" && (
+        <p
+          className="helper"
+          style={{ marginTop: 8, fontSize: "12.5px", color: "var(--muted)" }}
+        >
+          1 {unidadeMaterial} rende {rendNum != null && rendNum > 0 ? fmtNum(rendNum) : "N"}{" "}
+          peça(s) → cada peça usa{" "}
+          <span className="tnum">
+            {qtdDerivada != null ? `${fmtNum(qtdDerivada)} ${unidadeMaterial}` : "—"}
+          </span>
+          .
+        </p>
+      )}
       {erro && (
         <div className="err-msg" style={{ display: "flex", marginTop: 12 }}>
           <TriangleAlert aria-hidden="true" />

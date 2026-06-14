@@ -44,7 +44,8 @@ import {
 
 const FUNCTION_SEGMENT = "produtos-composicao";
 
-const COMPOSICAO_COLUMNS = "id, sku_id, insumo_id, quantidade, unidade, created_at, updated_at";
+const COMPOSICAO_COLUMNS =
+  "id, sku_id, insumo_id, quantidade, unidade, rendimento, created_at, updated_at";
 const CUSTO_AQUISICAO_COLUMNS =
   "id, sku_id, fornecedor, custo, vigencia_inicio, vigencia_fim, created_at, updated_at";
 
@@ -157,10 +158,18 @@ async function createComposicao(req: Request, skuId: string, email: string): Pro
   assertSkuFabricado(sku);
   await assertInsumoSelecionavel(db, input.insumo_id);
 
+  // Quando o rendimento e informado (pecas que 1 unidade de material rende),
+  // a quantidade por peca e derivada (= 1 / rendimento) para nunca divergir do
+  // que o usuario digitou. Sem rendimento, usa a quantidade informada direto.
+  const rendimento = input.rendimento ?? null;
+  const quantidade =
+    rendimento != null && rendimento > 0 ? 1 / rendimento : input.quantidade;
+
   const payload = {
     sku_id: skuId,
     insumo_id: input.insumo_id,
-    quantidade: input.quantidade,
+    quantidade,
+    rendimento,
     ...pickDefined(input, ["unidade"]),
   };
 
@@ -181,7 +190,7 @@ async function createComposicao(req: Request, skuId: string, email: string): Pro
     acao: "criar",
     registroId: data.id,
     usuario: email,
-    dadosNovos: { sku_id: skuId, insumo_id: input.insumo_id, quantidade: input.quantidade },
+    dadosNovos: { sku_id: skuId, insumo_id: input.insumo_id, quantidade, rendimento },
   });
 
   return jsonResponse(data, 201);
@@ -202,9 +211,14 @@ async function updateComposicao(
     await assertInsumoSelecionavel(db, input.insumo_id);
   }
 
-  const payload = pickDefined(input, ["insumo_id", "quantidade", "unidade"]);
+  const payload = pickDefined(input, ["insumo_id", "quantidade", "unidade", "rendimento"]);
   if (Object.keys(payload).length === 0) {
     throw new HttpError(400, "validation_error", "nenhum campo para atualizar");
+  }
+  // Rendimento informado (>0) deriva a quantidade; null limpa o rendimento sem
+  // mexer na quantidade. Mantem quantidade e rendimento sempre coerentes.
+  if (input.rendimento != null && input.rendimento > 0) {
+    payload.quantidade = 1 / input.rendimento;
   }
   payload.updated_at = new Date().toISOString();
 

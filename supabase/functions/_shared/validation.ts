@@ -1116,6 +1116,12 @@ export const composicaoCreateSchema = z
       })
       .positive("quantidade deve ser positiva"),
     unidade: z.string({ invalid_type_error: "unidade deve ser string" }).trim().nullish(),
+    // Rendimento opcional: quantas pecas 1 unidade de material rende. Quando
+    // presente, o handler deriva quantidade = 1 / rendimento.
+    rendimento: z
+      .number({ invalid_type_error: "rendimento deve ser numero" })
+      .positive("rendimento deve ser positivo")
+      .nullish(),
   })
   .strict();
 
@@ -1132,6 +1138,10 @@ export const composicaoUpdateSchema = z
       .positive("quantidade deve ser positiva")
       .optional(),
     unidade: z.string({ invalid_type_error: "unidade deve ser string" }).trim().nullish(),
+    rendimento: z
+      .number({ invalid_type_error: "rendimento deve ser numero" })
+      .positive("rendimento deve ser positivo")
+      .nullish(),
   })
   .strict();
 

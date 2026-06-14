@@ -664,6 +664,11 @@ export interface SkuComposicaoItem {
   insumo_id: string;
   quantidade: number;
   unidade: string | null;
+  /**
+   * Quantas pecas 1 unidade de material rende. Quando preenchido,
+   * quantidade = 1 / rendimento. Null = quantidade informada direto.
+   */
+  rendimento: number | null;
   created_at: string;
   updated_at: string;
 }
