@@ -569,6 +569,7 @@ export interface Produto {
   id: string;
   linha_id: string;
   nome: string;
+  descricao: string | null;
   atributos: Record<string, unknown>;
   prazo_entrega: string | null;
   disponibilidade: string | null;

@@ -44,6 +44,7 @@ function buildAtributosSchema(schema: AtributoSchema[]) {
 
 type ProdutoFormValues = {
   nome: string;
+  descricao?: string;
   atributos: Record<string, string | number | boolean | undefined>;
   prazo_entrega?: string;
   disponibilidade?: string;
@@ -82,6 +83,7 @@ export function ProdutoForm({
     () =>
       z.object({
         nome: z.string().trim().min(1, "Informe o nome do produto."),
+        descricao: z.string().trim().optional(),
         atributos: buildAtributosSchema(schema),
         prazo_entrega: z.string().trim().optional(),
         disponibilidade: z.string().trim().optional(),
@@ -114,6 +116,7 @@ export function ProdutoForm({
     resolver: zodResolver(formSchema) as Resolver<ProdutoFormValues>,
     defaultValues: {
       nome: produto?.nome ?? "",
+      descricao: produto?.descricao ?? "",
       atributos: defaultAtributos,
       prazo_entrega: produto?.prazo_entrega ?? "",
       disponibilidade: produto?.disponibilidade ?? "",
@@ -145,6 +148,7 @@ export function ProdutoForm({
     const input = {
       linha_id: linhaId,
       nome: values.nome,
+      descricao: values.descricao?.trim() ? values.descricao.trim() : null,
       atributos,
       prazo_entrega: values.prazo_entrega?.trim() ? values.prazo_entrega.trim() : null,
       disponibilidade: values.disponibilidade?.trim()
@@ -187,6 +191,16 @@ export function ProdutoForm({
           <TriangleAlert aria-hidden="true" />
           {errors.nome?.message ?? "Informe o nome do produto."}
         </div>
+      </div>
+
+      <div className="field" style={{ marginTop: 14, maxWidth: 640 }}>
+        <label htmlFor="produto-descricao">Descrição</label>
+        <textarea
+          id="produto-descricao"
+          rows={3}
+          placeholder="Texto comercial: uso, benefício e diferencial do produto."
+          {...register("descricao")}
+        />
       </div>
 
       {schema.length === 0 ? (

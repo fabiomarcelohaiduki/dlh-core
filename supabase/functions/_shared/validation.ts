@@ -857,6 +857,8 @@ export const produtoCreateSchema = z
       .string({ required_error: "nome e obrigatorio", invalid_type_error: "nome deve ser string" })
       .trim()
       .min(1, "nome nao pode ser vazio"),
+    descricao: z.string({ invalid_type_error: "descricao deve ser string" }).trim()
+      .nullish(),
     atributos: atributosRecord.optional(),
     prazo_entrega: z.string({ invalid_type_error: "prazo_entrega deve ser string" }).trim()
       .nullish(),
@@ -883,6 +885,8 @@ export const produtoUpdateSchema = z
       .trim()
       .min(1, "nome nao pode ser vazio")
       .optional(),
+    descricao: z.string({ invalid_type_error: "descricao deve ser string" }).trim()
+      .nullish(),
     atributos: atributosRecord.optional(),
     prazo_entrega: z.string({ invalid_type_error: "prazo_entrega deve ser string" }).trim()
       .nullish(),

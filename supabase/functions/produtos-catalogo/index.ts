@@ -62,7 +62,7 @@ const CHUNK_TIPO = "produto-cotacao";
 const PRODUTOS_BUCKET = "produtos";
 
 const PRODUTO_COLUMNS =
-  "id, linha_id, nome, atributos, prazo_entrega, disponibilidade, pedido_minimo, ativo, created_at, updated_at";
+  "id, linha_id, nome, descricao, atributos, prazo_entrega, disponibilidade, pedido_minimo, ativo, created_at, updated_at";
 const SKU_COLUMNS =
   "id, produto_id, codigo_sku, tipo_origem, atributos, dimensoes, tolerancia_pct, acabamento, peso_gr, diretriz_producao, tamanho_lote, tempo_lote, unidade_tempo, tempo_producao, estado_calculo, ativo, created_at, updated_at";
 const PRODUTO_ATRIBUTO_COLUMNS =
@@ -338,7 +338,7 @@ async function createProduto(req: Request, email: string): Promise<Response> {
     linha_id: input.linha_id,
     nome: input.nome,
     atributos,
-    ...pickDefined(input, ["prazo_entrega", "disponibilidade", "pedido_minimo", "ativo"]),
+    ...pickDefined(input, ["descricao", "prazo_entrega", "disponibilidade", "pedido_minimo", "ativo"]),
   };
 
   const { data, error } = await db.from("produtos").insert(payload).select(PRODUTO_COLUMNS)
@@ -387,6 +387,7 @@ async function updateProduto(req: Request, produtoId: string, email: string): Pr
   const payload = pickDefined(input, [
     "linha_id",
     "nome",
+    "descricao",
     "atributos",
     "prazo_entrega",
     "disponibilidade",
