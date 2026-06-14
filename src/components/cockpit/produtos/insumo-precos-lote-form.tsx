@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Loader2, Plus, TriangleAlert } from "lucide-react";
+import { Check, Loader2, Plus, Trash2, TriangleAlert, X } from "lucide-react";
 import {
   useCreateInsumoPreco,
+  useDeleteInsumoPreco,
   useInsumoPrecos,
   useUpdateInsumoPrecosBatch,
 } from "@/hooks/use-insumo-precos";
@@ -44,8 +45,9 @@ type Feedback = { kind: "ok" | "err"; msg: string };
  * cmp-insumo-precos-lote-form — historico de precos de fornecedor de um insumo
  * com a faixa VIGENTE em destaque (status-pill). Permite a EDICAO EM LOTE dos
  * precos exibidos (so as celulas alteradas viram o batch PUT /insumo-precos/
- * batch, ate MAX_BATCH itens) e a criacao de uma nova faixa de vigencia
- * (POST), preservando o historico. As escritas disparam o recalculo SINCRONO
+ * batch, ate MAX_BATCH itens), a criacao de uma nova faixa de vigencia
+ * (POST) e a EXCLUSAO de uma faixa (DELETE, confirmacao inline por linha).
+ * As escritas disparam o recalculo SINCRONO
  * dos SKUs cuja BOM usa o insumo (triggers no backend); os hooks ja invalidam
  * os precos e a fila de pendentes.
  */
@@ -53,9 +55,20 @@ export function InsumoPrecosLoteForm({ insumo }: { insumo: Insumo }) {
   const precos = useInsumoPrecos(insumo.id);
   const batch = useUpdateInsumoPrecosBatch();
   const criar = useCreateInsumoPreco();
+  const remover = useDeleteInsumoPreco();
+
+  // Confirmacao de exclusao inline por linha (dois cliques, como no form).
+  const [confirmandoId, setConfirmandoId] = useState<string | null>(null);
 
   const hoje = useMemo(() => hojeISO(), []);
   const items = useMemo(() => precos.data?.items ?? [], [precos.data]);
+
+  // A faixa vigente efetiva e a MAIS RECENTE valida (a lista vem desc por
+  // vigencia_inicio). As demais faixas em aberto foram substituidas por ela.
+  const vigenteId = useMemo(
+    () => items.find((p) => isVigente(p, hoje))?.id ?? null,
+    [items, hoje],
+  );
 
   // edits: id -> valor textual do input. Inicializa/reidrata ao trocar o insumo
   // ou ao recarregar os precos.
@@ -156,6 +169,20 @@ export function InsumoPrecosLoteForm({ insumo }: { insumo: Insumo }) {
     }
   }
 
+  async function onRemover(precoId: string) {
+    setFeedback(null);
+    try {
+      await remover.mutateAsync({ insumoId: insumo.id, precoId });
+      setConfirmandoId(null);
+      setFeedback({ kind: "ok", msg: "Faixa de preço removida." });
+    } catch {
+      setFeedback({
+        kind: "err",
+        msg: "Não foi possível remover a faixa. Tente novamente.",
+      });
+    }
+  }
+
   return (
     <div className="card">
       <div className="section-title" style={{ margin: "0 0 14px" }}>
@@ -196,11 +223,16 @@ export function InsumoPrecosLoteForm({ insumo }: { insumo: Insumo }) {
                 <th style={{ width: 120 }}>Início</th>
                 <th style={{ width: 120 }}>Fim</th>
                 <th style={{ width: 110 }}>Vigência</th>
+                <th style={{ width: 72 }} aria-label="Ações" />
               </tr>
             </thead>
             <tbody>
               {items.map((p) => {
-                const vigente = isVigente(p, hoje);
+                // Append-only: a lista vem da mais recente para a mais antiga.
+                // So a PRIMEIRA faixa valida e a vigente efetiva; as anteriores
+                // com vigencia em aberto foram substituidas por ela.
+                const vigente = p.id === vigenteId;
+                const substituida = vigenteId != null && isVigente(p, hoje) && !vigente;
                 const edited =
                   edits[p.id] != null && toNumber(edits[p.id]) !== p.preco;
                 return (
@@ -234,8 +266,51 @@ export function InsumoPrecosLoteForm({ insumo }: { insumo: Insumo }) {
                     <td>
                       {vigente ? (
                         <StatusPill state="ok" label="Vigente" />
+                      ) : substituida ? (
+                        <span style={{ color: "var(--muted)" }}>Substituída</span>
                       ) : (
                         <span style={{ color: "var(--faint)" }}>—</span>
+                      )}
+                    </td>
+                    <td>
+                      {confirmandoId === p.id ? (
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-icon"
+                            style={{ color: "var(--err)" }}
+                            aria-label="Confirmar exclusão da faixa"
+                            title="Confirmar exclusão"
+                            onClick={() => onRemover(p.id)}
+                            disabled={remover.isPending}
+                          >
+                            {remover.isPending ? (
+                              <Loader2 className="spin" aria-hidden="true" />
+                            ) : (
+                              <Check aria-hidden="true" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-icon"
+                            aria-label="Cancelar exclusão"
+                            title="Cancelar"
+                            onClick={() => setConfirmandoId(null)}
+                            disabled={remover.isPending}
+                          >
+                            <X aria-hidden="true" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-icon"
+                          aria-label={`Excluir faixa de ${formatDate(p.vigencia_inicio)}`}
+                          title="Excluir faixa"
+                          onClick={() => setConfirmandoId(p.id)}
+                        >
+                          <Trash2 aria-hidden="true" />
+                        </button>
                       )}
                     </td>
                   </tr>

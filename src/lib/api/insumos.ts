@@ -91,6 +91,16 @@ export function createInsumoPreco(
   });
 }
 
+export function deleteInsumoPreco(
+  insumoId: string,
+  precoId: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(
+    `produtos-insumos/insumos/${insumoId}/precos/${precoId}`,
+    { method: "DELETE" },
+  );
+}
+
 /** Item da edicao em lote de precos (PUT /insumo-precos/batch). */
 export interface InsumoPrecoBatchItem {
   id: string;

@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import {
   createInsumoPreco,
+  deleteInsumoPreco,
   listInsumoPrecos,
   updateInsumoPrecosBatch,
   type InsumoPrecoBatchItem,
@@ -47,6 +48,30 @@ export function useCreateInsumoPreco() {
       insumoId: string;
       input: InsumoPrecoInput;
     }) => createInsumoPreco(insumoId, input),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: insumoPrecoKeys.byInsumo(variables.insumoId),
+      });
+      queryClient.invalidateQueries({ queryKey: precoPendenteKeys.all });
+    },
+  });
+}
+
+/**
+ * useDeleteInsumoPreco — remove uma faixa de preco (DELETE). Invalida os
+ * precos do insumo e a fila de pendentes (o backend recalcula os SKUs cujo
+ * preco vigente mudou com a remocao).
+ */
+export function useDeleteInsumoPreco() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      insumoId,
+      precoId,
+    }: {
+      insumoId: string;
+      precoId: string;
+    }) => deleteInsumoPreco(insumoId, precoId),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
         queryKey: insumoPrecoKeys.byInsumo(variables.insumoId),

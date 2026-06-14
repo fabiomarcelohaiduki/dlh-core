@@ -13,6 +13,7 @@
 //   DELETE /produtos-insumos/insumos/:id             remove insumo (409 se em uso)
 //   GET    /produtos-insumos/insumos/:id/precos      lista historico de precos
 //   POST   /produtos-insumos/insumos/:id/precos      cria nova faixa de vigencia
+//   DELETE /produtos-insumos/insumos/:id/precos/:precoId  remove uma faixa
 //   PUT    /produtos-insumos/insumo-precos/batch     edita ate 200 precos (1..200)
 //
 // Borda: handleCorsPreflight -> assertMethod -> requireAuthorizedUser ->
@@ -256,6 +257,48 @@ async function createInsumoPreco(
   return jsonResponse(data, 201);
 }
 
+async function deleteInsumoPreco(
+  insumoId: string,
+  precoId: string,
+  email: string,
+): Promise<Response> {
+  const db = createServiceClient();
+  await assertInsumoExists(db, insumoId);
+
+  // Confirma que a faixa pertence ao insumo antes de remover (evita apagar
+  // faixa de outro insumo via id avulso). O trigger de recalculo (migration
+  // 20260613220000) cobre DELETE e reajusta os SKUs cuja BOM usa o insumo.
+  const { data: existing, error: selError } = await db
+    .from("insumo_precos")
+    .select("id")
+    .eq("id", precoId)
+    .eq("insumo_id", insumoId)
+    .maybeSingle();
+  if (selError) {
+    throw new HttpError(500, "insumo_preco_query_failed", "falha ao buscar a faixa de preco");
+  }
+  if (!existing) {
+    throw new HttpError(404, "nao_encontrado", "faixa de preco nao encontrada");
+  }
+
+  await deleteRowById(db, {
+    table: "insumo_precos",
+    id: precoId,
+    recurso: "insumo_preco",
+    errorCode: "insumo_preco_delete_failed",
+  });
+
+  await logSensitiveAction({
+    tabela: "insumo_precos",
+    acao: "remover",
+    registroId: precoId,
+    usuario: email,
+    dadosNovos: { insumo_id: insumoId },
+  });
+
+  return jsonResponse({ ok: true }, 200);
+}
+
 // ---------------------------------------------------------------------
 // Edicao em lote (/insumo-precos/batch)
 // ---------------------------------------------------------------------
@@ -349,10 +392,18 @@ async function handler(req: Request): Promise<Response> {
 
       const insumoId = assertUuid(insumoIdRaw, "insumo");
 
-      // Sub-rota de precos: /insumos/:id/precos
+      // Sub-rota de precos: /insumos/:id/precos[/:precoId]
       if (segments[2] === "precos") {
-        if (segments.length > 3) {
-          throw new HttpError(404, "nao_encontrado", "rota nao encontrada");
+        const precoIdRaw = segments[3];
+        if (precoIdRaw !== undefined) {
+          if (segments.length > 4) {
+            throw new HttpError(404, "nao_encontrado", "rota nao encontrada");
+          }
+          const precoId = assertUuid(precoIdRaw, "insumo_preco");
+          if (req.method === "DELETE") {
+            return await deleteInsumoPreco(insumoId, precoId, email);
+          }
+          throw new HttpError(405, "method_not_allowed", "metodo nao permitido: use DELETE");
         }
         if (req.method === "GET") return await listInsumoPrecos(insumoId);
         if (req.method === "POST") return await createInsumoPreco(req, insumoId, email);
