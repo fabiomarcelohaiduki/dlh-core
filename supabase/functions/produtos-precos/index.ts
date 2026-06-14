@@ -307,14 +307,23 @@ async function getConsolidado(req: Request): Promise<Response> {
     estado: string;
   }[] = [];
   if (skuIds.length > 0) {
-    const { data, error } = await db
-      .from("sku_precos_calculados")
-      .select("sku_id, regiao, patamar, valor, ifp, estado")
-      .in("sku_id", skuIds);
-    if (error) {
-      throw new HttpError(500, "precos_query_failed", "falha ao consultar os precos da linha");
+    // Pagina em blocos para nao bater no teto padrao do PostgREST (1000 linhas):
+    // uma linha tem N SKUs x 15 patamares-regiao, ultrapassando 1000 facilmente.
+    const PAGE = 1000;
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await db
+        .from("sku_precos_calculados")
+        .select("sku_id, regiao, patamar, valor, ifp, estado")
+        .in("sku_id", skuIds)
+        .order("sku_id", { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) {
+        throw new HttpError(500, "precos_query_failed", "falha ao consultar os precos da linha");
+      }
+      const page = (data as typeof precoRows | null) ?? [];
+      precoRows.push(...page);
+      if (page.length < PAGE) break;
     }
-    precoRows = (data as typeof precoRows | null) ?? [];
   }
 
   // Indexa precos por SKU e SKUs por Produto para montagem O(n).
