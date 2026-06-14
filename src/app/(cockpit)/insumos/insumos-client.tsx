@@ -62,7 +62,7 @@ export function InsumosClient() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(280px, 380px) 1fr",
+          gridTemplateColumns: "minmax(260px, 340px) 1fr",
           gap: 16,
           alignItems: "start",
         }}

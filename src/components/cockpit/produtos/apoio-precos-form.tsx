@@ -76,11 +76,6 @@ export function ApoioPrecosForm({ skuId }: { skuId: string }) {
         <span className="skel skel-line" style={{ width: "70%" }} />
       ) : (
         <>
-          <p style={{ margin: "0 0 14px", fontSize: "12.5px", color: "var(--faint)" }}>
-            Capturados manualmente para comparação. O preço final e o custo base
-            são calculados pelo motor e não são editáveis aqui.
-          </p>
-
           <div className="grid-fields" style={{ gridTemplateColumns: "1fr 1fr" }}>
             <div className="field" style={{ marginBottom: 0 }}>
               <label htmlFor="apoio-concorrencia">Preço concorrência</label>

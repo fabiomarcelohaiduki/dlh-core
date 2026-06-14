@@ -1879,6 +1879,46 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover,
 input[type="date"]::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
 }
+input[type="file"] {
+  width: 100%;
+  height: 40px;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+  transition: border-color 0.18s var(--ease-spring);
+}
+input[type="file"]:hover {
+  border-color: #34343f;
+}
+input[type="file"]::file-selector-button {
+  margin-right: 12px;
+  padding: 0 13px;
+  height: 30px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.18s var(--ease-spring), border-color 0.18s var(--ease-spring),
+    color 0.18s var(--ease-spring);
+}
+input[type="file"]::file-selector-button:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
 textarea {
   height: auto;
   padding: 10px 13px;

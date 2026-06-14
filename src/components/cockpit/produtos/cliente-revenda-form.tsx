@@ -104,21 +104,16 @@ export function ClienteRevendaForm({
         </div>
 
         {isEdit && (
-          <div className="field" style={{ justifyContent: "flex-end" }}>
-            <label className={cn("chk", ativo && "on")} style={{ height: 40 }}>
-              <input
-                type="checkbox"
-                checked={ativo}
-                onChange={(e) =>
-                  setValue("ativo", e.target.checked, { shouldDirty: true })
-                }
-              />
-              <div className="t">
-                Ativo
-                <small>Inativo deixa de receber novas faixas de preço.</small>
-              </div>
-            </label>
-          </div>
+          <label className="chk" style={{ alignSelf: "end" }}>
+            <input
+              type="checkbox"
+              checked={ativo}
+              onChange={(e) =>
+                setValue("ativo", e.target.checked, { shouldDirty: true })
+              }
+            />
+            <div className="t">Ativo</div>
+          </label>
         )}
       </div>
 

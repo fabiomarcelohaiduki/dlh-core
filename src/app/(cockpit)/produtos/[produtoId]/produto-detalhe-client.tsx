@@ -165,10 +165,6 @@ function ProdutoDetalhe({
               label={produto.ativo ? "Ativo" : "Inativo"}
             />
           </h2>
-          <p>
-            Atributos herdados do schema da Linha, condições comerciais, fotos,
-            SKUs e preços calculados.
-          </p>
         </div>
         <div className="actions" style={{ alignItems: "center" }}>
           {confirming ? (
@@ -282,6 +278,22 @@ function SkusSection({
       <div className="section-title">
         <h3>SKUs</h3>
         <span className="count">{skus.length}</span>
+        {!creating ? (
+          <button
+            type="button"
+            className="btn btn-sm btn-icon"
+            style={{ marginLeft: "auto" }}
+            onClick={() => {
+              setCreating(true);
+              setSelectedId(null);
+              setEditingId(null);
+            }}
+            aria-label="Novo SKU"
+            title="Novo SKU"
+          >
+            <Plus aria-hidden="true" />
+          </button>
+        ) : null}
       </div>
 
       <div className="card">
@@ -317,25 +329,7 @@ function SkusSection({
                 <tr>
                   <th>Código</th>
                   <th>Origem</th>
-                  <th style={{ width: 110 }}>
-                    {!creating ? (
-                      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-icon"
-                          onClick={() => {
-                            setCreating(true);
-                            setSelectedId(null);
-                            setEditingId(null);
-                          }}
-                          aria-label="Novo SKU"
-                          title="Novo SKU"
-                        >
-                          <Plus aria-hidden="true" />
-                        </button>
-                      </div>
-                    ) : null}
-                  </th>
+                  <th style={{ width: 110 }} aria-label="Ações" />
                 </tr>
               </thead>
               <tbody>

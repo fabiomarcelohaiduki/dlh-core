@@ -61,26 +61,23 @@ export function ClientesRevendaTable({
       <div className="section-title" style={{ margin: "0 0 14px" }}>
         <h3>Clientes de revenda</h3>
         <span className="count">{clientes.length}</span>
+        <button
+          type="button"
+          className="btn btn-sm btn-icon"
+          style={{ marginLeft: "auto" }}
+          onClick={onNew}
+          aria-label="Novo cliente"
+          title="Novo cliente"
+        >
+          <Plus aria-hidden="true" />
+        </button>
       </div>
       <div className="tbl-wrap">
         <table>
           <thead>
             <tr>
               <th>Cliente de revenda</th>
-              <th style={{ width: 100 }}>Status</th>
-              <th style={{ width: 56 }}>
-                <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-icon"
-                    onClick={onNew}
-                    aria-label="Novo cliente"
-                    title="Novo cliente"
-                  >
-                    <Plus aria-hidden="true" />
-                  </button>
-                </div>
-              </th>
+              <th style={{ width: 56 }} aria-label="Ações" />
             </tr>
           </thead>
           <tbody>
@@ -94,16 +91,13 @@ export function ClientesRevendaTable({
                   />
                 </td>
                 <td>
-                  <span className="skel skel-pill" />
-                </td>
-                <td>
                   <span className="skel skel-line" style={{ width: "40%" }} />
                 </td>
               </tr>
             ))
           ) : clientes.length === 0 ? (
             <tr>
-              <td colSpan={3}>
+              <td colSpan={2}>
                 <div className="empty">
                   <Store aria-hidden="true" />
                   <h4>Nenhum cliente de revenda</h4>
@@ -138,12 +132,12 @@ export function ClientesRevendaTable({
                   style={active ? { background: "var(--accent-soft)" } : undefined}
                 >
                   <td>
-                    <div className="cell-stack">
-                      <b style={{ fontSize: "13.5px" }}>{cliente.nome}</b>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <StatusPill state={desc.state} label={desc.label} iconOnly />
+                      <div className="cell-stack">
+                        <b style={{ fontSize: "13.5px" }}>{cliente.nome}</b>
+                      </div>
                     </div>
-                  </td>
-                  <td>
-                    <StatusPill state={desc.state} label={desc.label} />
                   </td>
                   <td>
                     <div

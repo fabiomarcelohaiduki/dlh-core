@@ -85,8 +85,7 @@ export function AtributosEditor(props: AtributosEditorProps) {
   const copy = isProduto
     ? {
         titulo: "Atributos do produto",
-        helper:
-          "Atributos próprios deste Produto, além dos herdados da Linha. Marque como obrigatório os que todo SKU/cotação deve informar.",
+        helper: "",
         emptyHelp:
           "Adicione abaixo características específicas deste Produto (que não valem para a linha inteira).",
         placeholder: "ex.: acabamento",
@@ -172,9 +171,11 @@ export function AtributosEditor(props: AtributosEditorProps) {
             : `${items.length} definidos`}
         </span>
       </div>
-      <p style={{ margin: "0 0 14px", fontSize: "12.5px", color: "var(--muted)" }}>
-        {copy.helper}
-      </p>
+      {copy.helper && (
+        <p style={{ margin: "0 0 14px", fontSize: "12.5px", color: "var(--muted)" }}>
+          {copy.helper}
+        </p>
+      )}
 
       {list.isLoading || herdadosLoading ? (
         <div className="tbl-wrap">

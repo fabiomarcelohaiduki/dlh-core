@@ -395,10 +395,9 @@ export function SkuForm({
             <strong className="tnum">
               {tempoPorUnidade == null
                 ? "—"
-                : `${tempoPorUnidade.toFixed(4)} h (${Math.round(tempoPorUnidade * 3600)} s)`}
+                : `${Math.round(tempoPorUnidade * 3600)} s · ${(tempoPorUnidade * 60).toFixed(2)} min`}
             </strong>
             {unidadeTempoW === "dia" && ` · ${horasPorDia} h/dia (jornada)`}
-            {" · derivado do lote (o motor recalcula no salvar)."}
           </div>
         </>
       )}

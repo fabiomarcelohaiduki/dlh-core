@@ -75,27 +75,23 @@ export function InsumosTable({
       <div className="section-title" style={{ margin: "0 0 14px" }}>
         <h3>Insumos</h3>
         <span className="count">{insumos.length}</span>
+        <button
+          type="button"
+          className="btn btn-sm btn-icon"
+          style={{ marginLeft: "auto" }}
+          onClick={onNew}
+          aria-label="Novo insumo"
+          title="Novo insumo"
+        >
+          <Plus aria-hidden="true" />
+        </button>
       </div>
       <div className="tbl-wrap">
         <table>
           <thead>
             <tr>
               <th>Insumo</th>
-              <th style={{ width: 90 }}>Unidade</th>
-              <th style={{ width: 100 }}>Status</th>
-              <th style={{ width: 56 }}>
-                <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-icon"
-                    onClick={onNew}
-                    aria-label="Novo insumo"
-                    title="Novo insumo"
-                  >
-                    <Plus aria-hidden="true" />
-                  </button>
-                </div>
-              </th>
+              <th style={{ width: 56 }} aria-label="Ações" />
             </tr>
           </thead>
           <tbody>
@@ -106,19 +102,13 @@ export function InsumosTable({
                   <span className="skel skel-line" style={{ width: `${55 + (i % 3) * 12}%` }} />
                 </td>
                 <td>
-                  <span className="skel skel-line" style={{ width: "60%" }} />
-                </td>
-                <td>
-                  <span className="skel skel-pill" />
-                </td>
-                <td>
                   <span className="skel skel-line" style={{ width: "40%" }} />
                 </td>
               </tr>
             ))
           ) : insumos.length === 0 ? (
             <tr>
-              <td colSpan={4}>
+              <td colSpan={2}>
                 <div className="empty">
                   <Package aria-hidden="true" />
                   <h4>Nenhum insumo cadastrado</h4>
@@ -148,14 +138,15 @@ export function InsumosTable({
                   style={active ? { background: "var(--accent-soft)" } : undefined}
                 >
                   <td>
-                    <div className="cell-stack">
-                      <b style={{ fontSize: "13.5px" }}>{insumo.nome}</b>
-                      <span className="sub">{categoriaLabel(insumo.categoria)}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <StatusPill state={desc.state} label={desc.label} iconOnly />
+                      <div className="cell-stack">
+                        <b style={{ fontSize: "13.5px" }}>{insumo.nome}</b>
+                        <span className="sub">
+                          {categoriaLabel(insumo.categoria)} · {insumo.unidade}
+                        </span>
+                      </div>
                     </div>
-                  </td>
-                  <td className="mono">{insumo.unidade}</td>
-                  <td>
-                    <StatusPill state={desc.state} label={desc.label} />
                   </td>
                   <td>
                     <div
