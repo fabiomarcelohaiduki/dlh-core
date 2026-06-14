@@ -58,6 +58,9 @@ const FUNCTION_SEGMENT = "produtos-catalogo";
 const CHUNK_ORIGEM = "produto";
 const CHUNK_TIPO = "produto-cotacao";
 
+// Bucket privado das imagens de Produto/SKU (mesmo de produtos-imagens).
+const PRODUTOS_BUCKET = "produtos";
+
 const PRODUTO_COLUMNS =
   "id, linha_id, nome, atributos, prazo_entrega, disponibilidade, pedido_minimo, ativo, created_at, updated_at";
 const SKU_COLUMNS =
@@ -430,6 +433,40 @@ async function deleteProduto(produtoId: string, email: string): Promise<Response
   }
   if ((count ?? 0) > 0) {
     throw new HttpError(409, "produto_com_skus", "Produto possui SKUs vinculados");
+  }
+
+  // Limpa os DERIVADOS proprios do Produto (existem so enquanto o produto
+  // existe, nao sao compartilhados): atributos proprios e imagens (Storage).
+  const { error: atributosError } = await db
+    .from("produto_atributos")
+    .delete()
+    .eq("produto_id", produtoId);
+  if (atributosError) {
+    throw new HttpError(500, "produto_atributos_delete_failed", "falha ao remover atributos do produto");
+  }
+
+  const { data: imagens, error: imagensError } = await db
+    .from("produto_imagens")
+    .select("storage_path")
+    .eq("produto_id", produtoId);
+  if (imagensError) {
+    throw new HttpError(500, "produto_imagens_read_failed", "falha ao ler imagens do produto");
+  }
+  if (imagens && imagens.length > 0) {
+    const paths = imagens
+      .map((i) => i.storage_path as string | null)
+      .filter((p): p is string => Boolean(p));
+    if (paths.length > 0) {
+      // Idempotente: remover do Storage nao falha se o objeto ja sumiu.
+      await db.storage.from(PRODUTOS_BUCKET).remove(paths);
+    }
+    const { error: imagensDelError } = await db
+      .from("produto_imagens")
+      .delete()
+      .eq("produto_id", produtoId);
+    if (imagensDelError) {
+      throw new HttpError(500, "produto_imagens_delete_failed", "falha ao remover imagens do produto");
+    }
   }
 
   await deleteRowById(db, {
@@ -820,6 +857,60 @@ async function updateSku(req: Request, skuId: string, email: string): Promise<Re
 
 async function deleteSku(skuId: string, email: string): Promise<Response> {
   const db = createServiceClient();
+
+  // Bloqueia (409) quando ha vinculos de NEGOCIO do usuario (FK ON DELETE
+  // RESTRICT): composicao, custo de aquisicao e precos de revenda. Estes
+  // representam decisao/dado do usuario e exigem remocao explicita antes.
+  for (const tabela of ["sku_composicao", "sku_custo_aquisicao", "revenda_precos"]) {
+    const { count, error } = await db
+      .from(tabela)
+      .select("id", { count: "exact", head: true })
+      .eq("sku_id", skuId);
+    if (error) {
+      throw new HttpError(500, "sku_vinculos_failed", "falha ao verificar vinculos do SKU");
+    }
+    if ((count ?? 0) > 0) {
+      throw new HttpError(
+        409,
+        "sku_com_vinculos",
+        "SKU possui vinculos (composicao/custo) e nao pode ser removido",
+      );
+    }
+  }
+
+  // Limpa os DERIVADOS do proprio SKU (gerados/anexados, sem decisao de
+  // negocio): precos calculados pelo motor IFP e imagens (objeto no Storage).
+  const { error: precosError } = await db
+    .from("sku_precos_calculados")
+    .delete()
+    .eq("sku_id", skuId);
+  if (precosError) {
+    throw new HttpError(500, "sku_precos_delete_failed", "falha ao remover precos calculados");
+  }
+
+  const { data: imagens, error: imagensError } = await db
+    .from("produto_imagens")
+    .select("storage_path")
+    .eq("sku_id", skuId);
+  if (imagensError) {
+    throw new HttpError(500, "sku_imagens_read_failed", "falha ao ler imagens do SKU");
+  }
+  if (imagens && imagens.length > 0) {
+    const paths = imagens
+      .map((i) => i.storage_path as string | null)
+      .filter((p): p is string => Boolean(p));
+    if (paths.length > 0) {
+      // Idempotente: remover do Storage nao falha se o objeto ja sumiu.
+      await db.storage.from(PRODUTOS_BUCKET).remove(paths);
+    }
+    const { error: imagensDelError } = await db
+      .from("produto_imagens")
+      .delete()
+      .eq("sku_id", skuId);
+    if (imagensDelError) {
+      throw new HttpError(500, "sku_imagens_delete_failed", "falha ao remover imagens do SKU");
+    }
+  }
 
   await deleteRowById(db, {
     table: "produto_skus",
