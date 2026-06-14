@@ -27,8 +27,8 @@ const ESCALARES: {
   { campo: "frete_pct", label: "Frete", suffix: "%" },
   { campo: "despesas_pct", label: "Despesas", suffix: "%" },
   { campo: "lucro_pct", label: "Lucro alvo", suffix: "%" },
-  { campo: "lucro_minimo_pct", label: "Lucro mín.", suffix: "%" },
-  { campo: "taxa_horaria", label: "Custo prod.", suffix: "R$/h" },
+  { campo: "lucro_minimo_pct", label: "Lucro mínimo", suffix: "%" },
+  { campo: "taxa_horaria", label: "Custo hora de produção (mão de obra + máquina)", suffix: "R$/h" },
 ];
 
 const REGIOES: { value: Regiao; label: string }[] = [
@@ -285,12 +285,7 @@ export function ParametrosForm({
                   const efetivo = resolvidos.data?.regional[r.value] ?? null;
                   return (
                     <tr key={r.value}>
-                      <td>
-                        <span className="mono">{r.value}</span>
-                        <span className="sub" style={{ marginLeft: 8 }}>
-                          {r.label}
-                        </span>
-                      </td>
+                      <td>{r.label}</td>
                       <td>
                         <div className="input-affix" style={{ maxWidth: 180 }}>
                           <input
