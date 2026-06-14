@@ -149,7 +149,7 @@ export function ComposicaoEditor({ skuId }: { skuId: string }) {
         <h3>Composição (BOM)</h3>
         <span className="count">{items.length} itens</span>
       </div>
-      <p style={{ margin: "0 0 14px", fontSize: "12.5px", color: "var(--muted)" }}>
+      <p className="helper" style={{ margin: "0 0 14px" }}>
         Materiais e quantidades que compõem o custo variável deste SKU fabricado.
         O motor multiplica cada quantidade pelo preço vigente do material.
       </p>
@@ -366,7 +366,7 @@ export function ComposicaoEditor({ skuId }: { skuId: string }) {
       {modo === "rendimento" && (
         <p
           className="helper"
-          style={{ marginTop: 8, fontSize: "12.5px", color: "var(--muted)" }}
+          style={{ marginTop: 8 }}
         >
           1 {unidadeMaterial} rende {rendNum != null && rendNum > 0 ? fmtNum(rendNum) : "N"}{" "}
           peça(s) → cada peça usa{" "}

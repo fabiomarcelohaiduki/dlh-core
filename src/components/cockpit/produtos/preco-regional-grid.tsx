@@ -45,12 +45,12 @@ const ESCALARES: { campo: ParametroEscalarCampo; label: string; suffix: string }
 function origemTag(origem: ParametroNivel): { label: string; cls: string } {
   switch (origem) {
     case "produto":
-      return { label: "PRODUTO", cls: "effecti" };
+      return { label: "PRODUTO", cls: "nivel-produto" };
     case "linha":
-      return { label: "LINHA", cls: "nomus" };
+      return { label: "LINHA", cls: "nivel-linha" };
     case "global":
     default:
-      return { label: "GLOBAL", cls: "" };
+      return { label: "GLOBAL", cls: "nivel-global" };
   }
 }
 
@@ -78,7 +78,7 @@ const chipStyle: CSSProperties = {
   gap: 2,
   padding: "8px 12px",
   border: "1px solid var(--border)",
-  borderRadius: 8,
+  borderRadius: "var(--r-md)",
   minWidth: 116,
 };
 

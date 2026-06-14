@@ -43,12 +43,12 @@ const REGIOES: { value: Regiao; label: string }[] = [
 function origemTag(origem: ParametroNivel): { label: string; cls: string } {
   switch (origem) {
     case "produto":
-      return { label: "PRODUTO", cls: "effecti" };
+      return { label: "PRODUTO", cls: "nivel-produto" };
     case "linha":
-      return { label: "LINHA", cls: "nomus" };
+      return { label: "LINHA", cls: "nivel-linha" };
     case "global":
     default:
-      return { label: "GLOBAL", cls: "" };
+      return { label: "GLOBAL", cls: "nivel-global" };
   }
 }
 

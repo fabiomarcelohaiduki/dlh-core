@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Circle, CircleCheck, Loader2, Plus, Trash2, TriangleAlert, X } from "lucide-react";
+import { Check, Loader2, Plus, Trash2, TriangleAlert, X } from "lucide-react";
+import { StatusPill } from "@/components/cockpit/status-pill";
 import {
   useCreateInsumoPreco,
   useDeleteInsumoPreco,
@@ -276,29 +277,9 @@ export function InsumoPrecosLoteForm({ insumo }: { insumo: Insumo }) {
                     </td>
                     <td style={{ textAlign: "center" }}>
                       {vigente ? (
-                        <span
-                          title="Vigente"
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            height: 30,
-                          }}
-                        >
-                          <CircleCheck size={20} aria-label="Vigente" style={{ color: "var(--ok)" }} />
-                        </span>
+                        <StatusPill state="ok" label="Vigente" />
                       ) : substituida ? (
-                        <span
-                          title="Substituída"
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            height: 30,
-                          }}
-                        >
-                          <Circle size={20} aria-label="Substituída" style={{ color: "var(--muted)" }} />
-                        </span>
+                        <StatusPill state="idle" label="Substituída" />
                       ) : (
                         <span style={{ color: "var(--faint)" }}>—</span>
                       )}
@@ -461,7 +442,7 @@ export function InsumoPrecosLoteForm({ insumo }: { insumo: Insumo }) {
           <span>Adicionar</span>
         </button>
       </div>
-      <div className="helper" style={{ marginTop: 8, fontSize: "12px", color: "var(--faint)" }}>
+      <div className="helper" style={{ marginTop: 8 }}>
         Deixe o fim em branco para uma vigência aberta. Preço atual:{" "}
         <span className="tnum">
           {formatCurrency(items.find((p) => isVigente(p, hoje))?.preco ?? null)}

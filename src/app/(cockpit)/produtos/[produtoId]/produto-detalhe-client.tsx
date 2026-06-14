@@ -244,7 +244,7 @@ function ProdutoDetalhe({
           onClick={() => setAba("skus")}
         >
           SKUs
-          <span className="count" style={{ marginLeft: 6 }}>
+          <span className="tnum" style={{ marginLeft: 6, opacity: 0.65 }}>
             {skus.length}
           </span>
         </button>

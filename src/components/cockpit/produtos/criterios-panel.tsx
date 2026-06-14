@@ -146,7 +146,7 @@ function DiretrizesBlock({
           </button>
         ) : null}
       </div>
-      <p style={{ margin: "0 0 14px", fontSize: "12px", lineHeight: 1.5, color: "var(--faint)" }}>
+      <p className="helper" style={{ margin: "0 0 14px" }}>
         Como cotar depois que a DLH decide entrar. Preferências de estratégia que
         a Lia segue ao montar o preço (não são travas).
       </p>
@@ -414,7 +414,7 @@ function PoliticaBlock({
       <div className="section-title" style={{ margin: "0 0 8px" }}>
         <h3>Política de participação</h3>
       </div>
-      <p style={{ margin: "0 0 14px", fontSize: "12px", lineHeight: 1.5, color: "var(--faint)" }}>
+      <p className="helper" style={{ margin: "0 0 14px" }}>
         Se a DLH entra ou não na licitação deste escopo (Sim / Não / Condicional)
         e por quê.
       </p>

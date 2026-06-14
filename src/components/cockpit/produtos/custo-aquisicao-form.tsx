@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, Circle, CircleCheck, Loader2, Plus, ShoppingCart, Trash2, TriangleAlert, X } from "lucide-react";
+import { Check, Loader2, Plus, ShoppingCart, Trash2, TriangleAlert, X } from "lucide-react";
+import { StatusPill } from "@/components/cockpit/status-pill";
 import {
   useCreateCustoAquisicao,
   useCustoAquisicaoHistorico,
@@ -115,7 +116,7 @@ export function CustoAquisicaoForm({ skuId }: { skuId: string }) {
         <h3>Custo de aquisição</h3>
         <span className="count">{items.length}</span>
       </div>
-      <p style={{ margin: "0 0 14px", fontSize: "12.5px", color: "var(--muted)" }}>
+      <p className="helper" style={{ margin: "0 0 14px" }}>
         SKU comprado: o custo variável vem do custo de aquisição vigente. Novas
         faixas preservam o histórico.
       </p>
@@ -177,29 +178,9 @@ export function CustoAquisicaoForm({ skuId }: { skuId: string }) {
                     </td>
                     <td style={{ textAlign: "center" }}>
                       {v ? (
-                        <span
-                          title="Vigente"
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            height: 30,
-                          }}
-                        >
-                          <CircleCheck size={20} aria-label="Vigente" style={{ color: "var(--ok)" }} />
-                        </span>
+                        <StatusPill state="ok" label="Vigente" />
                       ) : substituida ? (
-                        <span
-                          title="Substituída"
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            height: 30,
-                          }}
-                        >
-                          <Circle size={20} aria-label="Substituída" style={{ color: "var(--muted)" }} />
-                        </span>
+                        <StatusPill state="idle" label="Substituída" />
                       ) : (
                         <span style={{ color: "var(--faint)" }}>—</span>
                       )}
@@ -323,7 +304,7 @@ export function CustoAquisicaoForm({ skuId }: { skuId: string }) {
           <span>Adicionar</span>
         </button>
       </div>
-      <p style={{ margin: "8px 0 0", fontSize: "12.5px", color: "var(--muted)" }}>
+      <p className="helper" style={{ margin: "8px 0 0" }}>
         Deixe o fim em branco para uma vigência aberta.
       </p>
       {erro && (

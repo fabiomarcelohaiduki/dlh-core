@@ -56,7 +56,7 @@ function PrecoCelula({ cell }: { cell: TabelaPrecoCelula | undefined }) {
         <span className="tnum">{formatCurrency(cell.valor)}</span>
         <span
           className="sub tnum"
-          style={{ fontSize: "11px", color: "var(--faint)" }}
+          style={{ fontSize: "11px" }}
         >
           IFP {cell.ifp == null ? "—" : IFP_FMT.format(cell.ifp)}
         </span>
