@@ -11,6 +11,7 @@ import type {
   Regiao,
   TabelaPrecoCelula,
   TabelaPrecoConsolidada,
+  TabelaPrecoSku,
 } from "@/lib/api/types";
 
 const REGIAO_LABEL: Record<Regiao, string> = {
@@ -72,6 +73,63 @@ function fob(precos: TabelaPrecoCelula[]): number | null {
     (x) => x.patamar === "FOB" && x.estado === "vigente" && x.valor != null,
   );
   return c?.valor ?? null;
+}
+
+/**
+ * Preco-base do SKU para ordenacao crescente: FOB; na falta dele, o menor CIF
+ * vigente (alvo ou minimo) entre as regioes; sem nenhum preco vai para o fim.
+ */
+function precoOrdenacao(precos: TabelaPrecoCelula[]): number {
+  const f = fob(precos);
+  if (f != null) return f;
+  let menor = Infinity;
+  for (const c of precos) {
+    if (
+      c.estado === "vigente" &&
+      c.valor != null &&
+      (c.patamar === "CIF_ALVO" || c.patamar === "CIF_MINIMO") &&
+      c.valor < menor
+    ) {
+      menor = c.valor;
+    }
+  }
+  return menor;
+}
+
+/**
+ * Familia/tipo do SKU: o codigo sem o ultimo segmento (o tamanho/dimensao).
+ * Ex.: PRATO-ESP-ALV-30X40 -> PRATO-ESP-ALV. Codigos sem hifen (ex.: linha
+ * Tecido, por metro) ficam inteiros. Serve para manter as variantes de um
+ * mesmo tipo agrupadas em vez de intercala-las quando ordenadas por preco.
+ */
+function familiaSku(codigo: string): string {
+  const i = codigo.lastIndexOf("-");
+  return i > 0 ? codigo.slice(0, i) : codigo;
+}
+
+/**
+ * Ordena os SKUs em dois niveis: agrupa por familia (mesmo tipo de tecido,
+ * disco, etc.), ordena as familias pela mais barata e, dentro de cada uma,
+ * por preco crescente. Onde nao ha intercalacao entre familias o resultado e
+ * identico a uma ordenacao simples por preco — so a Tecelagem (varios tipos
+ * por produto) muda de fato.
+ */
+function ordenarSkus(skus: TabelaPrecoSku[]): TabelaPrecoSku[] {
+  const grupos = new Map<string, { min: number; itens: TabelaPrecoSku[] }>();
+  for (const s of skus) {
+    const fam = familiaSku(s.codigo_sku);
+    const preco = precoOrdenacao(s.precos);
+    const g = grupos.get(fam) ?? { min: Infinity, itens: [] };
+    g.itens.push(s);
+    if (preco < g.min) g.min = preco;
+    grupos.set(fam, g);
+  }
+  const out: TabelaPrecoSku[] = [];
+  for (const [, g] of [...grupos.entries()].sort((a, b) => a[1].min - b[1].min)) {
+    g.itens.sort((a, b) => precoOrdenacao(a.precos) - precoOrdenacao(b.precos));
+    out.push(...g.itens);
+  }
+  return out;
 }
 
 /**
@@ -329,7 +387,7 @@ function FragmentProduto({
           </div>
         </td>
       </tr>
-      {skus.map((sku) => {
+      {ordenarSkus(skus).map((sku) => {
         const cells = indexar(sku.precos);
         return (
           <tr key={sku.sku_id}>
