@@ -831,6 +831,25 @@ export interface TabelaPrecoConsolidada {
   produtos: TabelaPrecoProduto[];
 }
 
+/**
+ * config_empresa — dados institucionais da DLH (singleton) usados no
+ * cabecalho/rodape da Tabela de Precos em PDF. Contrato camelCase. A logo e
+ * uma data URL base64 de imagem (sem bucket de Storage).
+ */
+export interface ConfigEmpresa {
+  razaoSocial: string | null;
+  nomeFantasia: string | null;
+  cnpj: string | null;
+  inscricaoEstadual: string | null;
+  endereco: string | null;
+  telefone: string | null;
+  email: string | null;
+  site: string | null;
+  logoBase64: string | null;
+  validadePadraoDias: number;
+  observacaoRodape: string | null;
+}
+
 // ---------------------------------------------------------------------
 // Dominio E — Diretrizes/regras de cotacao e politica de participacao
 // ---------------------------------------------------------------------

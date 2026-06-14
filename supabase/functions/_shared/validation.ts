@@ -1335,6 +1335,50 @@ export const precoApoioSchema = z
 
 export type PrecoApoioInput = z.infer<typeof precoApoioSchema>;
 
+// ---------------------------------------------------------------------
+// Schema: dados institucionais da empresa (PUT /config-empresa).
+// Singleton config_empresa, usado no cabecalho/rodape da tabela de precos
+// em PDF. Todos os campos opcionais (preenchimento incremental pelo
+// cockpit). A logo e uma data URL base64 de imagem (sem bucket).
+// ---------------------------------------------------------------------
+const empresaTexto = (campo: string, max: number) =>
+  z
+    .string({ invalid_type_error: `${campo} deve ser string` })
+    .trim()
+    .max(max, `${campo} muito longo`)
+    .nullish();
+
+export const configEmpresaSchema = z
+  .object({
+    razaoSocial: empresaTexto("razaoSocial", 200),
+    nomeFantasia: empresaTexto("nomeFantasia", 200),
+    cnpj: empresaTexto("cnpj", 40),
+    inscricaoEstadual: empresaTexto("inscricaoEstadual", 40),
+    endereco: empresaTexto("endereco", 400),
+    telefone: empresaTexto("telefone", 60),
+    email: empresaTexto("email", 160),
+    site: empresaTexto("site", 200),
+    logoBase64: z
+      .string({ invalid_type_error: "logoBase64 deve ser string" })
+      .trim()
+      .max(2_000_000, "logo muito grande (max ~1.5 MB)")
+      .regex(
+        /^data:image\/(png|jpe?g|svg\+xml|webp);base64,/,
+        "logo deve ser uma data URL de imagem (png, jpeg, svg ou webp)",
+      )
+      .nullish(),
+    validadePadraoDias: z
+      .number({ invalid_type_error: "validadePadraoDias deve ser numero" })
+      .int("validadePadraoDias deve ser inteiro")
+      .min(0, "validadePadraoDias deve ser >= 0")
+      .max(3650, "validadePadraoDias excede o teto (10 anos)")
+      .nullish(),
+    observacaoRodape: empresaTexto("observacaoRodape", 1000),
+  })
+  .strict();
+
+export type ConfigEmpresaInput = z.infer<typeof configEmpresaSchema>;
+
 /**
  * Valida dados ja desserializados (ex.: metadados de multipart/form-data) com
  * um schema zod. Espelha a semantica do parseJsonBody (400 validation_error

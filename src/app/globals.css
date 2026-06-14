@@ -523,12 +523,18 @@ button {
      mesma linguagem fisica usinada dos cards, sem peso de sombra. */
   box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.018);
 }
+.side > nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
 .side-head {
   padding: 18px 18px 14px;
   display: flex;
   align-items: center;
   gap: 10px;
   border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
 }
 .side-head .glyph {
   width: 30px;
@@ -652,6 +658,7 @@ button {
   margin-top: auto;
   border-top: 1px solid var(--border-soft);
   padding: 12px;
+  flex-shrink: 0;
 }
 .user-row {
   display: flex;

@@ -11,6 +11,7 @@ import {
   Package,
   SlidersHorizontal,
   Store,
+  Building2,
 } from "lucide-react";
 
 export type NavItem = {
@@ -71,6 +72,12 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: FileCog,
       },
       { id: "nav-api", label: "API LLM-ready", href: "/api", icon: Braces },
+      {
+        id: "nav-configuracoes-empresa",
+        label: "Configurações da empresa",
+        href: "/configuracoes-empresa",
+        icon: Building2,
+      },
     ],
   },
 ];
@@ -84,6 +91,7 @@ export const SCREEN_TITLES: Record<string, string> = {
   "/fontes": "Fontes e credenciais",
   "/extracao-config": "Parâmetros de extração",
   "/api": "API LLM-ready",
+  "/configuracoes-empresa": "Configurações da empresa",
   "/produtos": "Linha de produtos",
   "/insumos": "Materiais",
   "/parametros-custo": "Parâmetros de custo",
