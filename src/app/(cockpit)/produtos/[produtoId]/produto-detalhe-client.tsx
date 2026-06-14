@@ -26,7 +26,10 @@ import { FotosUploader } from "@/components/cockpit/produtos/fotos-uploader";
 import { PrecoRegionalGrid } from "@/components/cockpit/produtos/preco-regional-grid";
 import { ApoioPrecosForm } from "@/components/cockpit/produtos/apoio-precos-form";
 import { CriteriosPanel } from "@/components/cockpit/produtos/criterios-panel";
+import { cn } from "@/lib/utils";
 import type { AtributoSchema, ProdutoDetalhe, ProdutoSku } from "@/lib/api/types";
+
+type Aba = "produto" | "skus";
 
 function BackToProdutos({ router }: { router: ReturnType<typeof useRouter> }) {
   return (
@@ -138,6 +141,7 @@ function ProdutoDetalhe({
   const deleteProduto = useDeleteProduto();
   const [confirming, setConfirming] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [aba, setAba] = useState<Aba>("produto");
 
   async function onConfirmDelete() {
     setErro(null);
@@ -215,24 +219,57 @@ function ProdutoDetalhe({
         </div>
       )}
 
-      <ProdutoForm linhaId={produto.linha_id} schema={linhaSchema} produto={produto} />
-
-      <div style={{ marginTop: 24 }}>
-        <AtributosEditor scope="produto" produtoId={produto.id} linhaId={produto.linha_id} />
+      <div
+        className="filter-group segmented"
+        role="tablist"
+        aria-label="Seção do produto"
+        style={{ display: "inline-flex", margin: "4px 0 16px" }}
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={aba === "produto"}
+          className={cn("btn", "btn-sm", aba === "produto" && "btn-primary")}
+          onClick={() => setAba("produto")}
+        >
+          Produto
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={aba === "skus"}
+          className={cn("btn", "btn-sm", aba === "skus" && "btn-primary")}
+          onClick={() => setAba("skus")}
+        >
+          SKUs
+          <span className="count" style={{ marginLeft: 6 }}>
+            {skus.length}
+          </span>
+        </button>
       </div>
 
-      <SkusSection
-        produtoId={produto.id}
-        schema={atributos_schema}
-        produtoAtributos={produto.atributos}
-        skus={skus}
-      />
+      {aba === "produto" ? (
+        <>
+          <ProdutoForm linhaId={produto.linha_id} schema={linhaSchema} produto={produto} />
 
-      <div className="section-title">
-        <h3>Critérios de cotação do Produto</h3>
-        <span className="count">nível produto</span>
-      </div>
-      <CriteriosPanel nivel="produto" escopoId={produto.id} />
+          <div style={{ marginTop: 24 }}>
+            <AtributosEditor scope="produto" produtoId={produto.id} linhaId={produto.linha_id} />
+          </div>
+
+          <div className="section-title">
+            <h3>Critérios de cotação do Produto</h3>
+            <span className="count">nível produto</span>
+          </div>
+          <CriteriosPanel nivel="produto" escopoId={produto.id} />
+        </>
+      ) : (
+        <SkusSection
+          produtoId={produto.id}
+          schema={atributos_schema}
+          produtoAtributos={produto.atributos}
+          skus={skus}
+        />
+      )}
     </section>
   );
 }
