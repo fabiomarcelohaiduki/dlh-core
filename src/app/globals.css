@@ -2445,7 +2445,10 @@ select:focus {
    mostra o documento como ficara impresso/no PDF. */
 .print-doc {
   background: #e9eaec;
-  min-height: 100vh;
+  /* rola na tela: o shell global usa overflow:hidden no body, entao o proprio
+     documento precisa ser a area rolavel (a impressao reseta para height:auto). */
+  height: 100vh;
+  overflow-y: auto;
   padding: 24px 16px 60px;
   color: #1a1a1a;
 }
@@ -2622,7 +2625,9 @@ select:focus {
   .print-doc {
     background: #fff !important;
     padding: 0;
+    height: auto;
     min-height: 0;
+    overflow: visible;
   }
   .print-toolbar {
     display: none;
