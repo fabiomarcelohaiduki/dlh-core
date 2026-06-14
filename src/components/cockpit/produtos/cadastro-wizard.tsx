@@ -88,7 +88,7 @@ export function CadastroWizard() {
             onClick={() => router.push("/produtos")}
           >
             <ChevronLeft aria-hidden="true" />
-            Voltar a Linhas &amp; Produtos
+            Voltar a Linha de produtos
           </button>
           <h2>Cadastro guiado</h2>
           <p>

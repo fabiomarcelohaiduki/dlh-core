@@ -37,7 +37,7 @@ function BackToProdutos({ router }: { router: ReturnType<typeof useRouter> }) {
       onClick={() => router.push("/produtos")}
     >
       <ChevronLeft aria-hidden="true" />
-      Voltar a Linhas &amp; Produtos
+      Voltar a Linha de produtos
     </button>
   );
 }

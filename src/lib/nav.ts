@@ -48,7 +48,7 @@ export const NAV_GROUPS: NavGroup[] = [
     id: "produtos",
     label: "Produtos",
     items: [
-      { id: "nav-produtos", label: "Linhas & Produtos", href: "/produtos", icon: Layers },
+      { id: "nav-produtos", label: "Linha de produtos", href: "/produtos", icon: Layers },
       { id: "nav-insumos", label: "Lista de Materiais", href: "/insumos", icon: Package },
       {
         id: "nav-parametros-custo",
@@ -84,7 +84,7 @@ export const SCREEN_TITLES: Record<string, string> = {
   "/fontes": "Fontes e credenciais",
   "/extracao-config": "Parâmetros de extração",
   "/api": "API LLM-ready",
-  "/produtos": "Linhas & Produtos",
+  "/produtos": "Linha de produtos",
   "/insumos": "Materiais",
   "/parametros-custo": "Parâmetros de custo",
   "/revenda": "Revenda",
