@@ -216,6 +216,22 @@ async function upsertRegional(req: Request, email: string): Promise<Response> {
       throw new HttpError(500, "regional_query_failed", "falha ao consultar vetor regional");
     }
 
+    // percentual null = herdar do nivel acima: remove o override (a coluna e
+    // NOT NULL, entao "herdar" = ausencia de linha; o motor resolve por
+    // coalesce produto->linha->global). Sem linha existente, nada a fazer.
+    if (item.percentual == null) {
+      if (existing) {
+        const { error } = await db
+          .from("parametro_regional")
+          .delete()
+          .eq("id", existing.id);
+        if (error) {
+          throw new HttpError(500, "regional_delete_failed", "falha ao limpar vetor regional");
+        }
+      }
+      continue;
+    }
+
     if (existing) {
       const { error } = await db
         .from("parametro_regional")

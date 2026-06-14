@@ -1282,12 +1282,15 @@ export type ParametrosUpsertInput = z.infer<typeof parametrosUpsertSchema>;
 export const parametroRegionalItemSchema = z
   .object({
     regiao: regiaoEnum,
+    // null = herdar do nivel acima (simetrico aos escalares; o handler grava
+    // null e resolveRegiao trata null como heranca).
     percentual: z
       .number({
         required_error: "percentual e obrigatorio",
         invalid_type_error: "percentual deve ser numero",
       })
-      .finite("percentual deve ser finito"),
+      .finite("percentual deve ser finito")
+      .nullable(),
   })
   .strict();
 
