@@ -68,6 +68,9 @@ html,
 body {
   margin: 0;
   height: 100%;
+  /* O scroll do conteudo vive em .main (overflow-y:auto); travar o documento
+     evita a segunda barra de rolagem (a do body) sobre a do .main. */
+  overflow: hidden;
 }
 body {
   background: var(--bg);
