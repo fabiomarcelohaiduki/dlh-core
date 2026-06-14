@@ -339,10 +339,10 @@ function StepCusto({
         <p style={{ margin: 0, fontSize: "12.5px", color: "var(--muted)" }}>
           {fabricado ? (
             <>
-              Monte a composição (BOM) do SKU. Os insumos vêm do cadastro de
-              insumos —{" "}
+              Monte a composição (BOM) do SKU. Os materiais vêm do cadastro de
+              materiais —{" "}
               <Link href="/insumos" className="link" style={{ display: "inline" }}>
-                gerenciar insumos
+                gerenciar materiais
               </Link>
               . O custo e o preço recalculam automaticamente a cada item.
             </>

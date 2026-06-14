@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, Package, Plus, TriangleAlert } from "lucide-react";
+import { ChevronRight, Package, Plus, Search, TriangleAlert } from "lucide-react";
 import type { Insumo, InsumoCategoria } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { StatusPill } from "@/components/cockpit/status-pill";
@@ -34,6 +34,9 @@ function ativoDescriptor(ativo: boolean) {
  */
 export function InsumosTable({
   insumos,
+  totalCadastrados = 0,
+  busca = "",
+  onBuscaChange,
   loading = false,
   isError = false,
   onRetry,
@@ -43,6 +46,11 @@ export function InsumosTable({
   onEdit,
 }: {
   insumos: Insumo[];
+  /** Total de insumos cadastrados (antes do filtro de busca). */
+  totalCadastrados?: number;
+  /** Termo de busca controlado pelo pai (filtro client-side por nome). */
+  busca?: string;
+  onBuscaChange?: (value: string) => void;
   loading?: boolean;
   isError?: boolean;
   onRetry?: () => void;
@@ -73,24 +81,49 @@ export function InsumosTable({
   return (
     <div className="card">
       <div className="section-title" style={{ margin: "0 0 14px" }}>
-        <h3>Insumos</h3>
+        <h3>Materiais</h3>
         <span className="count">{insumos.length}</span>
         <button
           type="button"
           className="btn btn-sm btn-icon"
           style={{ marginLeft: "auto" }}
           onClick={onNew}
-          aria-label="Novo insumo"
-          title="Novo insumo"
+          aria-label="Novo material"
+          title="Novo material"
         >
           <Plus aria-hidden="true" />
         </button>
       </div>
+      {onBuscaChange && (totalCadastrados > 0 || busca) && (
+        <div style={{ position: "relative", margin: "0 0 12px" }}>
+          <Search
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              left: 11,
+              top: "50%",
+              transform: "translateY(-50%)",
+              width: 15,
+              height: 15,
+              color: "var(--muted)",
+              pointerEvents: "none",
+            }}
+          />
+          <input
+            type="text"
+            value={busca}
+            onChange={(e) => onBuscaChange(e.target.value)}
+            placeholder="Buscar material…"
+            aria-label="Buscar material por nome"
+            style={{ width: "100%", paddingLeft: 34 }}
+          />
+        </div>
+      )}
       <div className="tbl-wrap">
         <table>
           <thead>
             <tr>
-              <th>Insumo</th>
+              <th>Material</th>
               <th style={{ width: 56 }} aria-label="Ações" />
             </tr>
           </thead>
@@ -109,20 +142,31 @@ export function InsumosTable({
           ) : insumos.length === 0 ? (
             <tr>
               <td colSpan={2}>
-                <div className="empty">
-                  <Package aria-hidden="true" />
-                  <h4>Nenhum insumo cadastrado</h4>
-                  <p>
-                    Os insumos (matéria-prima, embalagem) compõem a BOM dos SKUs
-                    fabricados. Cadastre o primeiro para registrar preços.
-                  </p>
-                  <div style={{ marginTop: 16 }}>
-                    <button type="button" className="btn btn-sm btn-primary" onClick={onNew}>
-                      <Plus aria-hidden="true" />
-                      <span>Novo insumo</span>
-                    </button>
+                {busca ? (
+                  <div className="empty">
+                    <Search aria-hidden="true" />
+                    <h4>Nenhum material encontrado</h4>
+                    <p>
+                      Nenhum material corresponde a “{busca}”. Ajuste ou limpe a
+                      busca.
+                    </p>
                   </div>
-                </div>
+                ) : (
+                  <div className="empty">
+                    <Package aria-hidden="true" />
+                    <h4>Nenhum material cadastrado</h4>
+                    <p>
+                      Os materiais (matéria-prima, embalagem, insumo) compõem a BOM
+                      dos SKUs fabricados. Cadastre o primeiro para registrar preços.
+                    </p>
+                    <div style={{ marginTop: 16 }}>
+                      <button type="button" className="btn btn-sm btn-primary" onClick={onNew}>
+                        <Plus aria-hidden="true" />
+                        <span>Novo material</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </td>
             </tr>
           ) : (

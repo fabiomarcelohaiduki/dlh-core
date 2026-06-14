@@ -17,7 +17,7 @@ const CATEGORIAS: { value: InsumoCategoria; label: string }[] = [
 ];
 
 const insumoSchema = z.object({
-  nome: z.string().trim().min(1, "Informe o nome do insumo."),
+  nome: z.string().trim().min(1, "Informe o nome do material."),
   categoria: z.enum(["MP", "embalagem", "insumo"]),
   unidade: z.string().trim().min(1, "Informe a unidade (ex.: kg, un, m)."),
   ativo: z.boolean(),
@@ -88,10 +88,10 @@ export function InsumoForm({
     } catch (err) {
       setApiError(
         err instanceof ApiError && err.status === 409
-          ? "Já existe um insumo com este nome."
+          ? "Já existe um material com este nome."
           : err instanceof ApiError && err.status === 400
-            ? "Dados inválidos: revise os campos do insumo."
-            : "Não foi possível salvar o insumo. Tente novamente.",
+            ? "Dados inválidos: revise os campos do material."
+            : "Não foi possível salvar o material. Tente novamente.",
       );
     }
   }
@@ -99,7 +99,7 @@ export function InsumoForm({
   return (
     <form className="card form-card--wide" onSubmit={handleSubmit(onSubmit)} noValidate>
       <div className="section-title" style={{ margin: "0 0 16px" }}>
-        <h3>{isEdit ? "Editar insumo" : "Novo insumo"}</h3>
+        <h3>{isEdit ? "Editar material" : "Novo material"}</h3>
       </div>
 
       <div className="grid-fields">
@@ -114,7 +114,7 @@ export function InsumoForm({
           />
           <div className="err-msg">
             <TriangleAlert aria-hidden="true" />
-            {errors.nome?.message ?? "Informe o nome do insumo."}
+            {errors.nome?.message ?? "Informe o nome do material."}
           </div>
         </div>
 
@@ -165,7 +165,7 @@ export function InsumoForm({
           ) : (
             <Check aria-hidden="true" />
           )}
-          <span>{pending ? "Salvando…" : isEdit ? "Salvar insumo" : "Criar insumo"}</span>
+          <span>{pending ? "Salvando…" : isEdit ? "Salvar material" : "Criar material"}</span>
         </button>
         {onCancel && (
           <button className="btn" type="button" onClick={onCancel} disabled={pending}>
@@ -215,7 +215,7 @@ export function InsumoForm({
                 disabled={pending}
               >
                 <Trash2 aria-hidden="true" />
-                <span>Excluir insumo</span>
+                <span>Excluir material</span>
               </button>
             )}
           </div>

@@ -69,7 +69,7 @@ export function ComposicaoEditor({ skuId }: { skuId: string }) {
   async function onAdd() {
     setErro(null);
     if (!insumoId) {
-      setErro("Selecione um insumo.");
+      setErro("Selecione um material.");
       return;
     }
     const qtd = toNumber(quantidade);
@@ -92,9 +92,9 @@ export function ComposicaoEditor({ skuId }: { skuId: string }) {
     } catch (err) {
       setErro(
         err instanceof ApiError && err.status === 409
-          ? "Este insumo já está na composição."
+          ? "Este material já está na composição."
           : err instanceof ApiError && err.status === 400
-            ? "Dados inválidos: revise insumo e quantidade."
+            ? "Dados inválidos: revise material e quantidade."
             : "Não foi possível adicionar o item. Tente novamente.",
       );
     }
@@ -119,8 +119,8 @@ export function ComposicaoEditor({ skuId }: { skuId: string }) {
         <span className="count">{items.length} itens</span>
       </div>
       <p style={{ margin: "0 0 14px", fontSize: "12.5px", color: "var(--muted)" }}>
-        Insumos e quantidades que compõem o custo variável deste SKU fabricado.
-        O motor multiplica cada quantidade pelo preço vigente do insumo.
+        Materiais e quantidades que compõem o custo variável deste SKU fabricado.
+        O motor multiplica cada quantidade pelo preço vigente do material.
       </p>
 
       {composicao.isLoading ? (
@@ -145,7 +145,7 @@ export function ComposicaoEditor({ skuId }: { skuId: string }) {
           <Boxes aria-hidden="true" />
           <h4>Composição vazia</h4>
           <p>
-            Adicione insumos abaixo. Sem composição (ou com insumo sem preço
+            Adicione materiais abaixo. Sem composição (ou com material sem preço
             vigente), o SKU fica em estado de erro de cálculo.
           </p>
         </div>
@@ -154,7 +154,7 @@ export function ComposicaoEditor({ skuId }: { skuId: string }) {
           <table>
             <thead>
               <tr>
-                <th>Insumo</th>
+                <th>Material</th>
                 <th style={{ width: 140 }}>Quantidade</th>
                 <th style={{ width: 90 }}>Unidade</th>
                 <th style={{ width: 60 }} />
@@ -168,7 +168,7 @@ export function ComposicaoEditor({ skuId }: { skuId: string }) {
                     <td>
                       <div className="cell-stack">
                         <b style={{ fontSize: "13.5px" }}>
-                          {insumo?.nome ?? "Insumo removido"}
+                          {insumo?.nome ?? "Material removido"}
                         </b>
                         {insumo ? (
                           <span className="sub">
@@ -208,7 +208,7 @@ export function ComposicaoEditor({ skuId }: { skuId: string }) {
         style={{ gridTemplateColumns: "1fr 140px 110px auto", alignItems: "end", marginTop: 16, gap: 12 }}
       >
         <div className="field" style={{ marginBottom: 0 }}>
-          <label htmlFor="comp-insumo">Insumo</label>
+          <label htmlFor="comp-insumo">Material</label>
           <select
             id="comp-insumo"
             value={insumoId}
@@ -222,8 +222,8 @@ export function ComposicaoEditor({ skuId }: { skuId: string }) {
           >
             <option value="">
               {selecionaveis.length === 0
-                ? "Nenhum insumo ativo disponível"
-                : "Selecione um insumo…"}
+                ? "Nenhum material ativo disponível"
+                : "Selecione um material…"}
             </option>
             {selecionaveis.map((i) => (
               <option key={i.id} value={i.id}>

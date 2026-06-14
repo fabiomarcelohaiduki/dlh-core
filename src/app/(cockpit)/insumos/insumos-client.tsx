@@ -6,11 +6,8 @@ import { useDeleteInsumo, useInsumos } from "@/hooks/use-insumos";
 import { useProdutos } from "@/hooks/use-produtos";
 import { useProduto } from "@/hooks/use-produto";
 import { ApiError } from "@/lib/api/client";
-import { StatusPill } from "@/components/cockpit/status-pill";
-import {
-  InsumosTable,
-  categoriaLabel,
-} from "@/components/cockpit/produtos/insumos-table";
+import { cn } from "@/lib/utils";
+import { InsumosTable } from "@/components/cockpit/produtos/insumos-table";
 import { InsumoForm } from "@/components/cockpit/produtos/insumo-form";
 import { InsumoPrecosLoteForm } from "@/components/cockpit/produtos/insumo-precos-lote-form";
 import { ComposicaoEditor } from "@/components/cockpit/produtos/composicao-editor";
@@ -18,19 +15,29 @@ import { CustoAquisicaoForm } from "@/components/cockpit/produtos/custo-aquisica
 import type { Insumo } from "@/lib/api/types";
 
 type FormMode = "none" | "new" | "edit";
+type Aba = "insumos" | "custo";
 
 /**
- * Tela /insumos: dois blocos. (1) Catálogo de insumos (master-detail): lista os
- * insumos e, ao selecionar, abre os preços de fornecedor com vigência e edição
- * em lote. (2) Custo dos SKUs: escolhe um Produto e um SKU e abre a composição
- * (BOM, fabricado) ou o custo de aquisição (comprado), conforme tipo_origem.
+ * Tela /insumos: duas abas. (1) Insumos & Preços (master-detail): lista os
+ * insumos com busca por nome e, ao selecionar, abre os preços de fornecedor com
+ * vigência e edição em lote. (2) Custo dos SKUs: escolhe um Produto e um SKU e
+ * abre a composição (BOM, fabricado) ou o custo de aquisição (comprado),
+ * conforme tipo_origem. As abas separam as duas tarefas para a lista de insumos
+ * crescer sem enterrar o bloco de custo.
  */
 export function InsumosClient() {
   const insumos = useInsumos({ limit: 500 });
+  const [aba, setAba] = useState<Aba>("insumos");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<FormMode>("none");
+  const [busca, setBusca] = useState("");
 
   const items = useMemo(() => insumos.data?.items ?? [], [insumos.data]);
+  const filtrados = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((i) => i.nome.toLowerCase().includes(q));
+  }, [items, busca]);
   const selected = useMemo(
     () => items.find((i) => i.id === selectedId) ?? null,
     [items, selectedId],
@@ -50,105 +57,113 @@ export function InsumosClient() {
     <section className="screen">
       <div className="page-head">
         <div className="titles">
-          <h2>Insumos &amp; Preços</h2>
+          <h2>Materiais</h2>
           <p>
-            Cadastre insumos e mantenha os preços de fornecedor com vigência.
-            Abaixo, monte a composição (BOM) dos SKUs fabricados ou o custo de
-            aquisição dos comprados — toda escrita recalcula os preços afetados.
+            Cadastre materiais e mantenha os preços de fornecedor com vigência. Na
+            aba Custo dos SKUs, monte a composição (BOM) dos fabricados ou o custo
+            de aquisição dos comprados — toda escrita recalcula os preços
+            afetados.
           </p>
         </div>
       </div>
 
       <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(260px, 340px) 1fr",
-          gap: 16,
-          alignItems: "start",
-        }}
+        className="filter-group segmented"
+        role="tablist"
+        aria-label="Seção"
+        style={{ display: "inline-flex", margin: "0 0 16px" }}
       >
-        <InsumosTable
-          insumos={items}
-          loading={insumos.isLoading}
-          isError={insumos.isError}
-          onRetry={() => insumos.refetch()}
-          selectedId={selectedId}
-          onSelect={onSelect}
-          onNew={onNew}
-          onEdit={(insumo) => {
-            setSelectedId(insumo.id);
-            setFormMode("edit");
+        <button
+          type="button"
+          role="tab"
+          aria-selected={aba === "insumos"}
+          className={cn("btn", "btn-sm", aba === "insumos" && "btn-primary")}
+          onClick={() => setAba("insumos")}
+        >
+          Cadastro
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={aba === "custo"}
+          className={cn("btn", "btn-sm", aba === "custo" && "btn-primary")}
+          onClick={() => setAba("custo")}
+        >
+          Custo dos SKUs
+        </button>
+      </div>
+
+      {aba === "insumos" ? (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(300px, 400px) 1fr",
+            gap: 16,
+            alignItems: "start",
           }}
-        />
+        >
+          <InsumosTable
+            insumos={filtrados}
+            totalCadastrados={items.length}
+            busca={busca}
+            onBuscaChange={setBusca}
+            loading={insumos.isLoading}
+            isError={insumos.isError}
+            onRetry={() => insumos.refetch()}
+            selectedId={selectedId}
+            onSelect={onSelect}
+            onNew={onNew}
+            onEdit={(insumo) => {
+              setSelectedId(insumo.id);
+              setFormMode("edit");
+            }}
+          />
 
-        <div style={{ display: "grid", gap: 16 }}>
-          {formMode === "new" ? (
-            <InsumoForm
-              onSuccess={(insumo) => {
-                setSelectedId(insumo.id);
-                setFormMode("none");
-              }}
-              onCancel={() => setFormMode("none")}
-            />
-          ) : formMode === "edit" && selected ? (
-            <InsumoEditPanel
-              insumo={selected}
-              onExit={() => setFormMode("none")}
-              onDeleted={() => {
-                setSelectedId(null);
-                setFormMode("none");
-              }}
-            />
-          ) : selected ? (
-            <InsumoDetail insumo={selected} />
-          ) : (
-            <div className="card">
-              <div className="empty">
-                <Package aria-hidden="true" />
-                <h4>Selecione um insumo</h4>
-                <p>
-                  Escolha um insumo à esquerda para ver e editar os preços de
-                  fornecedor — ou cadastre um novo.
-                </p>
+          <div style={{ display: "grid", gap: 16, minWidth: 0, gridTemplateColumns: "minmax(0, 1fr)" }}>
+            {formMode === "new" ? (
+              <InsumoForm
+                onSuccess={(insumo) => {
+                  setSelectedId(insumo.id);
+                  setFormMode("none");
+                }}
+                onCancel={() => setFormMode("none")}
+              />
+            ) : formMode === "edit" && selected ? (
+              <InsumoEditPanel
+                insumo={selected}
+                onExit={() => setFormMode("none")}
+                onDeleted={() => {
+                  setSelectedId(null);
+                  setFormMode("none");
+                }}
+              />
+            ) : selected ? (
+              <InsumoDetail insumo={selected} />
+            ) : (
+              <div className="card">
+                <div className="empty">
+                  <Package aria-hidden="true" />
+                  <h4>Selecione um material</h4>
+                  <p>
+                    Escolha um material à esquerda para ver e editar os preços de
+                    fornecedor — ou cadastre um novo.
+                  </p>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
-
-      <div className="section-title">
-        <h3>Custo dos SKUs</h3>
-        <span className="count">composição / aquisição</span>
-      </div>
-      <SkuCustoSection />
+      ) : (
+        <SkuCustoSection />
+      )}
     </section>
   );
 }
 
-/** Painel DETAIL de um insumo: cabecalho + precos de fornecedor. A edicao e a
- * exclusao vivem no editar (aberto pelo simbolo laranja da lista). */
+/** Painel DETAIL de um insumo: precos de fornecedor. A edicao e a exclusao
+ * vivem no editar (aberto pelo simbolo laranja da lista). */
 function InsumoDetail({ insumo }: { insumo: Insumo }) {
-  return (
-    <>
-      <div className="card">
-        <div style={{ display: "grid", gap: 6 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <strong style={{ fontSize: "15px" }}>{insumo.nome}</strong>
-            <StatusPill
-              state={insumo.ativo ? "ok" : "idle"}
-              label={insumo.ativo ? "Ativo" : "Inativo"}
-            />
-          </div>
-          <p style={{ margin: 0, fontSize: "12.5px", color: "var(--muted)" }}>
-            {categoriaLabel(insumo.categoria)} · unidade{" "}
-            <span className="mono">{insumo.unidade}</span>
-          </p>
-        </div>
-      </div>
-
-      <InsumoPrecosLoteForm insumo={insumo} />
-    </>
-  );
+  return <InsumoPrecosLoteForm insumo={insumo} />;
 }
 
 /** Painel de EDICAO de um insumo: form + exclusao (o excluir vive dentro do

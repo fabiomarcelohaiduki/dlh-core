@@ -162,11 +162,6 @@ export function InsumoPrecosLoteForm({ insumo }: { insumo: Insumo }) {
         <h3>Preços de fornecedor</h3>
         <span className="count">{items.length}</span>
       </div>
-      <p style={{ margin: "0 0 14px", fontSize: "12.5px", color: "var(--muted)" }}>
-        Cada linha é uma faixa de vigência; a vigente está destacada. Edite os
-        preços nas células e salve em lote — o motor recalcula os SKUs que usam{" "}
-        <b>{insumo.nome}</b>.
-      </p>
 
       {precos.isLoading ? (
         <div style={{ display: "grid", gap: 8 }}>
@@ -193,7 +188,7 @@ export function InsumoPrecosLoteForm({ insumo }: { insumo: Insumo }) {
         </div>
       ) : (
         <div className="tbl-wrap tbl-scroll">
-          <table>
+          <table style={{ minWidth: 560 }}>
             <thead>
               <tr>
                 <th>Fornecedor</th>
@@ -290,7 +285,12 @@ export function InsumoPrecosLoteForm({ insumo }: { insumo: Insumo }) {
       </div>
       <div
         className="grid-fields"
-        style={{ gridTemplateColumns: "1fr 150px 140px 140px auto", alignItems: "end", gap: 12 }}
+        style={{
+          gridTemplateColumns:
+            "minmax(120px, 1fr) minmax(0, 150px) minmax(0, 140px) minmax(0, 140px) auto",
+          alignItems: "end",
+          gap: 12,
+        }}
       >
         <div className="field" style={{ marginBottom: 0 }}>
           <label htmlFor="novo-fornecedor">Fornecedor</label>

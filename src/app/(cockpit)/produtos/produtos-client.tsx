@@ -71,7 +71,7 @@ export function ProdutosClient() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(260px, 340px) 1fr",
+          gridTemplateColumns: "minmax(300px, 400px) 1fr",
           gap: 16,
           alignItems: "start",
         }}
