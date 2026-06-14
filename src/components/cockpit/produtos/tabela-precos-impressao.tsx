@@ -100,6 +100,16 @@ export function TabelaPrecosImpressao() {
   }, [params]);
   const mostrarFob = colunas.has("fob");
   const mostrarLl = colunas.has("ll");
+  const quebraProdutoLinhas = useMemo(
+    () =>
+      new Set(
+        (params.get("quebraProdutoLinhas") ?? "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ),
+    [params],
+  );
 
   const empresa = useConfigEmpresa();
   const linhas = useLinhas();
@@ -138,6 +148,83 @@ export function TabelaPrecosImpressao() {
   const e = empresa.data;
   const titulo = e?.nomeFantasia || e?.razaoSocial || "Tabela de preços";
 
+  // Cabecalho repetido no topo de cada linha (= cada pagina na impressao).
+  const cabecalho = (
+    <div className="print-cabecalho">
+      <header className="print-head">
+        <div className="print-brand">
+          {e?.logoBase64 ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={e.logoBase64} alt="Logomarca" className="print-logo" />
+          ) : null}
+          <div>
+            <h1>{e?.razaoSocial || titulo}</h1>
+            {e?.nomeFantasia && e?.razaoSocial ? (
+              <div className="print-fantasia">{e.nomeFantasia}</div>
+            ) : null}
+          </div>
+        </div>
+        <div className="print-empresa">
+          {e?.cnpj ? <div>CNPJ: {e.cnpj}</div> : null}
+          {e?.inscricaoEstadual ? <div>IE: {e.inscricaoEstadual}</div> : null}
+          {e?.endereco ? <div>{e.endereco}</div> : null}
+          {e?.telefone ? <div>{e.telefone}</div> : null}
+          {e?.email ? <div>{e.email}</div> : null}
+          {e?.site ? <div>{e.site}</div> : null}
+        </div>
+      </header>
+
+      <div className="print-title">
+        <h2>Tabela de preços</h2>
+        <div className="print-meta">
+          <span>Emissão: {formatDate(new Date().toISOString())}</span>
+          {e && e.validadePadraoDias > 0 ? (
+            <span>Validade da proposta: {e.validadePadraoDias} dias</span>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="print-legenda">
+        Valores em R$. Cada célula de região mostra o intervalo{" "}
+        <strong>CIF Mínimo – CIF Alvo</strong>.
+        {mostrarFob ? " FOB é sem frete." : ""}
+        {mostrarLl ? " LL% é o lucro alvo do produto." : ""}
+      </div>
+    </div>
+  );
+
+  const colSpan = 1 + (mostrarFob ? 1 : 0) + (mostrarLl ? 1 : 0) + regioes.length;
+  const renderTabela = (lista: TabelaPrecoConsolidada["produtos"]) => (
+    <table className="print-table">
+      <thead>
+        <tr>
+          <th className="col-sku">SKU</th>
+          {mostrarFob ? <th className="col-preco">FOB</th> : null}
+          {mostrarLl ? <th className="col-ll">LL%</th> : null}
+          {regioes.map((r) => (
+            <th key={r} className="col-preco">
+              {REGIAO_LABEL[r]}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {lista.map((produto) => (
+          <FragmentProduto
+            key={produto.produto_id}
+            nome={produto.nome}
+            lucroPct={produto.lucro_pct}
+            colSpan={colSpan}
+            skus={produto.skus}
+            regioes={regioes}
+            mostrarFob={mostrarFob}
+            mostrarLl={mostrarLl}
+          />
+        ))}
+      </tbody>
+    </table>
+  );
+
   return (
     <div className="print-doc">
       <div className="print-toolbar">
@@ -159,89 +246,39 @@ export function TabelaPrecosImpressao() {
         </div>
       ) : (
         <div className="print-page">
-          <header className="print-head">
-            <div className="print-brand">
-              {e?.logoBase64 ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={e.logoBase64} alt="Logomarca" className="print-logo" />
-              ) : null}
-              <div>
-                <h1>{e?.razaoSocial || titulo}</h1>
-                {e?.nomeFantasia && e?.razaoSocial ? (
-                  <div className="print-fantasia">{e.nomeFantasia}</div>
-                ) : null}
-              </div>
-            </div>
-            <div className="print-empresa">
-              {e?.cnpj ? <div>CNPJ: {e.cnpj}</div> : null}
-              {e?.inscricaoEstadual ? <div>IE: {e.inscricaoEstadual}</div> : null}
-              {e?.endereco ? <div>{e.endereco}</div> : null}
-              {e?.telefone ? <div>{e.telefone}</div> : null}
-              {e?.email ? <div>{e.email}</div> : null}
-              {e?.site ? <div>{e.site}</div> : null}
-            </div>
-          </header>
-
-          <div className="print-title">
-            <h2>Tabela de preços</h2>
-            <div className="print-meta">
-              <span>Emissão: {formatDate(new Date().toISOString())}</span>
-              {e && e.validadePadraoDias > 0 ? (
-                <span>Validade da proposta: {e.validadePadraoDias} dias</span>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="print-legenda">
-            Valores em R$. Cada célula de região mostra o intervalo{" "}
-            <strong>CIF Mínimo – CIF Alvo</strong>.
-            {mostrarFob ? " FOB é sem frete." : ""}
-            {mostrarLl ? " LL% é o lucro alvo do produto." : ""}
-          </div>
-
           {linhaIds.map((linhaId, i) => {
             const q = tabelas[i];
             const data = q?.data as TabelaPrecoConsolidada | undefined;
             const nome = nomePorLinha.get(linhaId) ?? "Linha";
             const produtos = (data?.produtos ?? []).filter((p) => p.skus.length > 0);
 
+            if (produtos.length === 0) {
+              return (
+                <section key={linhaId} className="print-linha">
+                  {cabecalho}
+                  <h3 className="print-linha-nome">{nome}</h3>
+                  <div className="print-vazio">Sem SKUs com preço vigente nesta linha.</div>
+                </section>
+              );
+            }
+
+            // Quebra por produto: cada produto vira sua propria pagina (= uma
+            // .print-linha), herdando cabecalho e quebra de pagina.
+            if (quebraProdutoLinhas.has(linhaId)) {
+              return produtos.map((produto) => (
+                <section key={`${linhaId}-${produto.produto_id}`} className="print-linha">
+                  {cabecalho}
+                  <h3 className="print-linha-nome">{nome}</h3>
+                  {renderTabela([produto])}
+                </section>
+              ));
+            }
+
             return (
               <section key={linhaId} className="print-linha">
+                {cabecalho}
                 <h3 className="print-linha-nome">{nome}</h3>
-                {produtos.length === 0 ? (
-                  <div className="print-vazio">Sem SKUs com preço vigente nesta linha.</div>
-                ) : (
-                  <table className="print-table">
-                    <thead>
-                      <tr>
-                        <th className="col-sku">SKU</th>
-                        {mostrarFob ? <th className="col-preco">FOB</th> : null}
-                        {mostrarLl ? <th className="col-ll">LL%</th> : null}
-                        {regioes.map((r) => (
-                          <th key={r} className="col-preco">
-                            {REGIAO_LABEL[r]}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {produtos.map((produto) => (
-                        <FragmentProduto
-                          key={produto.produto_id}
-                          nome={produto.nome}
-                          lucroPct={produto.lucro_pct}
-                          colSpan={
-                            1 + (mostrarFob ? 1 : 0) + (mostrarLl ? 1 : 0) + regioes.length
-                          }
-                          skus={produto.skus}
-                          regioes={regioes}
-                          mostrarFob={mostrarFob}
-                          mostrarLl={mostrarLl}
-                        />
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+                {renderTabela(produtos)}
               </section>
             );
           })}

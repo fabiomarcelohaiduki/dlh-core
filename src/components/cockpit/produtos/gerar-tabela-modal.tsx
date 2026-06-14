@@ -48,6 +48,7 @@ export function GerarTabelaModal({
   const [colsSel, setColsSel] = useState<Set<Coluna>>(
     new Set<Coluna>(COLUNAS.map((c) => c.value)),
   );
+  const [quebraLinhas, setQuebraLinhas] = useState<Set<string>>(new Set());
 
   const todasLinhas = linhas.length > 0 && linhasSel.size === linhas.length;
 
@@ -75,6 +76,10 @@ export function GerarTabelaModal({
       regioes: regioes.join(","),
       colunas: colunas.join(","),
     });
+    const quebra = linhas
+      .filter((l) => linhasSel.has(l.id) && quebraLinhas.has(l.id))
+      .map((l) => l.id);
+    if (quebra.length > 0) params.set("quebraProdutoLinhas", quebra.join(","));
     window.open(`/produtos/tabela-precos/imprimir?${params.toString()}`, "_blank");
     onClose();
   }
@@ -184,6 +189,35 @@ export function GerarTabelaModal({
                 </label>
               );
             })}
+          </div>
+        </div>
+
+        <div className="field">
+          <label>Quebrar página por produto</label>
+          {linhasSel.size === 0 ? (
+            <div className="helper">Selecione linhas acima para configurar.</div>
+          ) : (
+            <div className="chk-grid" role="group" aria-label="Quebrar por produto">
+              {linhas
+                .filter((l) => linhasSel.has(l.id))
+                .map((l) => {
+                  const on = quebraLinhas.has(l.id);
+                  return (
+                    <label key={l.id} className={cn("chk", on && "on")}>
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => setQuebraLinhas((s) => toggle(s, l.id))}
+                      />
+                      <div className="t">{l.nome}</div>
+                    </label>
+                  );
+                })}
+            </div>
+          )}
+          <div className="helper">
+            Cada linha já inicia em uma nova página. Marque as linhas em que cada
+            produto também deve começar em página própria.
           </div>
         </div>
 

@@ -2639,4 +2639,11 @@ select:focus {
     padding: 0;
     background: #fff !important;
   }
+  /* cada linha de produtos comeca em nova pagina; a 1a herda o cabecalho. */
+  .print-linha {
+    break-before: page;
+  }
+  .print-linha:first-of-type {
+    break-before: avoid;
+  }
 }
