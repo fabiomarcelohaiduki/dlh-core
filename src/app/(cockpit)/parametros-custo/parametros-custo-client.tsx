@@ -48,18 +48,6 @@ export function ParametrosCustoClient() {
 
   return (
     <section className="screen">
-      <div className="page-head">
-        <div className="titles">
-          <h2>Parâmetros de custo</h2>
-          <p>
-            Impostos, frete, despesas, lucro, custo hora de produção e vetor
-            regional em
-            três níveis com herança (Produto → Linha → Global). Salvar dispara o
-            recálculo dos SKUs do escopo.
-          </p>
-        </div>
-      </div>
-
       <div className="card">
         <div className="section-title" style={{ margin: "0 0 13px" }}>
           <h3>Nível / escopo</h3>
