@@ -49,6 +49,7 @@ export function GerarTabelaModal({
     new Set<Coluna>(COLUNAS.map((c) => c.value)),
   );
   const [quebraLinhas, setQuebraLinhas] = useState<Set<string>>(new Set());
+  const [mostrarImagens, setMostrarImagens] = useState(false);
 
   const todasLinhas = linhas.length > 0 && linhasSel.size === linhas.length;
 
@@ -80,6 +81,7 @@ export function GerarTabelaModal({
       .filter((l) => linhasSel.has(l.id) && quebraLinhas.has(l.id))
       .map((l) => l.id);
     if (quebra.length > 0) params.set("quebraProdutoLinhas", quebra.join(","));
+    if (mostrarImagens) params.set("imagens", "1");
     window.open(`/produtos/tabela-precos/imprimir?${params.toString()}`, "_blank");
     onClose();
   }
@@ -170,6 +172,20 @@ export function GerarTabelaModal({
                 </label>
               );
             })}
+          </div>
+        </div>
+
+        <div className="field">
+          <label>Imagens</label>
+          <div className="chk-grid" role="group" aria-label="Imagens">
+            <label className={cn("chk", mostrarImagens && "on")}>
+              <input
+                type="checkbox"
+                checked={mostrarImagens}
+                onChange={() => setMostrarImagens((v) => !v)}
+              />
+              <div className="t">Mostrar imagens dos produtos</div>
+            </label>
           </div>
         </div>
 

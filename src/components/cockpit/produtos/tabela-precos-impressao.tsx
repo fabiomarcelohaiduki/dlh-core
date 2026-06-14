@@ -110,6 +110,8 @@ export function TabelaPrecosImpressao() {
       ),
     [params],
   );
+  // Toggle global: mostrar a foto do produto na tabela.
+  const mostrarImagens = params.get("imagens") === "1";
 
   const empresa = useConfigEmpresa();
   const linhas = useLinhas();
@@ -211,6 +213,7 @@ export function TabelaPrecosImpressao() {
             key={produto.produto_id}
             nome={produto.nome}
             lucroPct={produto.lucro_pct}
+            fotoUrl={mostrarImagens ? produto.foto_url : null}
             colSpan={colSpan}
             skus={produto.skus}
             regioes={regioes}
@@ -292,6 +295,7 @@ export function TabelaPrecosImpressao() {
 function FragmentProduto({
   nome,
   lucroPct,
+  fotoUrl,
   colSpan,
   skus,
   regioes,
@@ -300,6 +304,7 @@ function FragmentProduto({
 }: {
   nome: string;
   lucroPct: number | null;
+  fotoUrl: string | null;
   colSpan: number;
   skus: TabelaPrecoConsolidada["produtos"][number]["skus"];
   regioes: Regiao[];
@@ -309,7 +314,15 @@ function FragmentProduto({
   return (
     <>
       <tr className="print-produto-row">
-        <td colSpan={colSpan}>{nome}</td>
+        <td colSpan={colSpan}>
+          <div className="print-produto-cell">
+            {fotoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={fotoUrl} alt="" className="print-produto-foto" />
+            ) : null}
+            <span>{nome}</span>
+          </div>
+        </td>
       </tr>
       {skus.map((sku) => {
         const cells = indexar(sku.precos);

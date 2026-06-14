@@ -23,9 +23,16 @@ import { requireAuthorizedUser } from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 import { assertUuid, pickDefined, routeSegments } from "../_shared/rest.ts";
-import { parseJsonBody, precoApoioSchema } from "../_shared/validation.ts";
+import {
+  IMAGEM_SIGNED_URL_TTL_SECONDS,
+  parseJsonBody,
+  precoApoioSchema,
+} from "../_shared/validation.ts";
 
 const FUNCTION_SEGMENT = "produtos-precos";
+
+/** Bucket privado das imagens de Produto/SKU (mesmo de produtos-imagens). */
+const PRODUTOS_BUCKET = "produtos";
 
 const PRECOS_COLUMNS =
   "regiao, patamar, valor, estado, calculado_em, custo_base, ifp, preco_concorrencia, custo_ideal";
@@ -262,6 +269,8 @@ interface ConsolidadoProduto {
   nome: string;
   /** Lucro alvo (LL%) efetivo do produto, resolvido produto->linha->global. */
   lucro_pct: number | null;
+  /** Signed URL (TTL 1h) da foto representativa do produto; null se nao houver. */
+  foto_url: string | null;
   skus: ConsolidadoSku[];
 }
 
@@ -401,10 +410,56 @@ async function getConsolidado(req: Request): Promise<Response> {
     }
   }
 
+  // Foto representativa por produto: as imagens sao vinculadas ao SKU (nao ao
+  // produto), entao pega a 1a imagem do 1o SKU que tiver foto. Gera signed URLs
+  // (TTL 1h) em lote; usada na Tabela de Precos quando "mostrar imagens" liga.
+  const fotoUrlPorProduto = new Map<string, string>();
+  if (skuIds.length > 0) {
+    const { data: imgRows, error: imgErr } = await db
+      .from("produto_imagens")
+      .select("sku_id, storage_path, ordem, created_at")
+      .in("sku_id", skuIds)
+      .order("ordem", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (imgErr) {
+      throw new HttpError(500, "imagens_query_failed", "falha ao consultar as imagens dos produtos");
+    }
+    const pathPorSku = new Map<string, string>();
+    for (const r of (imgRows as { sku_id: string | null; storage_path: string }[] | null) ?? []) {
+      if (r.sku_id && !pathPorSku.has(r.sku_id)) pathPorSku.set(r.sku_id, r.storage_path);
+    }
+    const pathPorProduto = new Map<string, string>();
+    for (const [produtoId, skus] of skusByProduto) {
+      for (const s of skus) {
+        const p = pathPorSku.get(s.sku_id);
+        if (p) {
+          pathPorProduto.set(produtoId, p);
+          break;
+        }
+      }
+    }
+    const paths = [...pathPorProduto.values()];
+    if (paths.length > 0) {
+      const signed = await db.storage.from(PRODUTOS_BUCKET).createSignedUrls(paths, IMAGEM_SIGNED_URL_TTL_SECONDS);
+      if (signed.error) {
+        throw new HttpError(500, "signed_url_failed", "falha ao gerar as URLs das imagens");
+      }
+      const urlByPath = new Map<string, string>();
+      for (const item of signed.data ?? []) {
+        if (item.path && item.signedUrl) urlByPath.set(item.path, item.signedUrl);
+      }
+      for (const [produtoId, path] of pathPorProduto) {
+        const u = urlByPath.get(path);
+        if (u) fotoUrlPorProduto.set(produtoId, u);
+      }
+    }
+  }
+
   const produtosOut: ConsolidadoProduto[] = produtos.map((p) => ({
     produto_id: p.id,
     nome: p.nome,
     lucro_pct: lucroPctPorProduto.get(p.id) ?? null,
+    foto_url: fotoUrlPorProduto.get(p.id) ?? null,
     skus: skusByProduto.get(p.id) ?? [],
   }));
 

@@ -820,6 +820,8 @@ export interface TabelaPrecoProduto {
   nome: string;
   /** Lucro alvo (LL%) efetivo do produto, resolvido produto->linha->global. */
   lucro_pct: number | null;
+  /** URL assinada da primeira imagem do produto (TTL curto); null se sem foto. */
+  foto_url: string | null;
   skus: TabelaPrecoSku[];
 }
 

@@ -2464,7 +2464,7 @@ select:focus {
   margin: 0 auto;
   background: #fff;
   color: #1a1a1a;
-  padding: 40px 44px;
+  padding: 22px 44px 40px;
   box-shadow: 0 4px 24px -8px rgba(0, 0, 0, 0.3);
   font-size: 13px;
   line-height: 1.45;
@@ -2474,7 +2474,7 @@ select:focus {
   justify-content: space-between;
   align-items: flex-start;
   gap: 24px;
-  padding-bottom: 16px;
+  padding-bottom: 2px;
   border-bottom: 2px solid #1a1a1a;
 }
 .print-brand {
@@ -2483,8 +2483,8 @@ select:focus {
   gap: 16px;
 }
 .print-logo {
-  max-height: 64px;
-  max-width: 180px;
+  max-height: 96px;
+  max-width: 260px;
   object-fit: contain;
 }
 .print-head h1 {
@@ -2501,16 +2501,17 @@ select:focus {
 .print-empresa {
   text-align: right;
   font-size: 11.5px;
+  line-height: 1.3;
   color: #444;
 }
 .print-empresa div {
-  margin-bottom: 1px;
+  margin-bottom: 0;
 }
 .print-title {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
-  margin: 22px 0 18px;
+  align-items: center;
+  margin: 12px 0 8px;
 }
 .print-title h2 {
   font-size: 16px;
@@ -2597,6 +2598,20 @@ select:focus {
   background: #faf3e6;
   font-weight: 700;
   color: #7c4a03;
+}
+.print-produto-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.print-produto-foto {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  background: #fff;
+  border: 1px solid #e6d9bf;
+  border-radius: 3px;
+  flex: none;
 }
 .print-foot {
   margin-top: 24px;
