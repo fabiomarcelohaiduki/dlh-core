@@ -334,6 +334,19 @@ function ProdutosDaLinha({ linha }: { linha: ProdutoLinha }) {
                       />
                       <div className="cell-stack">
                         <b style={{ fontSize: "13.5px" }}>{p.nome}</b>
+                        {p.descricao ? (
+                          <span
+                            className="sub"
+                            style={{
+                              display: "-webkit-box",
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: "vertical",
+                              overflow: "hidden",
+                            }}
+                          >
+                            {p.descricao}
+                          </span>
+                        ) : null}
                         {p.disponibilidade ? (
                           <span className="sub">{p.disponibilidade}</span>
                         ) : null}
