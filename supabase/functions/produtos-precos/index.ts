@@ -260,7 +260,20 @@ interface ConsolidadoSku {
 interface ConsolidadoProduto {
   produto_id: string;
   nome: string;
+  /** Lucro alvo (LL%) efetivo do produto, resolvido produto->linha->global. */
+  lucro_pct: number | null;
   skus: ConsolidadoSku[];
+}
+
+/** Resolve lucro_pct por produto->linha->global (primeiro nao-nulo). */
+function resolveLucroPct(
+  produto: number | null | undefined,
+  linha: number | null,
+  global: number | null,
+): number | null {
+  if (produto != null) return produto;
+  if (linha != null) return linha;
+  return global ?? null;
 }
 
 async function getConsolidado(req: Request): Promise<Response> {
@@ -350,9 +363,48 @@ async function getConsolidado(req: Request): Promise<Response> {
     });
     skusByProduto.set(s.produto_id, arr);
   }
+
+  // Lucro alvo (LL%) efetivo por produto: herda produto->linha->global. Carrega
+  // os 3 niveis em paralelo (1 query por nivel) e resolve em memoria.
+  const lucroPctPorProduto = new Map<string, number | null>();
+  if (produtoIds.length > 0) {
+    const [globalRow, linhaRow, produtoRows] = await Promise.all([
+      db
+        .from("parametros_calculo")
+        .select("lucro_pct")
+        .eq("nivel", "global")
+        .is("escopo_id", null)
+        .maybeSingle(),
+      db
+        .from("parametros_calculo")
+        .select("lucro_pct")
+        .eq("nivel", "linha")
+        .eq("escopo_id", linhaId)
+        .maybeSingle(),
+      db
+        .from("parametros_calculo")
+        .select("escopo_id, lucro_pct")
+        .eq("nivel", "produto")
+        .in("escopo_id", produtoIds),
+    ]);
+    if (globalRow.error || linhaRow.error || produtoRows.error) {
+      throw new HttpError(500, "lucro_query_failed", "falha ao resolver o lucro alvo da linha");
+    }
+    const globalLucro = (globalRow.data as { lucro_pct: number | null } | null)?.lucro_pct ?? null;
+    const linhaLucro = (linhaRow.data as { lucro_pct: number | null } | null)?.lucro_pct ?? null;
+    const produtoLucro = new Map<string, number | null>();
+    for (const r of (produtoRows.data as { escopo_id: string; lucro_pct: number | null }[] | null) ?? []) {
+      produtoLucro.set(r.escopo_id, r.lucro_pct);
+    }
+    for (const id of produtoIds) {
+      lucroPctPorProduto.set(id, resolveLucroPct(produtoLucro.get(id), linhaLucro, globalLucro));
+    }
+  }
+
   const produtosOut: ConsolidadoProduto[] = produtos.map((p) => ({
     produto_id: p.id,
     nome: p.nome,
+    lucro_pct: lucroPctPorProduto.get(p.id) ?? null,
     skus: skusByProduto.get(p.id) ?? [],
   }));
 
