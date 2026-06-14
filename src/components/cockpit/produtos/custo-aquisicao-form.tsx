@@ -1,14 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Loader2, Plus, ShoppingCart, TriangleAlert, Trash2 } from "lucide-react";
+import { Check, Circle, CircleCheck, Loader2, Plus, ShoppingCart, Trash2, TriangleAlert, X } from "lucide-react";
 import {
   useCreateCustoAquisicao,
   useCustoAquisicaoHistorico,
   useDeleteCustoAquisicao,
 } from "@/hooks/use-custo-aquisicao";
 import { ApiError } from "@/lib/api/client";
-import { StatusPill } from "@/components/cockpit/status-pill";
 import { formatCurrency, formatDate } from "@/lib/format";
 import type { SkuCustoAquisicao } from "@/lib/api/types";
 
@@ -51,13 +50,16 @@ export function CustoAquisicaoForm({ skuId }: { skuId: string }) {
     () => items.find((c) => isVigente(c, hoje)) ?? null,
     [items, hoje],
   );
+  // Append-only: a lista vem desc por vigencia_inicio. So a PRIMEIRA faixa
+  // valida e a vigente efetiva; as anteriores em aberto foram substituidas.
+  const vigenteId = vigente?.id ?? null;
 
   const [fornecedor, setFornecedor] = useState("");
   const [custo, setCusto] = useState("");
   const [inicio, setInicio] = useState(hoje);
   const [fim, setFim] = useState("");
   const [erro, setErro] = useState<string | null>(null);
-  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [confirmandoId, setConfirmandoId] = useState<string | null>(null);
 
   async function onCriar() {
     setErro(null);
@@ -97,15 +99,13 @@ export function CustoAquisicaoForm({ skuId }: { skuId: string }) {
     }
   }
 
-  async function onRemove(item: SkuCustoAquisicao) {
-    setRemovingId(item.id);
+  async function onRemover(id: string) {
     setErro(null);
     try {
-      await remover.mutateAsync({ id: item.id, skuId });
+      await remover.mutateAsync({ id, skuId });
+      setConfirmandoId(null);
     } catch {
       setErro("Não foi possível remover a faixa. Tente novamente.");
-    } finally {
-      setRemovingId(null);
     }
   }
 
@@ -113,11 +113,7 @@ export function CustoAquisicaoForm({ skuId }: { skuId: string }) {
     <div className="card">
       <div className="section-title" style={{ margin: "0 0 14px" }}>
         <h3>Custo de aquisição</h3>
-        {vigente ? (
-          <StatusPill state="ok" label={`Vigente ${formatCurrency(vigente.custo)}`} />
-        ) : (
-          <StatusPill state="warn" label="Sem custo vigente" />
-        )}
+        <span className="count">{items.length}</span>
       </div>
       <p style={{ margin: "0 0 14px", fontSize: "12.5px", color: "var(--muted)" }}>
         SKU comprado: o custo variável vem do custo de aquisição vigente. Novas
@@ -149,50 +145,105 @@ export function CustoAquisicaoForm({ skuId }: { skuId: string }) {
         </div>
       ) : (
         <div className="tbl-wrap tbl-scroll">
-          <table>
+          <table style={{ width: "100%", minWidth: 460 }}>
             <thead>
               <tr>
-                <th>Fornecedor</th>
-                <th style={{ width: 140 }}>Custo</th>
-                <th style={{ width: 120 }}>Início</th>
-                <th style={{ width: 120 }}>Fim</th>
-                <th style={{ width: 110 }}>Vigência</th>
-                <th style={{ width: 60 }} />
+                <th style={{ width: "33%" }}>Fornecedor</th>
+                <th style={{ width: "30%", textAlign: "center" }}>Custo</th>
+                <th style={{ width: "15%", textAlign: "center" }}>Início</th>
+                <th style={{ width: "11%", textAlign: "center" }}>Fim</th>
+                <th style={{ width: "5%", textAlign: "center" }}>Vigência</th>
+                <th style={{ width: "6%" }} aria-label="Ações" />
               </tr>
             </thead>
             <tbody>
               {items.map((c) => {
-                const v = isVigente(c, hoje);
+                const v = c.id === vigenteId;
+                const substituida = vigenteId != null && isVigente(c, hoje) && !v;
                 return (
                   <tr
                     key={c.id}
                     style={v ? { background: "var(--accent-soft)" } : undefined}
                   >
-                    <td className="sub">{c.fornecedor ?? "—"}</td>
-                    <td className="tnum">{formatCurrency(c.custo)}</td>
-                    <td className="mono">{formatDate(c.vigencia_inicio)}</td>
-                    <td className="mono">{c.vigencia_fim ? formatDate(c.vigencia_fim) : "—"}</td>
-                    <td>
+                    <td>{c.fornecedor ?? "—"}</td>
+                    <td className="tnum" style={{ textAlign: "center" }}>
+                      {formatCurrency(c.custo)}
+                    </td>
+                    <td className="mono" style={{ textAlign: "center" }}>
+                      {formatDate(c.vigencia_inicio)}
+                    </td>
+                    <td className="mono" style={{ textAlign: "center" }}>
+                      {c.vigencia_fim ? formatDate(c.vigencia_fim) : "—"}
+                    </td>
+                    <td style={{ textAlign: "center" }}>
                       {v ? (
-                        <StatusPill state="ok" label="Vigente" />
+                        <span
+                          title="Vigente"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            height: 30,
+                          }}
+                        >
+                          <CircleCheck size={20} aria-label="Vigente" style={{ color: "var(--ok)" }} />
+                        </span>
+                      ) : substituida ? (
+                        <span
+                          title="Substituída"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            height: 30,
+                          }}
+                        >
+                          <Circle size={20} aria-label="Substituída" style={{ color: "var(--muted)" }} />
+                        </span>
                       ) : (
                         <span style={{ color: "var(--faint)" }}>—</span>
                       )}
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="btn btn-sm"
-                        onClick={() => onRemove(c)}
-                        disabled={removingId === c.id}
-                        aria-label="Remover faixa de custo"
-                      >
-                        {removingId === c.id ? (
-                          <Loader2 className="spin" aria-hidden="true" />
-                        ) : (
+                      {confirmandoId === c.id ? (
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-icon"
+                            style={{ color: "var(--err)" }}
+                            aria-label="Confirmar exclusão da faixa"
+                            title="Confirmar exclusão"
+                            onClick={() => onRemover(c.id)}
+                            disabled={remover.isPending}
+                          >
+                            {remover.isPending ? (
+                              <Loader2 className="spin" aria-hidden="true" />
+                            ) : (
+                              <Check aria-hidden="true" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-icon"
+                            aria-label="Cancelar exclusão"
+                            title="Cancelar"
+                            onClick={() => setConfirmandoId(null)}
+                            disabled={remover.isPending}
+                          >
+                            <X aria-hidden="true" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-icon"
+                          aria-label={`Excluir faixa de ${formatDate(c.vigencia_inicio)}`}
+                          title="Excluir faixa"
+                          onClick={() => setConfirmandoId(c.id)}
+                        >
                           <Trash2 aria-hidden="true" />
-                        )}
-                      </button>
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
