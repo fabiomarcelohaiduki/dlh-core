@@ -235,14 +235,15 @@ button {
   background: currentColor;
 }
 .pill.icon-only {
-  width: 22px;
-  height: 22px;
+  width: 14px;
+  height: 14px;
   padding: 0;
+  border-color: transparent;
   justify-content: center;
 }
 .pill.icon-only .dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
 }
 .pill.ok {
   color: var(--ok);
@@ -1803,10 +1804,12 @@ button {
   color: var(--fg);
   margin-bottom: 7px;
 }
-.field .helper {
+.helper {
   font-size: 12px;
   line-height: 1.5;
   color: var(--faint);
+}
+.field .helper {
   margin-top: 6px;
 }
 .field .err-msg {
@@ -2351,6 +2354,24 @@ select:focus {
   color: var(--ok);
   background: var(--ok-bg);
   border-color: rgba(92, 191, 134, 0.24);
+}
+/* Niveis de origem de valor (produto > linha > global). Paleta propria para
+   nao colidir com o significado de fonte de dado das tags acima (effecti =
+   ambar, nomus = azul, gmail = verde). */
+.tag.nivel-produto {
+  color: #b29ae0;
+  background: rgba(160, 124, 220, 0.14);
+  border-color: rgba(160, 124, 220, 0.3);
+}
+.tag.nivel-linha {
+  color: #57b8ac;
+  background: rgba(74, 184, 168, 0.13);
+  border-color: rgba(74, 184, 168, 0.26);
+}
+.tag.nivel-global {
+  color: var(--faint);
+  background: var(--surface-2);
+  border-color: var(--border);
 }
 
 /* Barra de progresso ao vivo (processados/total + pagina_atual). */
