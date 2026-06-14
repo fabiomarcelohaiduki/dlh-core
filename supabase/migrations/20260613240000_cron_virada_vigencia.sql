@@ -274,7 +274,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------
--- Parte 3: agendamento pg_cron. '5 3 * * *' UTC = 00:05 BRT (UTC-3),
+-- Parte 3: agendamento pg_cron. '1 3 * * *' UTC = 00:01 BRT (UTC-3),
 -- logo apos a virada do dia. Unschedule condicional antes (idempotente).
 -- ---------------------------------------------------------------------
 do $$
@@ -287,6 +287,6 @@ $$;
 
 select cron.schedule(
   'recalc-virada-vigencia',
-  '5 3 * * *',
+  '1 3 * * *',
   $cron$select public.fn_recalcular_skus_virada()$cron$
 );
