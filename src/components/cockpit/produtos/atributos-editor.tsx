@@ -92,8 +92,7 @@ export function AtributosEditor(props: AtributosEditorProps) {
       }
     : {
         titulo: "Atributos da linha",
-        helper:
-          "Estes pares definem o schema que cada Produto da linha preenche. Marque como obrigatório os atributos que todo Produto deve informar.",
+        helper: "",
         emptyHelp:
           "Adicione abaixo as características que os Produtos desta linha terão (ex.: cor, voltagem, capacidade).",
         placeholder: "ex.: voltagem",

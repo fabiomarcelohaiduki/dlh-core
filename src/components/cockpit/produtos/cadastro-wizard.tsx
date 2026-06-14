@@ -21,6 +21,8 @@ import { SkuForm } from "@/components/cockpit/produtos/sku-form";
 import { ComposicaoEditor } from "@/components/cockpit/produtos/composicao-editor";
 import { CustoAquisicaoForm } from "@/components/cockpit/produtos/custo-aquisicao-form";
 import { PrecoRegionalGrid } from "@/components/cockpit/produtos/preco-regional-grid";
+import { ApoioPrecosForm } from "@/components/cockpit/produtos/apoio-precos-form";
+import { FotosUploader } from "@/components/cockpit/produtos/fotos-uploader";
 import { cn } from "@/lib/utils";
 import type { AtributoSchema, Produto, ProdutoSku } from "@/lib/api/types";
 
@@ -90,11 +92,6 @@ export function CadastroWizard() {
             <ChevronLeft aria-hidden="true" />
             Voltar a Linha de produtos
           </button>
-          <h2>Cadastro guiado</h2>
-          <p>
-            Preencha em sequência: Linha, Produto, SKU, Custo e Preço. Cada passo
-            libera o próximo — sem trocar de tela.
-          </p>
         </div>
       </div>
 
@@ -383,6 +380,8 @@ function StepPreco({
   return (
     <StepWrap onBack={onBack} backLabel="Voltar para Custo">
       <PrecoRegionalGrid skuId={skuId} produtoId={produtoId} />
+      <ApoioPrecosForm skuId={skuId} />
+      <FotosUploader skuId={skuId} />
       <div className="form-foot">
         <button type="button" className="btn btn-primary" onClick={onConcluir}>
           <CircleDollarSign aria-hidden="true" />

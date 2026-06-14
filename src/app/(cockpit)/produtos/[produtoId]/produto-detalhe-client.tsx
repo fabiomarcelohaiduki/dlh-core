@@ -22,6 +22,8 @@ import { StatusPill } from "@/components/cockpit/status-pill";
 import { ProdutoForm } from "@/components/cockpit/produtos/produto-form";
 import { AtributosEditor } from "@/components/cockpit/produtos/atributos-editor";
 import { SkuForm } from "@/components/cockpit/produtos/sku-form";
+import { ComposicaoEditor } from "@/components/cockpit/produtos/composicao-editor";
+import { CustoAquisicaoForm } from "@/components/cockpit/produtos/custo-aquisicao-form";
 import { FotosUploader } from "@/components/cockpit/produtos/fotos-uploader";
 import { PrecoRegionalGrid } from "@/components/cockpit/produtos/preco-regional-grid";
 import { ApoioPrecosForm } from "@/components/cockpit/produtos/apoio-precos-form";
@@ -500,6 +502,14 @@ function SkuDetail({
           onDelete={onDelete}
           deleting={deleting}
         />
+      )}
+
+      {/* Custo do SKU no proprio detalhe (sem pular para /insumos): BOM se
+          fabricado, custo de aquisicao se comprado. Alimenta o preco. */}
+      {sku.tipo_origem === "fabricado" ? (
+        <ComposicaoEditor skuId={sku.id} />
+      ) : (
+        <CustoAquisicaoForm skuId={sku.id} />
       )}
 
       <PrecoRegionalGrid skuId={sku.id} produtoId={sku.produto_id} />
