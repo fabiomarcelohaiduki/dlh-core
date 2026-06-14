@@ -55,18 +55,6 @@ export function InsumosClient() {
 
   return (
     <section className="screen">
-      <div className="page-head">
-        <div className="titles">
-          <h2>Materiais</h2>
-          <p>
-            Cadastre materiais e mantenha os preços de fornecedor com vigência. Na
-            aba Custo dos SKUs, monte a composição (BOM) dos fabricados ou o custo
-            de aquisição dos comprados — toda escrita recalcula os preços
-            afetados.
-          </p>
-        </div>
-      </div>
-
       <div
         className="filter-group segmented"
         role="tablist"

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Loader2, Plus, Trash2, TriangleAlert, X } from "lucide-react";
+import { Check, Circle, CircleCheck, Loader2, Plus, Trash2, TriangleAlert, X } from "lucide-react";
 import {
   useCreateInsumoPreco,
   useDeleteInsumoPreco,
@@ -9,7 +9,6 @@ import {
   useUpdateInsumoPrecosBatch,
 } from "@/hooks/use-insumo-precos";
 import { ApiError } from "@/lib/api/client";
-import { StatusPill } from "@/components/cockpit/status-pill";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Insumo, InsumoPreco } from "@/lib/api/types";
@@ -77,7 +76,7 @@ export function InsumoPrecosLoteForm({ insumo }: { insumo: Insumo }) {
 
   useEffect(() => {
     const next: Record<string, string> = {};
-    for (const p of items) next[p.id] = String(p.preco);
+    for (const p of items) next[p.id] = p.preco.toFixed(2);
     setEdits(next);
     setFeedback(null);
   }, [items]);
@@ -215,15 +214,15 @@ export function InsumoPrecosLoteForm({ insumo }: { insumo: Insumo }) {
         </div>
       ) : (
         <div className="tbl-wrap tbl-scroll">
-          <table style={{ minWidth: 560 }}>
+          <table style={{ width: "100%", minWidth: 460 }}>
             <thead>
               <tr>
-                <th>Fornecedor</th>
-                <th style={{ width: 160 }}>Preço</th>
-                <th style={{ width: 120 }}>Início</th>
-                <th style={{ width: 120 }}>Fim</th>
-                <th style={{ width: 110 }}>Vigência</th>
-                <th style={{ width: 72 }} aria-label="Ações" />
+                <th style={{ width: "33%" }}>Fornecedor</th>
+                <th style={{ width: "30%", textAlign: "center" }}>Preço</th>
+                <th style={{ width: "15%", textAlign: "center" }}>Início</th>
+                <th style={{ width: "11%", textAlign: "center" }}>Fim</th>
+                <th style={{ width: "5%", textAlign: "center" }}>Vigência</th>
+                <th style={{ width: "6%" }} aria-label="Ações" />
               </tr>
             </thead>
             <tbody>
@@ -240,9 +239,9 @@ export function InsumoPrecosLoteForm({ insumo }: { insumo: Insumo }) {
                     key={p.id}
                     style={vigente ? { background: "var(--accent-soft)" } : undefined}
                   >
-                    <td className="sub">{p.fornecedor ?? "—"}</td>
+                    <td>{p.fornecedor ?? "—"}</td>
                     <td>
-                      <div className="input-affix" style={{ maxWidth: 150 }}>
+                      <div className="input-affix" style={{ maxWidth: "100%" }}>
                         <input
                           type="number"
                           step="any"
@@ -253,21 +252,50 @@ export function InsumoPrecosLoteForm({ insumo }: { insumo: Insumo }) {
                             setEdits((prev) => ({ ...prev, [p.id]: e.target.value }));
                             setFeedback(null);
                           }}
+                          onBlur={(e) => {
+                            const n = toNumber(e.target.value);
+                            if (n != null)
+                              setEdits((prev) => ({ ...prev, [p.id]: n.toFixed(2) }));
+                          }}
                           style={
                             edited
-                              ? { borderColor: "var(--accent-line)" }
-                              : undefined
+                              ? { borderColor: "var(--accent-line)", textAlign: "center" }
+                              : { textAlign: "center" }
                           }
                         />
                       </div>
                     </td>
-                    <td className="mono">{formatDate(p.vigencia_inicio)}</td>
-                    <td className="mono">{p.vigencia_fim ? formatDate(p.vigencia_fim) : "—"}</td>
-                    <td>
+                    <td className="mono" style={{ textAlign: "center" }}>
+                      {formatDate(p.vigencia_inicio)}
+                    </td>
+                    <td className="mono" style={{ textAlign: "center" }}>
+                      {p.vigencia_fim ? formatDate(p.vigencia_fim) : "—"}
+                    </td>
+                    <td style={{ textAlign: "center" }}>
                       {vigente ? (
-                        <StatusPill state="ok" label="Vigente" />
+                        <span
+                          title="Vigente"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            height: 30,
+                          }}
+                        >
+                          <CircleCheck size={20} aria-label="Vigente" style={{ color: "var(--ok)" }} />
+                        </span>
                       ) : substituida ? (
-                        <span style={{ color: "var(--muted)" }}>Substituída</span>
+                        <span
+                          title="Substituída"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            height: 30,
+                          }}
+                        >
+                          <Circle size={20} aria-label="Substituída" style={{ color: "var(--muted)" }} />
+                        </span>
                       ) : (
                         <span style={{ color: "var(--faint)" }}>—</span>
                       )}
@@ -430,7 +458,7 @@ export function InsumoPrecosLoteForm({ insumo }: { insumo: Insumo }) {
           <span>Adicionar</span>
         </button>
       </div>
-      <div className="helper" style={{ marginTop: 8 }}>
+      <div className="helper" style={{ marginTop: 8, fontSize: "12px", color: "var(--faint)" }}>
         Deixe o fim em branco para uma vigência aberta. Preço atual:{" "}
         <span className="tnum">
           {formatCurrency(items.find((p) => isVigente(p, hoje))?.preco ?? null)}
