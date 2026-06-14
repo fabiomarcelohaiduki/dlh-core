@@ -1,6 +1,7 @@
 import { apiFetch, buildQuery } from "@/lib/api/client";
 import type {
   AtributoTipo,
+  DocumentoLinhaDados,
   LinhaAtributo,
   Paginated,
   Produto,
@@ -82,6 +83,8 @@ export interface LinhaAtributoInput {
   chave: string;
   tipo: AtributoTipo;
   obrigatorio?: boolean;
+  mostra_catalogo?: boolean;
+  mostra_ficha?: boolean;
 }
 
 export function createLinhaAtributo(
@@ -140,6 +143,20 @@ export function getProduto(id: string): Promise<ProdutoDetalhe> {
   });
 }
 
+/**
+ * getDocumentosDados — dados agregados de uma Linha para os documentos
+ * imprimiveis (Catalogo e Ficha tecnica): schema de atributos + produtos
+ * (valores, fotos) + SKUs. Somente leitura.
+ */
+export function getDocumentosDados(
+  linhaId: string,
+): Promise<DocumentoLinhaDados> {
+  return apiFetch<DocumentoLinhaDados>(
+    `produtos-catalogo/documentos-dados${buildQuery({ linha_id: linhaId })}`,
+    { method: "GET" },
+  );
+}
+
 export interface ProdutoInput {
   linha_id: string;
   nome: string;
@@ -189,6 +206,8 @@ export interface ProdutoAtributoInput {
   chave: string;
   tipo: AtributoTipo;
   obrigatorio?: boolean;
+  mostra_catalogo?: boolean;
+  mostra_ficha?: boolean;
 }
 
 export function createProdutoAtributo(
@@ -198,6 +217,17 @@ export function createProdutoAtributo(
   return apiFetch<ProdutoAtributo>(
     `produtos-catalogo/produtos/${produtoId}/atributos`,
     { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export function updateProdutoAtributo(
+  produtoId: string,
+  atributoId: string,
+  input: Partial<ProdutoAtributoInput>,
+): Promise<ProdutoAtributo> {
+  return apiFetch<ProdutoAtributo>(
+    `produtos-catalogo/produtos/${produtoId}/atributos/${atributoId}`,
+    { method: "PUT", body: JSON.stringify(input) },
   );
 }
 

@@ -538,6 +538,9 @@ export interface LinhaAtributo {
   chave: string;
   tipo: AtributoTipo;
   obrigatorio: boolean;
+  /** Visibilidade nos documentos imprimiveis (Catalogo / Ficha tecnica). */
+  mostra_catalogo: boolean;
+  mostra_ficha: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -549,6 +552,9 @@ export interface ProdutoAtributo {
   chave: string;
   tipo: AtributoTipo;
   obrigatorio: boolean;
+  /** Visibilidade nos documentos imprimiveis (Catalogo / Ficha tecnica). */
+  mostra_catalogo: boolean;
+  mostra_ficha: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -562,6 +568,8 @@ export interface AtributoSchema {
   tipo: AtributoTipo;
   obrigatorio: boolean;
   origem: "linha" | "produto";
+  mostra_catalogo: boolean;
+  mostra_ficha: boolean;
 }
 
 /** Produto/Familia vinculado a uma Linha (produtos). atributos e JSONB livre. */
@@ -627,6 +635,57 @@ export interface ProdutoDetalhe {
   atributos_schema: AtributoSchema[];
   skus: ProdutoSku[];
   imagens: ProdutoImagem[];
+}
+
+/**
+ * Atributo (Linha ou Produto) como vem nos dados de documentos: chave/tipo +
+ * flags de visibilidade. Sem ids — so o necessario para montar o documento.
+ */
+export interface DocAtributo {
+  chave: string;
+  tipo: AtributoTipo;
+  obrigatorio: boolean;
+  mostra_catalogo: boolean;
+  mostra_ficha: boolean;
+}
+
+/** SKU de uma Linha nos dados de documentos (valores + foto, sem preco). */
+export interface DocumentoSku {
+  id: string;
+  codigo_sku: string;
+  tipo_origem: SkuTipoOrigem;
+  atributos: Record<string, unknown>;
+  dimensoes: Record<string, unknown> | null;
+  acabamento: string | null;
+  peso_gr: number | null;
+  tolerancia_pct: number | null;
+  /** URL assinada (TTL 1h) da foto do SKU; null se nao houver. */
+  foto_url: string | null;
+}
+
+/** Produto de uma Linha nos dados de documentos (valores + foto + SKUs). */
+export interface DocumentoProduto {
+  id: string;
+  nome: string;
+  descricao: string | null;
+  /** Valores dos atributos da Linha (uniforme por produto). */
+  atributos: Record<string, unknown>;
+  prazo_entrega: string | null;
+  disponibilidade: string | null;
+  pedido_minimo: string | null;
+  /** URL assinada (TTL 1h) da foto do produto; null se nao houver. */
+  foto_url: string | null;
+  /** Atributos PROPRIOS do produto (preenchidos por SKU). */
+  atributos_produto: DocAtributo[];
+  skus: DocumentoSku[];
+}
+
+/** GET /produtos-catalogo/documentos-dados?linha_id= — dados p/ Catalogo e Ficha. */
+export interface DocumentoLinhaDados {
+  linha: { id: string; nome: string };
+  /** Schema de atributos da Linha (com flags de visibilidade). */
+  atributos_linha: DocAtributo[];
+  produtos: DocumentoProduto[];
 }
 
 // ---------------------------------------------------------------------

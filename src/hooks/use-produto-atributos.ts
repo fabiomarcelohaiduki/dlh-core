@@ -10,6 +10,7 @@ import {
   createProdutoAtributo,
   deleteProdutoAtributo,
   listProdutoAtributos,
+  updateProdutoAtributo,
   type ProdutoAtributoInput,
 } from "@/lib/api/produtos";
 import { produtoKeys } from "@/hooks/use-produtos";
@@ -46,6 +47,33 @@ export function useCreateProdutoAtributo() {
       produtoId: string;
       input: ProdutoAtributoInput;
     }) => createProdutoAtributo(produtoId, input),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: produtoAtributoKeys.byProduto(variables.produtoId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: produtoKeys.detail(variables.produtoId),
+      });
+    },
+  });
+}
+
+/**
+ * useUpdateProdutoAtributo — edita atributo proprio do produto. Invalida os
+ * atributos do produto e o detalhe (atributos_schema efetivo).
+ */
+export function useUpdateProdutoAtributo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      produtoId,
+      atributoId,
+      input,
+    }: {
+      produtoId: string;
+      atributoId: string;
+      input: Partial<ProdutoAtributoInput>;
+    }) => updateProdutoAtributo(produtoId, atributoId, input),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
         queryKey: produtoAtributoKeys.byProduto(variables.produtoId),
