@@ -42,6 +42,7 @@ import {
 } from "../_shared/rest.ts";
 import {
   linhaAtributoCreateSchema,
+  linhaAtributoUpdateSchema,
   parseJsonBody,
   parsePagination,
   produtoCreateSchema,
@@ -66,7 +67,10 @@ const PRODUTO_COLUMNS =
 const SKU_COLUMNS =
   "id, produto_id, codigo_sku, tipo_origem, atributos, dimensoes, tolerancia_pct, acabamento, peso_gr, diretriz_producao, tamanho_lote, tempo_lote, unidade_tempo, tempo_producao, estado_calculo, ativo, created_at, updated_at";
 const PRODUTO_ATRIBUTO_COLUMNS =
-  "id, produto_id, chave, tipo, obrigatorio, created_at, updated_at";
+  "id, produto_id, chave, tipo, obrigatorio, mostra_catalogo, mostra_ficha, created_at, updated_at";
+
+// Bucket privado das imagens; TTL da URL assinada nos documentos (1h).
+const DOC_SIGNED_URL_TTL_SECONDS = 3600;
 
 interface LinhaAtributoRow {
   chave: string;
@@ -282,12 +286,12 @@ async function getProduto(produtoId: string): Promise<Response> {
   const [linhaSchemaRes, produtoSchemaRes, skusRes, imagensRes] = await Promise.all([
     db
       .from("produto_linha_atributos")
-      .select("chave, tipo, obrigatorio")
+      .select("chave, tipo, obrigatorio, mostra_catalogo, mostra_ficha")
       .eq("linha_id", produto.linha_id)
       .order("chave", { ascending: true }),
     db
       .from("produto_atributos")
-      .select("chave, tipo, obrigatorio")
+      .select("chave, tipo, obrigatorio, mostra_catalogo, mostra_ficha")
       .eq("produto_id", produtoId)
       .order("chave", { ascending: true }),
     db
@@ -556,7 +560,10 @@ async function createProdutoAtributo(
     );
   }
 
-  const payload = { produto_id: produtoId, ...pickDefined(input, ["chave", "tipo", "obrigatorio"]) };
+  const payload = {
+    produto_id: produtoId,
+    ...pickDefined(input, ["chave", "tipo", "obrigatorio", "mostra_catalogo", "mostra_ficha"]),
+  };
 
   const { data, error } = await db
     .from("produto_atributos")
@@ -583,6 +590,92 @@ async function createProdutoAtributo(
   });
 
   return jsonResponse(data, 201);
+}
+
+async function updateProdutoAtributo(
+  req: Request,
+  produtoId: string,
+  atributoId: string,
+  email: string,
+): Promise<Response> {
+  const input = await parseJsonBody(req, linhaAtributoUpdateSchema);
+  const db = createServiceClient();
+
+  const payload = pickDefined(input, [
+    "chave",
+    "tipo",
+    "obrigatorio",
+    "mostra_catalogo",
+    "mostra_ficha",
+  ]);
+  if (Object.keys(payload).length === 0) {
+    throw new HttpError(400, "validation_error", "nenhum campo para atualizar");
+  }
+
+  // Renomear a chave nao pode colidir com um atributo herdado da Linha.
+  if (typeof payload.chave === "string") {
+    const { data: produto, error: produtoError } = await db
+      .from("produtos")
+      .select("linha_id")
+      .eq("id", produtoId)
+      .maybeSingle();
+    if (produtoError) {
+      throw new HttpError(500, "produto_query_failed", "falha ao consultar o produto");
+    }
+    if (!produto) {
+      throw new HttpError(404, "nao_encontrado", "produto nao encontrado");
+    }
+    const { data: colisao, error: colisaoError } = await db
+      .from("produto_linha_atributos")
+      .select("id")
+      .eq("linha_id", produto.linha_id)
+      .eq("chave", payload.chave)
+      .maybeSingle();
+    if (colisaoError) {
+      throw new HttpError(500, "atributos_query_failed", "falha ao verificar o schema da Linha");
+    }
+    if (colisao) {
+      throw new HttpError(
+        409,
+        "atributo_colide_linha",
+        "ja existe um atributo com essa chave herdado da Linha",
+      );
+    }
+  }
+
+  payload.updated_at = new Date().toISOString();
+
+  const { data, error } = await db
+    .from("produto_atributos")
+    .update(payload)
+    .eq("id", atributoId)
+    .eq("produto_id", produtoId)
+    .select(PRODUTO_ATRIBUTO_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    if (isUniqueViolation(error)) {
+      throw new HttpError(
+        409,
+        "atributo_duplicado",
+        "ja existe um atributo com essa chave no Produto",
+      );
+    }
+    throw new HttpError(500, "atributo_update_failed", "falha ao atualizar o atributo");
+  }
+  if (!data) {
+    throw new HttpError(404, "nao_encontrado", "atributo nao encontrado");
+  }
+
+  await logSensitiveAction({
+    tabela: "produto_atributos",
+    acao: "atualizar",
+    registroId: atributoId,
+    usuario: email,
+    dadosNovos: payload,
+  });
+
+  return jsonResponse(data, 200);
 }
 
 async function deleteProdutoAtributo(
@@ -934,6 +1027,244 @@ async function deleteSku(skuId: string, email: string): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------
+// GET /documentos-dados?linha_id=:uuid
+// Dados agregados de uma Linha para os documentos imprimiveis (Catalogo e
+// Ficha tecnica): schema de atributos da Linha (com flags de visibilidade),
+// e por Produto seus atributos proprios, valores, foto e SKUs (valores +
+// foto). Leitura em lote (poucas queries) com URLs de imagem assinadas.
+// Somente leitura.
+// ---------------------------------------------------------------------
+
+interface DocAtributo {
+  chave: string;
+  tipo: string;
+  obrigatorio: boolean;
+  mostra_catalogo: boolean;
+  mostra_ficha: boolean;
+}
+
+/** Le todas as linhas de uma tabela por `col in ids`, paginando o teto de 1000. */
+async function fetchAllByIn<T>(
+  db: SupabaseClient,
+  table: string,
+  columns: string,
+  col: string,
+  ids: string[],
+  orderCol: string,
+): Promise<T[]> {
+  if (ids.length === 0) return [];
+  const out: T[] = [];
+  const PAGE = 1000;
+  let from = 0;
+  for (;;) {
+    const { data, error } = await db
+      .from(table)
+      .select(columns)
+      .in(col, ids)
+      .order(orderCol, { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) {
+      throw new HttpError(500, "documentos_query_failed", `falha ao consultar ${table}`);
+    }
+    const rows = (data ?? []) as T[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+    from += PAGE;
+  }
+  return out;
+}
+
+async function getDocumentosDados(req: Request): Promise<Response> {
+  const db = createServiceClient();
+  const url = new URL(req.url);
+  const linhaId = url.searchParams.get("linha_id");
+  if (linhaId === null || !isUuid(linhaId)) {
+    throw new HttpError(400, "validation_error", "linha_id invalido (UUID esperado)");
+  }
+
+  const { data: linha, error: linhaError } = await db
+    .from("produto_linhas")
+    .select("id, nome")
+    .eq("id", linhaId)
+    .maybeSingle();
+  if (linhaError) {
+    throw new HttpError(500, "linha_query_failed", "falha ao consultar a Linha");
+  }
+  if (!linha) {
+    throw new HttpError(404, "nao_encontrado", "Linha nao encontrada");
+  }
+
+  const [linhaAtributosRes, produtosRes] = await Promise.all([
+    db
+      .from("produto_linha_atributos")
+      .select("chave, tipo, obrigatorio, mostra_catalogo, mostra_ficha")
+      .eq("linha_id", linhaId)
+      .order("chave", { ascending: true }),
+    db
+      .from("produtos")
+      .select("id, nome, descricao, atributos, prazo_entrega, disponibilidade, pedido_minimo")
+      .eq("linha_id", linhaId)
+      .eq("ativo", true)
+      .order("nome", { ascending: true }),
+  ]);
+  if (linhaAtributosRes.error) {
+    throw new HttpError(500, "atributos_query_failed", "falha ao consultar o schema da Linha");
+  }
+  if (produtosRes.error) {
+    throw new HttpError(500, "produtos_query_failed", "falha ao listar os produtos");
+  }
+
+  const atributos_linha = (linhaAtributosRes.data ?? []) as DocAtributo[];
+  const produtos = (produtosRes.data ?? []) as Array<{
+    id: string;
+    nome: string;
+    descricao: string | null;
+    atributos: Record<string, unknown>;
+    prazo_entrega: string | null;
+    disponibilidade: string | null;
+    pedido_minimo: string | null;
+  }>;
+  const produtoIds = produtos.map((p) => p.id);
+
+  // Atributos proprios por Produto, SKUs por Produto e imagens (produto+SKU).
+  const [produtoAtributos, skus] = await Promise.all([
+    fetchAllByIn<DocAtributo & { produto_id: string }>(
+      db,
+      "produto_atributos",
+      "produto_id, chave, tipo, obrigatorio, mostra_catalogo, mostra_ficha",
+      "produto_id",
+      produtoIds,
+      "chave",
+    ),
+    fetchAllByIn<{
+      id: string;
+      produto_id: string;
+      codigo_sku: string;
+      tipo_origem: string;
+      atributos: Record<string, unknown>;
+      dimensoes: Record<string, unknown> | null;
+      acabamento: string | null;
+      peso_gr: number | null;
+      tolerancia_pct: number | null;
+    }>(
+      db,
+      "produto_skus",
+      "id, produto_id, codigo_sku, tipo_origem, atributos, dimensoes, acabamento, peso_gr, tolerancia_pct",
+      "produto_id",
+      produtoIds,
+      "codigo_sku",
+    ),
+  ]);
+  const skuIds = skus.map((s) => s.id);
+
+  const [imgProduto, imgSku] = await Promise.all([
+    fetchAllByIn<{ produto_id: string | null; storage_path: string; ordem: number }>(
+      db,
+      "produto_imagens",
+      "produto_id, storage_path, ordem",
+      "produto_id",
+      produtoIds,
+      "ordem",
+    ),
+    fetchAllByIn<{ sku_id: string | null; storage_path: string; ordem: number }>(
+      db,
+      "produto_imagens",
+      "sku_id, storage_path, ordem",
+      "sku_id",
+      skuIds,
+      "ordem",
+    ),
+  ]);
+
+  // Primeira foto (menor ordem) por Produto e por SKU.
+  const pathPorProduto = new Map<string, string>();
+  for (const r of imgProduto) {
+    if (r.produto_id && !pathPorProduto.has(r.produto_id)) {
+      pathPorProduto.set(r.produto_id, r.storage_path);
+    }
+  }
+  const pathPorSku = new Map<string, string>();
+  for (const r of imgSku) {
+    if (r.sku_id && !pathPorSku.has(r.sku_id)) pathPorSku.set(r.sku_id, r.storage_path);
+  }
+
+  // Assina todas as paths necessarias em um unico lote.
+  const todasPaths = [
+    ...new Set<string>([...pathPorProduto.values(), ...pathPorSku.values()]),
+  ];
+  const urlPorPath = new Map<string, string>();
+  if (todasPaths.length > 0) {
+    const signed = await db.storage
+      .from(PRODUTOS_BUCKET)
+      .createSignedUrls(todasPaths, DOC_SIGNED_URL_TTL_SECONDS);
+    if (signed.error) {
+      throw new HttpError(500, "signed_url_failed", "falha ao gerar as URLs das imagens");
+    }
+    for (const s of signed.data ?? []) {
+      if (s.path && s.signedUrl) urlPorPath.set(s.path, s.signedUrl);
+    }
+  }
+
+  const atributosPorProduto = new Map<string, DocAtributo[]>();
+  for (const a of produtoAtributos) {
+    const list = atributosPorProduto.get(a.produto_id) ?? [];
+    list.push(a);
+    atributosPorProduto.set(a.produto_id, list);
+  }
+  const skusPorProduto = new Map<string, typeof skus>();
+  for (const s of skus) {
+    const list = skusPorProduto.get(s.produto_id) ?? [];
+    list.push(s);
+    skusPorProduto.set(s.produto_id, list);
+  }
+
+  const produtosOut = produtos.map((p) => {
+    const pSkus = skusPorProduto.get(p.id) ?? [];
+    // Foto do Produto: imagem propria; na falta, a 1a foto de SKU.
+    let pathProduto = pathPorProduto.get(p.id);
+    if (!pathProduto) {
+      for (const s of pSkus) {
+        const sp = pathPorSku.get(s.id);
+        if (sp) {
+          pathProduto = sp;
+          break;
+        }
+      }
+    }
+    return {
+      id: p.id,
+      nome: p.nome,
+      descricao: p.descricao,
+      atributos: p.atributos ?? {},
+      prazo_entrega: p.prazo_entrega,
+      disponibilidade: p.disponibilidade,
+      pedido_minimo: p.pedido_minimo,
+      foto_url: pathProduto ? urlPorPath.get(pathProduto) ?? null : null,
+      atributos_produto: atributosPorProduto.get(p.id) ?? [],
+      skus: pSkus.map((s) => ({
+        id: s.id,
+        codigo_sku: s.codigo_sku,
+        tipo_origem: s.tipo_origem,
+        atributos: s.atributos ?? {},
+        dimensoes: s.dimensoes,
+        acabamento: s.acabamento,
+        peso_gr: s.peso_gr,
+        tolerancia_pct: s.tolerancia_pct,
+        foto_url: (() => {
+          const sp = pathPorSku.get(s.id);
+          return sp ? urlPorPath.get(sp) ?? null : null;
+        })(),
+      })),
+    };
+  });
+
+  return jsonResponse(
+    { linha: { id: linha.id, nome: linha.nome }, atributos_linha, produtos: produtosOut },
+    200,
+  );
+}
+
+// ---------------------------------------------------------------------
 // Roteamento
 // ---------------------------------------------------------------------
 
@@ -949,6 +1280,12 @@ async function handler(req: Request): Promise<Response> {
 
     const segments = routeSegments(req, FUNCTION_SEGMENT);
     const root = segments[0];
+
+    // ----- /documentos-dados -----
+    if (root === "documentos-dados" && segments.length === 1) {
+      if (req.method === "GET") return await getDocumentosDados(req);
+      throw new HttpError(405, "method_not_allowed", "metodo nao permitido: use GET");
+    }
 
     // ----- /skus/:skuId -----
     if (root === "skus") {
@@ -1000,10 +1337,13 @@ async function handler(req: Request): Promise<Response> {
         if (segments.length > 4) {
           throw new HttpError(404, "nao_encontrado", "rota nao encontrada");
         }
+        if (req.method === "PUT") {
+          return await updateProdutoAtributo(req, produtoId, atributoId, email);
+        }
         if (req.method === "DELETE") {
           return await deleteProdutoAtributo(produtoId, atributoId, email);
         }
-        throw new HttpError(405, "method_not_allowed", "metodo nao permitido: use DELETE");
+        throw new HttpError(405, "method_not_allowed", "metodo nao permitido: use PUT ou DELETE");
       }
       if (segments.length > 2) {
         throw new HttpError(404, "nao_encontrado", "rota nao encontrada");

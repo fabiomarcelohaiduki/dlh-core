@@ -43,7 +43,8 @@ import {
 
 const FUNCTION_SEGMENT = "produtos-linhas";
 const LINHA_COLUMNS = "id, nome, descricao, ativo, created_at, updated_at";
-const ATRIBUTO_COLUMNS = "id, linha_id, chave, tipo, obrigatorio, created_at, updated_at";
+const ATRIBUTO_COLUMNS =
+  "id, linha_id, chave, tipo, obrigatorio, mostra_catalogo, mostra_ficha, created_at, updated_at";
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
@@ -215,7 +216,10 @@ async function createAtributo(req: Request, linhaId: string, email: string): Pro
   const db = createServiceClient();
   await assertLinhaExists(db, linhaId);
 
-  const payload = { linha_id: linhaId, ...pickDefined(input, ["chave", "tipo", "obrigatorio"]) };
+  const payload = {
+    linha_id: linhaId,
+    ...pickDefined(input, ["chave", "tipo", "obrigatorio", "mostra_catalogo", "mostra_ficha"]),
+  };
 
   const { data, error } = await db
     .from("produto_linha_atributos")
@@ -254,7 +258,13 @@ async function updateAtributo(
   const input = await parseJsonBody(req, linhaAtributoUpdateSchema);
   const db = createServiceClient();
 
-  const payload = pickDefined(input, ["chave", "tipo", "obrigatorio"]);
+  const payload = pickDefined(input, [
+    "chave",
+    "tipo",
+    "obrigatorio",
+    "mostra_catalogo",
+    "mostra_ficha",
+  ]);
   if (Object.keys(payload).length === 0) {
     throw new HttpError(400, "validation_error", "nenhum campo para atualizar");
   }

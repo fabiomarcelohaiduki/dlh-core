@@ -815,6 +815,12 @@ export const linhaAtributoCreateSchema = z
       .min(1, "chave nao pode ser vazia"),
     tipo: atributoTipoEnum.optional(),
     obrigatorio: z.boolean({ invalid_type_error: "obrigatorio deve ser booleano" }).optional(),
+    mostra_catalogo: z
+      .boolean({ invalid_type_error: "mostra_catalogo deve ser booleano" })
+      .optional(),
+    mostra_ficha: z
+      .boolean({ invalid_type_error: "mostra_ficha deve ser booleano" })
+      .optional(),
   })
   .strict();
 
@@ -829,6 +835,12 @@ export const linhaAtributoUpdateSchema = z
       .optional(),
     tipo: atributoTipoEnum.optional(),
     obrigatorio: z.boolean({ invalid_type_error: "obrigatorio deve ser booleano" }).optional(),
+    mostra_catalogo: z
+      .boolean({ invalid_type_error: "mostra_catalogo deve ser booleano" })
+      .optional(),
+    mostra_ficha: z
+      .boolean({ invalid_type_error: "mostra_ficha deve ser booleano" })
+      .optional(),
   })
   .strict();
 
