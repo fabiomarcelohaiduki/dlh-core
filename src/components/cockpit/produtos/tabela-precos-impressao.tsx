@@ -177,9 +177,14 @@ export function TabelaPrecosImpressao() {
       </header>
 
       <div className="print-title">
-        <h2>Tabela de preços</h2>
+        <div className="print-title-text">
+          <h2>Tabela de preços</h2>
+        </div>
         <div className="print-meta">
-          <span>Emissão: {formatDate(new Date().toISOString())}</span>
+          <span className="print-meta-label">Emissão</span>
+          <span className="print-meta-value">
+            {formatDate(new Date().toISOString())}
+          </span>
         </div>
       </div>
 
@@ -338,9 +343,17 @@ function FragmentProduto({
               const alvo = valor(cells.get(`${r}-CIF_ALVO`));
               return (
                 <td key={r} className="col-preco mono">
-                  {min == null && alvo == null
-                    ? "—"
-                    : `${num(min)} – ${num(alvo)}`}
+                  {min == null && alvo == null ? (
+                    <span className="cell-vazio">—</span>
+                  ) : (
+                    <span className="cell-faixa">
+                      <span className="cell-min">{num(min)}</span>
+                      <span className="cell-sep" aria-hidden="true">
+                        –
+                      </span>
+                      <span className="cell-alvo">{num(alvo)}</span>
+                    </span>
+                  )}
                 </td>
               );
             })}
