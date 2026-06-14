@@ -9,6 +9,7 @@ import {
   Loader2,
   Package,
   Plus,
+  Printer,
   TriangleAlert,
   Trash2,
   Wand2,
@@ -25,6 +26,7 @@ import { AtributosEditor } from "@/components/cockpit/produtos/atributos-editor"
 import { CriteriosPanel } from "@/components/cockpit/produtos/criterios-panel";
 import { ProdutoForm } from "@/components/cockpit/produtos/produto-form";
 import { TabelaPrecosLinha } from "@/components/cockpit/produtos/tabela-precos-linha";
+import { GerarTabelaModal } from "@/components/cockpit/produtos/gerar-tabela-modal";
 import type { AtributoSchema, ProdutoLinha } from "@/lib/api/types";
 
 type LinhaFormMode = "none" | "new" | "edit";
@@ -40,6 +42,7 @@ export function ProdutosClient() {
   const linhas = useLinhas();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<LinhaFormMode>("none");
+  const [gerando, setGerando] = useState(false);
 
   const items = useMemo(() => linhas.data?.items ?? [], [linhas.data]);
   const selected = useMemo(
@@ -61,12 +64,25 @@ export function ProdutosClient() {
     <section className="screen">
       <div className="page-head">
         <div className="actions" style={{ marginLeft: 0 }}>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => setGerando(true)}
+            disabled={items.length === 0}
+          >
+            <Printer aria-hidden="true" />
+            <span>Gerar tabela de preços</span>
+          </button>
           <Link href="/produtos/novo" className="btn btn-primary">
             <Wand2 aria-hidden="true" />
             <span>Cadastro guiado</span>
           </Link>
         </div>
       </div>
+
+      {gerando ? (
+        <GerarTabelaModal linhas={items} onClose={() => setGerando(false)} />
+      ) : null}
 
       <div
         style={{

@@ -818,6 +818,8 @@ export interface TabelaPrecoSku {
 export interface TabelaPrecoProduto {
   produto_id: string;
   nome: string;
+  /** Lucro alvo (LL%) efetivo do produto, resolvido produto->linha->global. */
+  lucro_pct: number | null;
   skus: TabelaPrecoSku[];
 }
 

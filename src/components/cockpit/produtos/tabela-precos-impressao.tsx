@@ -1,0 +1,305 @@
+"use client";
+
+import { useEffect, useMemo, useRef } from "react";
+import { useSearchParams } from "next/navigation";
+import { Loader2, Printer, TriangleAlert } from "lucide-react";
+import { useConfigEmpresa } from "@/hooks/use-config-empresa";
+import { useLinhas } from "@/hooks/use-linhas";
+import { useTabelasPrecos } from "@/hooks/use-tabela-precos";
+import { formatDate } from "@/lib/format";
+import type {
+  Regiao,
+  TabelaPrecoCelula,
+  TabelaPrecoConsolidada,
+} from "@/lib/api/types";
+
+const REGIAO_LABEL: Record<Regiao, string> = {
+  S: "Sul",
+  SE: "Sudeste",
+  CO: "Centro-Oeste",
+  NE: "Nordeste",
+  N: "Norte",
+};
+
+const REGIOES_ORDEM: Regiao[] = ["S", "SE", "CO", "NE", "N"];
+
+type Coluna = "fob" | "ll";
+const COLUNAS_ORDEM: Coluna[] = ["fob", "ll"];
+
+const NUM2 = new Intl.NumberFormat("pt-BR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const PCT = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 });
+
+/** Le um parametro de lista (csv) da query, filtrando contra os validos. */
+function lerLista<T extends string>(raw: string | null, validos: readonly T[]): T[] {
+  if (!raw) return [];
+  const set = new Set<string>(validos);
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s): s is T => set.has(s));
+}
+
+/** Indexa as celulas de um SKU por `regiao-patamar`. */
+function indexar(precos: TabelaPrecoCelula[]) {
+  const map = new Map<string, TabelaPrecoCelula>();
+  for (const c of precos) map.set(`${c.regiao}-${c.patamar}`, c);
+  return map;
+}
+
+/** Valor da celula se vigente; senao null. */
+function valor(cell: TabelaPrecoCelula | undefined): number | null {
+  if (cell && cell.estado === "vigente" && cell.valor != null) return cell.valor;
+  return null;
+}
+
+/** Numero monetario compacto (sem "R$", 2 casas); null -> "—". */
+function num(v: number | null): string {
+  return v == null ? "—" : NUM2.format(v);
+}
+
+/** LL% do produto (lucro alvo, armazenado em pontos percentuais). */
+function pct(v: number | null): string {
+  return v == null ? "—" : `${PCT.format(v)}%`;
+}
+
+/** FOB do SKU (independe de regiao): pega a primeira celula FOB vigente. */
+function fob(precos: TabelaPrecoCelula[]): number | null {
+  const c = precos.find(
+    (x) => x.patamar === "FOB" && x.estado === "vigente" && x.valor != null,
+  );
+  return c?.valor ?? null;
+}
+
+/**
+ * cmp-tabela-precos-impressao — documento imprimivel da Tabela de Preços no
+ * formato das planilhas de engenharia de custos da DLH: UMA tabela por Linha,
+ * colunas SKU | FOB | LL% | <regioes>, cada celula de regiao mostrando o
+ * intervalo "CIF Mínimo – CIF Alvo". FOB e valor unico (independe de regiao);
+ * LL% e o lucro alvo do Produto. Le a selecao (linhas/regioes) da query, monta
+ * o cabecalho/rodape institucional (config_empresa) + logo e dispara
+ * window.print ao carregar. Estilo de papel (claro), alheio ao tema escuro.
+ */
+export function TabelaPrecosImpressao() {
+  const params = useSearchParams();
+  const linhaIds = useMemo(
+    () => (params.get("linhas") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    [params],
+  );
+  const regioes = useMemo(
+    () => lerLista<Regiao>(params.get("regioes"), REGIOES_ORDEM),
+    [params],
+  );
+  // Ausencia do parametro `colunas` (links antigos) = mostrar FOB e LL%.
+  const colunas = useMemo(() => {
+    if (!params.has("colunas")) return new Set<Coluna>(COLUNAS_ORDEM);
+    return new Set<Coluna>(lerLista<Coluna>(params.get("colunas"), COLUNAS_ORDEM));
+  }, [params]);
+  const mostrarFob = colunas.has("fob");
+  const mostrarLl = colunas.has("ll");
+
+  const empresa = useConfigEmpresa();
+  const linhas = useLinhas();
+  const tabelas = useTabelasPrecos(linhaIds);
+
+  const nomePorLinha = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const l of linhas.data?.items ?? []) map.set(l.id, l.nome);
+    return map;
+  }, [linhas.data]);
+
+  const carregando =
+    empresa.isLoading ||
+    linhas.isLoading ||
+    tabelas.some((t) => t.isLoading);
+  const erro =
+    empresa.isError || linhas.isError || tabelas.some((t) => t.isError);
+
+  const printDisparado = useRef(false);
+  useEffect(() => {
+    if (carregando || erro || printDisparado.current) return;
+    printDisparado.current = true;
+    // Espera o layout/imagens assentarem antes de abrir o dialogo de impressao.
+    const id = window.setTimeout(() => window.print(), 350);
+    return () => window.clearTimeout(id);
+  }, [carregando, erro]);
+
+  if (linhaIds.length === 0 || regioes.length === 0) {
+    return (
+      <div style={{ padding: 40, color: "#b91c1c" }}>
+        Seleção inválida. Volte ao cockpit e gere a tabela novamente.
+      </div>
+    );
+  }
+
+  const e = empresa.data;
+  const titulo = e?.nomeFantasia || e?.razaoSocial || "Tabela de preços";
+
+  return (
+    <div className="print-doc">
+      <div className="print-toolbar">
+        <button type="button" className="btn btn-primary" onClick={() => window.print()}>
+          <Printer aria-hidden="true" />
+          <span>Imprimir / Salvar PDF</span>
+        </button>
+        {carregando ? (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <Loader2 className="spin" aria-hidden="true" /> Carregando dados…
+          </span>
+        ) : null}
+      </div>
+
+      {erro ? (
+        <div style={{ padding: 40, color: "#b91c1c", display: "flex", gap: 8 }}>
+          <TriangleAlert aria-hidden="true" />
+          Não foi possível carregar os dados da tabela de preços.
+        </div>
+      ) : (
+        <div className="print-page">
+          <header className="print-head">
+            <div className="print-brand">
+              {e?.logoBase64 ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={e.logoBase64} alt="Logomarca" className="print-logo" />
+              ) : null}
+              <div>
+                <h1>{e?.razaoSocial || titulo}</h1>
+                {e?.nomeFantasia && e?.razaoSocial ? (
+                  <div className="print-fantasia">{e.nomeFantasia}</div>
+                ) : null}
+              </div>
+            </div>
+            <div className="print-empresa">
+              {e?.cnpj ? <div>CNPJ: {e.cnpj}</div> : null}
+              {e?.inscricaoEstadual ? <div>IE: {e.inscricaoEstadual}</div> : null}
+              {e?.endereco ? <div>{e.endereco}</div> : null}
+              {e?.telefone ? <div>{e.telefone}</div> : null}
+              {e?.email ? <div>{e.email}</div> : null}
+              {e?.site ? <div>{e.site}</div> : null}
+            </div>
+          </header>
+
+          <div className="print-title">
+            <h2>Tabela de preços</h2>
+            <div className="print-meta">
+              <span>Emissão: {formatDate(new Date().toISOString())}</span>
+              {e && e.validadePadraoDias > 0 ? (
+                <span>Validade da proposta: {e.validadePadraoDias} dias</span>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="print-legenda">
+            Valores em R$. Cada célula de região mostra o intervalo{" "}
+            <strong>CIF Mínimo – CIF Alvo</strong>.
+            {mostrarFob ? " FOB é sem frete." : ""}
+            {mostrarLl ? " LL% é o lucro alvo do produto." : ""}
+          </div>
+
+          {linhaIds.map((linhaId, i) => {
+            const q = tabelas[i];
+            const data = q?.data as TabelaPrecoConsolidada | undefined;
+            const nome = nomePorLinha.get(linhaId) ?? "Linha";
+            const produtos = (data?.produtos ?? []).filter((p) => p.skus.length > 0);
+
+            return (
+              <section key={linhaId} className="print-linha">
+                <h3 className="print-linha-nome">{nome}</h3>
+                {produtos.length === 0 ? (
+                  <div className="print-vazio">Sem SKUs com preço vigente nesta linha.</div>
+                ) : (
+                  <table className="print-table">
+                    <thead>
+                      <tr>
+                        <th className="col-sku">SKU</th>
+                        {mostrarFob ? <th className="col-preco">FOB</th> : null}
+                        {mostrarLl ? <th className="col-ll">LL%</th> : null}
+                        {regioes.map((r) => (
+                          <th key={r} className="col-preco">
+                            {REGIAO_LABEL[r]}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {produtos.map((produto) => (
+                        <FragmentProduto
+                          key={produto.produto_id}
+                          nome={produto.nome}
+                          lucroPct={produto.lucro_pct}
+                          colSpan={
+                            1 + (mostrarFob ? 1 : 0) + (mostrarLl ? 1 : 0) + regioes.length
+                          }
+                          skus={produto.skus}
+                          regioes={regioes}
+                          mostrarFob={mostrarFob}
+                          mostrarLl={mostrarLl}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </section>
+            );
+          })}
+
+          {e?.observacaoRodape ? (
+            <footer className="print-foot">{e.observacaoRodape}</footer>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FragmentProduto({
+  nome,
+  lucroPct,
+  colSpan,
+  skus,
+  regioes,
+  mostrarFob,
+  mostrarLl,
+}: {
+  nome: string;
+  lucroPct: number | null;
+  colSpan: number;
+  skus: TabelaPrecoConsolidada["produtos"][number]["skus"];
+  regioes: Regiao[];
+  mostrarFob: boolean;
+  mostrarLl: boolean;
+}) {
+  return (
+    <>
+      <tr className="print-produto-row">
+        <td colSpan={colSpan}>{nome}</td>
+      </tr>
+      {skus.map((sku) => {
+        const cells = indexar(sku.precos);
+        return (
+          <tr key={sku.sku_id}>
+            <td className="col-sku mono">{sku.codigo_sku}</td>
+            {mostrarFob ? (
+              <td className="col-preco mono">{num(fob(sku.precos))}</td>
+            ) : null}
+            {mostrarLl ? <td className="col-ll mono">{pct(lucroPct)}</td> : null}
+            {regioes.map((r) => {
+              const min = valor(cells.get(`${r}-CIF_MINIMO`));
+              const alvo = valor(cells.get(`${r}-CIF_ALVO`));
+              return (
+                <td key={r} className="col-preco mono">
+                  {min == null && alvo == null
+                    ? "—"
+                    : `${num(min)} – ${num(alvo)}`}
+                </td>
+              );
+            })}
+          </tr>
+        );
+      })}
+    </>
+  );
+}

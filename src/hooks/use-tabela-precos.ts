@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, type QueryKey } from "@tanstack/react-query";
+import { useQueries, useQuery, type QueryKey } from "@tanstack/react-query";
 import { getTabelaPrecos } from "@/lib/api/parametros";
 
 /** Chaves de cache da tabela de precos consolidada por Linha. */
@@ -21,5 +21,19 @@ export function useTabelaPrecos(
     queryKey: tabelaPrecoKeys.byLinha(linhaId ?? ""),
     queryFn: () => getTabelaPrecos(linhaId as string),
     enabled: (options?.enabled ?? true) && Boolean(linhaId),
+  });
+}
+
+/**
+ * useTabelasPrecos — busca a tabela consolidada de VARIAS Linhas em paralelo
+ * (geracao do PDF de precos para uma/varias/todas as linhas). Mantem a ordem
+ * dos linhaIds recebidos para reproduzir a selecao do usuario na impressao.
+ */
+export function useTabelasPrecos(linhaIds: string[]) {
+  return useQueries({
+    queries: linhaIds.map((linhaId) => ({
+      queryKey: tabelaPrecoKeys.byLinha(linhaId),
+      queryFn: () => getTabelaPrecos(linhaId),
+    })),
   });
 }
