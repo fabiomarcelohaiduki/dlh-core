@@ -272,9 +272,9 @@ export function CustoAquisicaoForm({ skuId }: { skuId: string }) {
           <span>Adicionar</span>
         </button>
       </div>
-      <div className="helper" style={{ marginTop: 8 }}>
+      <p style={{ margin: "8px 0 0", fontSize: "12.5px", color: "var(--muted)" }}>
         Deixe o fim em branco para uma vigência aberta.
-      </div>
+      </p>
       {erro && (
         <div className="err-msg" style={{ display: "flex", marginTop: 12 }}>
           <TriangleAlert aria-hidden="true" />
