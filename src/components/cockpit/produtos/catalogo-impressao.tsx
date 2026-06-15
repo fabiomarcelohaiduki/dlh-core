@@ -6,6 +6,7 @@ import { Loader2, Printer, TriangleAlert } from "lucide-react";
 import { useConfigEmpresa } from "@/hooks/use-config-empresa";
 import { useLinhas } from "@/hooks/use-linhas";
 import { useDocumentosDados } from "@/hooks/use-documentos-dados";
+import { useTabelasPrecos } from "@/hooks/use-tabela-precos";
 import { formatDate } from "@/lib/format";
 import type {
   AtributoTipo,
@@ -13,7 +14,36 @@ import type {
   DocumentoLinhaDados,
   DocumentoProduto,
   DocumentoSku,
+  Regiao,
+  TabelaPrecoCelula,
+  TabelaPrecoConsolidada,
 } from "@/lib/api/types";
+
+const REGIAO_LABEL: Record<Regiao, string> = {
+  S: "Sul",
+  SE: "Sudeste",
+  CO: "Centro-Oeste",
+  NE: "Nordeste",
+  N: "Norte",
+};
+
+const REGIOES_ORDEM: Regiao[] = ["S", "SE", "CO", "NE", "N"];
+
+const NUM2 = new Intl.NumberFormat("pt-BR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/** Valor monetario compacto (sem "R$", 2 casas); null -> "—". */
+function num(v: number | null): string {
+  return v == null ? "—" : NUM2.format(v);
+}
+
+/** Valor da celula se vigente; senao null. */
+function valorCelula(cell: TabelaPrecoCelula | undefined): number | null {
+  if (cell && cell.estado === "vigente" && cell.valor != null) return cell.valor;
+  return null;
+}
 
 /** Valor de atributo formatado para o documento; vazio -> "—". */
 function formatAttr(tipo: AtributoTipo, value: unknown): string {
@@ -49,9 +79,21 @@ export function CatalogoImpressao() {
     return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
   }, [params]);
 
+  // Precos opcionais por SKU: ligados quando precos=1; as regioes seguem a
+  // ordem canonica (S, SE, ...) restritas as escolhidas no modal.
+  const incluirPrecos = params.get("precos") === "1";
+  const regioes = useMemo(() => {
+    if (!incluirPrecos) return [] as Regiao[];
+    const sel = new Set(
+      (params.get("regioes") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    );
+    return REGIOES_ORDEM.filter((r) => sel.has(r));
+  }, [incluirPrecos, params]);
+
   const empresa = useConfigEmpresa();
   const linhas = useLinhas();
   const dados = useDocumentosDados(linhaIds);
+  const tabelas = useTabelasPrecos(incluirPrecos ? linhaIds : []);
 
   const nomePorLinha = useMemo(() => {
     const map = new Map<string, string>();
@@ -59,9 +101,29 @@ export function CatalogoImpressao() {
     return map;
   }, [linhas.data]);
 
+  // Indice sku_id -> celulas de preco, agregado de todas as linhas.
+  const precosPorSku = useMemo(() => {
+    const map = new Map<string, TabelaPrecoCelula[]>();
+    if (!incluirPrecos) return map;
+    for (const t of tabelas) {
+      const data = t.data as TabelaPrecoConsolidada | undefined;
+      for (const p of data?.produtos ?? []) {
+        for (const s of p.skus) map.set(s.sku_id, s.precos);
+      }
+    }
+    return map;
+  }, [incluirPrecos, tabelas]);
+
   const carregando =
-    empresa.isLoading || linhas.isLoading || dados.some((d) => d.isLoading);
-  const erro = empresa.isError || linhas.isError || dados.some((d) => d.isError);
+    empresa.isLoading ||
+    linhas.isLoading ||
+    dados.some((d) => d.isLoading) ||
+    (incluirPrecos && tabelas.some((t) => t.isLoading));
+  const erro =
+    empresa.isError ||
+    linhas.isError ||
+    dados.some((d) => d.isError) ||
+    (incluirPrecos && tabelas.some((t) => t.isError));
 
   const printDisparado = useRef(false);
   useEffect(() => {
@@ -128,6 +190,22 @@ export function CatalogoImpressao() {
       .map((a) => ({ chave: a.chave, valor: formatAttr(a.tipo, sku?.atributos?.[a.chave]) }));
     const visiveis = [...doLinha, ...doProduto].filter((x) => x.valor !== "—");
     const fotoUrl = sku?.foto_url ?? produto.foto_url;
+    // Precos do SKU por regiao (CIF Minimo - CIF Alvo), so quando habilitado.
+    const precosRegiao =
+      incluirPrecos && sku
+        ? regioes
+            .map((r) => {
+              const cells = precosPorSku.get(sku.id) ?? [];
+              const min = valorCelula(
+                cells.find((c) => c.regiao === r && c.patamar === "CIF_MINIMO"),
+              );
+              const alvo = valorCelula(
+                cells.find((c) => c.regiao === r && c.patamar === "CIF_ALVO"),
+              );
+              return { regiao: r, min, alvo };
+            })
+            .filter((x) => x.min != null || x.alvo != null)
+        : [];
     return (
       <article key={sku ? sku.id : produto.id} className="cat-card">
         <div className="cat-card-foto">
@@ -153,6 +231,26 @@ export function CatalogoImpressao() {
                 </div>
               ))}
             </dl>
+          ) : null}
+          {precosRegiao.length > 0 ? (
+            <table className="cat-card-precos">
+              <thead>
+                <tr>
+                  <th>Região</th>
+                  <th>Mínimo</th>
+                  <th>Alvo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {precosRegiao.map((p) => (
+                  <tr key={p.regiao}>
+                    <td>{REGIAO_LABEL[p.regiao]}</td>
+                    <td className="mono">{num(p.min)}</td>
+                    <td className="mono">{num(p.alvo)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           ) : null}
         </div>
       </article>

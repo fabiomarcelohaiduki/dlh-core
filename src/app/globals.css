@@ -2866,6 +2866,34 @@ select:focus {
   color: var(--pp-ink);
   text-align: right;
 }
+.cat-card-precos {
+  margin-top: 6px;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5px;
+}
+.cat-card-precos th {
+  text-align: right;
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pp-muted);
+  font-weight: 600;
+  padding: 0 0 2px;
+  border-bottom: 1px solid var(--pp-line);
+}
+.cat-card-precos th:first-child {
+  text-align: left;
+}
+.cat-card-precos td {
+  padding: 1px 0;
+  text-align: right;
+  color: var(--pp-ink);
+}
+.cat-card-precos td:first-child {
+  text-align: left;
+  color: var(--pp-muted);
+}
 
 /* =====================================================================
    FICHA TECNICA — um SKU por pagina (cabecalho + foto + specs + atributos)

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { FileText, Loader2, Printer, TriangleAlert, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -31,12 +31,21 @@ export function GerarDocumentoModal({
   rota,
   linhas,
   onClose,
+  children,
+  extraParams,
+  extraValido = true,
 }: {
   titulo: string;
   helper: string;
   rota: string;
   linhas: ProdutoLinha[];
   onClose: () => void;
+  /** Campos extras especificos do documento (ex.: precos no catalogo). */
+  children?: ReactNode;
+  /** Parametros extras mesclados na query de impressao. */
+  extraParams?: Record<string, string>;
+  /** Gate adicional de validacao dos campos extras (default: valido). */
+  extraValido?: boolean;
 }) {
   const [linhasSel, setLinhasSel] = useState<Set<string>>(new Set());
   // Exclusao explicita por produto; a inclusao e implicita (tudo que nao foi
@@ -77,10 +86,11 @@ export function GerarDocumentoModal({
   }, [linhasSelOrdenadas, produtosQueries, excluidos]);
 
   const valido = useMemo(() => {
+    if (!extraValido) return false;
     if (linhasSel.size === 0) return false;
     if (excluidos.size === 0) return true; // inclui tudo, sem depender do load
     return !carregandoProdutos && incluidos.length > 0;
-  }, [linhasSel, excluidos, carregandoProdutos, incluidos]);
+  }, [extraValido, linhasSel, excluidos, carregandoProdutos, incluidos]);
 
   function gerar() {
     if (!valido) return;
@@ -90,6 +100,7 @@ export function GerarDocumentoModal({
     // So envia a lista de produtos quando ha exclusao; sem exclusao, a rota
     // imprime todos os produtos das linhas (sem depender do load deste modal).
     if (excluidos.size > 0) params.set("produtos", incluidos.join(","));
+    for (const [k, v] of Object.entries(extraParams ?? {})) params.set(k, v);
     window.open(`${rota}?${params.toString()}`, "_blank");
     onClose();
   }
@@ -216,6 +227,8 @@ export function GerarDocumentoModal({
             </div>
           </div>
         ) : null}
+
+        {children}
 
         {linhasSel.size === 0 ? (
           <div className="helper" style={{ display: "flex", alignItems: "center", gap: 6 }}>
