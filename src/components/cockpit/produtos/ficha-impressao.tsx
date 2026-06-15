@@ -62,6 +62,13 @@ export function FichaImpressao() {
     () => (params.get("linhas") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
     [params],
   );
+  // Filtro opcional de produtos: presente so quando o usuario excluiu algum no
+  // modal. Ausente => imprime as fichas de todos os produtos das linhas.
+  const produtoFilter = useMemo(() => {
+    const raw = params.get("produtos");
+    if (raw == null) return null;
+    return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
+  }, [params]);
 
   const empresa = useConfigEmpresa();
   const linhas = useLinhas();
@@ -88,6 +95,7 @@ export function FichaImpressao() {
     if (!data) return;
     const linhaNome = nomePorLinha.get(linhaId) ?? data.linha.nome ?? "Linha";
     for (const produto of data.produtos) {
+      if (produtoFilter && !produtoFilter.has(produto.id)) continue;
       const visiveisLinha = data.atributos_linha.filter((a) => a.mostra_ficha);
       const visiveisProduto = produto.atributos_produto.filter((a) => a.mostra_ficha);
       for (const sku of produto.skus) {

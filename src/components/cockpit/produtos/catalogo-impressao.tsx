@@ -40,6 +40,13 @@ export function CatalogoImpressao() {
     () => (params.get("linhas") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
     [params],
   );
+  // Filtro opcional de produtos: presente so quando o usuario excluiu algum no
+  // modal. Ausente => imprime todos os produtos das linhas.
+  const produtoFilter = useMemo(() => {
+    const raw = params.get("produtos");
+    if (raw == null) return null;
+    return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
+  }, [params]);
 
   const empresa = useConfigEmpresa();
   const linhas = useLinhas();
@@ -183,7 +190,9 @@ export function CatalogoImpressao() {
           {linhaIds.map((linhaId, i) => {
             const data = dados[i]?.data as DocumentoLinhaDados | undefined;
             const nome = nomePorLinha.get(linhaId) ?? data?.linha.nome ?? "Linha";
-            const produtos = data?.produtos ?? [];
+            const produtos = (data?.produtos ?? []).filter(
+              (p) => !produtoFilter || produtoFilter.has(p.id),
+            );
             const atributosLinha = data?.atributos_linha ?? [];
 
             return (
