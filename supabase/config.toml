@@ -52,3 +52,11 @@ verify_jwt = false
 # --no-verify-jwt reabre o bug e a Lia nao consegue chamar a tool.
 [functions.v1-acervo-ler-documento]
 verify_jwt = false
+
+# SQL read-only no substrato tabular /v1 (tool #4 do RAG): mesma autenticacao
+# das outras tools (API key da Lia lia_sk_ no Vault OU sessao do cockpit via
+# authenticateV1). A API key NAO e JWT -> sem este pin o gateway barra o Bearer
+# lia_sk_ com {UNAUTHORIZED_INVALID_JWT_FORMAT} antes do codigo. Sem o pin,
+# deploy sem --no-verify-jwt reabre o bug e a Lia nao consegue chamar a tool.
+[functions.v1-substrato-sql]
+verify_jwt = false

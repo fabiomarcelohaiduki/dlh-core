@@ -599,6 +599,49 @@ export function normalizeDocLimite(limite: number | undefined): number {
 }
 
 // ---------------------------------------------------------------------
+// Schema: SQL read-only no substrato tabular /v1 (POST /v1-substrato-sql).
+//   Tool #4 do RAG. A Lia ESCREVE um unico SELECT/WITH sobre as views
+//   curadas do schema lia; a RPC executar_sql_lia aplica as travas
+//   deterministicas (owner read-only lia_sql, search_path lia, SELECT-only,
+//   statement_timeout 5s, LIMIT). Aqui so validamos o ENVELOPE: sql nao-vazio
+//   ate MAX_SQL_CHARS; limite opcional clampado em [1, MAX_SQL_LINHAS] (a RPC
+//   reforca o mesmo teto). A seguranca REAL vive na RPC, nao neste schema.
+// ---------------------------------------------------------------------
+export const MAX_SQL_CHARS = 8_000;
+export const MIN_SQL_LINHAS = 1;
+export const MAX_SQL_LINHAS = 1_000;
+export const DEFAULT_SQL_LINHAS = 1_000;
+
+export const substratoSqlSchema = z
+  .object({
+    sql: z
+      .string({
+        required_error: "sql e obrigatorio",
+        invalid_type_error: "sql deve ser string",
+      })
+      .trim()
+      .min(1, "sql nao pode ser vazio")
+      .max(MAX_SQL_CHARS, `sql nao pode exceder ${MAX_SQL_CHARS} caracteres`),
+    limite: z
+      .number({ invalid_type_error: "limite deve ser numero" })
+      .int("limite deve ser inteiro")
+      .positive("limite deve ser positivo")
+      .optional(),
+  })
+  .strict();
+
+export type SubstratoSqlInput = z.infer<typeof substratoSqlSchema>;
+
+/**
+ * Normaliza/limita o teto de linhas do SQL ao intervalo suportado.
+ * Ausente -> DEFAULT_SQL_LINHAS; fora -> clamp em [MIN, MAX] (a RPC reforca).
+ */
+export function normalizeSqlLinhas(limite: number | undefined): number {
+  if (limite === undefined) return DEFAULT_SQL_LINHAS;
+  return Math.min(Math.max(Math.trunc(limite), MIN_SQL_LINHAS), MAX_SQL_LINHAS);
+}
+
+// ---------------------------------------------------------------------
 // Schema: busca semantica do dominio Produtos /v1 (POST /v1-produtos-busca-semantica).
 // Diferente da busca multi-origem do substrato: o escopo e FIXO em
 // 'produto-cotacao' (definido no handler, nao no corpo) e o `limite` e
