@@ -34,3 +34,13 @@ verify_jwt = false
 # --no-verify-jwt reabre o bug.
 [functions.documentos-indexar]
 verify_jwt = false
+
+# Busca semantica do acervo /v1: autentica via authenticateV1 (API key da Lia
+# lia_sk_ no Vault OU sessao do cockpit). A API key NAO e um JWT, entao com
+# verify_jwt no default (ON) o gateway barra o Bearer lia_sk_ com
+# {UNAUTHORIZED_INVALID_JWT_FORMAT} antes do codigo. A funcao se autentica
+# sozinha (compara em tempo constante / recai p/ sessao humana) e devolve 401
+# quando falta credencial. Sem este pin, deploy sem --no-verify-jwt reabre o
+# bug e a Lia nao consegue chamar a tool.
+[functions.v1-acervo-busca-semantica]
+verify_jwt = false
