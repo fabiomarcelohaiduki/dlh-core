@@ -77,3 +77,21 @@ export function dispararIndexacao(): Promise<{ ok: boolean }> {
     body: JSON.stringify({ action: "disparar" }),
   });
 }
+
+/**
+ * POST /indexacao { action:"reprocessar_erros", fontes? } — move os documentos
+ * em status_indexacao=erro de volta para pendente (filtrado pela[s] fonte[s]
+ * indexada[s]) e reabre o backfill. Retry idempotente (erros de backfill sao
+ * transitorios; chunks inseridos atomicamente no fim do doc). So gasta quando o
+ * master switch (ativo) esta ON. Devolve a quantidade reenfileirada.
+ */
+export function reprocessarErrosIndexacao(
+  fontes?: FonteIndexacao[] | null,
+): Promise<{ ok: boolean; reenfileirados: number }> {
+  const body: Record<string, unknown> = { action: "reprocessar_erros" };
+  if (fontes && fontes.length > 0) body.fontes = fontes;
+  return apiFetch<{ ok: boolean; reenfileirados?: number }>("indexacao", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }).then((raw) => ({ ok: raw.ok, reenfileirados: raw.reenfileirados ?? 0 }));
+}

@@ -10,6 +10,7 @@ import {
 import {
   dispararIndexacao,
   fetchIndexacaoResumo,
+  reprocessarErrosIndexacao,
   salvarConfigIndexacao,
   type SalvarConfigIndexacaoInput,
 } from "@/lib/api/indexacao";
@@ -72,6 +73,22 @@ export function useDispararIndexacao() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => dispararIndexacao(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["indexacao", "resumo"] });
+    },
+  });
+}
+
+/**
+ * useReprocessarErrosIndexacao — move os documentos em erro de volta para
+ * pendente da(s) fonte(s) e reabre o backfill (POST indexacao
+ * { action:"reprocessar_erros" }). Em sucesso invalida o resumo para o
+ * progresso refletir a fila reaberta.
+ */
+export function useReprocessarErrosIndexacao(fontes?: FonteIndexacao[] | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => reprocessarErrosIndexacao(fontes),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["indexacao", "resumo"] });
     },

@@ -1,8 +1,12 @@
 "use client";
 
 import { type CSSProperties, useState } from "react";
-import { Check, Loader2, Sparkles, TriangleAlert } from "lucide-react";
-import { useDispararIndexacao, useIndexacaoResumo } from "@/hooks/use-indexacao";
+import { Check, Loader2, RotateCcw, Sparkles, TriangleAlert } from "lucide-react";
+import {
+  useDispararIndexacao,
+  useIndexacaoResumo,
+  useReprocessarErrosIndexacao,
+} from "@/hooks/use-indexacao";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import type { FonteIndexacao } from "@/lib/api/types";
@@ -35,6 +39,7 @@ export function IndexacaoDisparoForm({
   ativo: boolean;
 }) {
   const disparar = useDispararIndexacao();
+  const reprocessar = useReprocessarErrosIndexacao(fontes);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [confirmar, setConfirmar] = useState(false);
 
@@ -61,8 +66,34 @@ export function IndexacaoDisparoForm({
     }
   }
 
+  async function executarReprocesso() {
+    setFeedback(null);
+    try {
+      const { reenfileirados } = await reprocessar.mutateAsync();
+      setFeedback({
+        kind: "ok",
+        message:
+          reenfileirados > 0
+            ? `${reenfileirados.toLocaleString("pt-BR")} ${reenfileirados === 1 ? "documento reenfileirado" : "documentos reenfileirados"} · de volta na fila.`
+            : "Nenhum erro pendente para reprocessar.",
+      });
+    } catch {
+      setFeedback({ kind: "err", message: "Não foi possível reprocessar os erros. Tente novamente." });
+    }
+  }
+
   const ocupado = disparar.isPending;
+  const reprocessando = reprocessar.isPending;
   const c = resumo.data;
+
+  // Progresso = indexados / total indexavel da(s) fonte(s). Erros contam como
+  // ainda nao concluidos (denominador), por isso a barra so chega a 100% quando
+  // a fila zera de fato.
+  const total = c?.total ?? 0;
+  const concluida = c?.concluida ?? 0;
+  const erros = c?.erro ?? 0;
+  const pct = total > 0 ? Math.min(100, Math.round((concluida / total) * 100)) : 0;
+  const mostraProgresso = !resumo.isLoading && total > 0;
 
   const capStyle: CSSProperties = {
     fontSize: 12,
@@ -110,6 +141,51 @@ export function IndexacaoDisparoForm({
         ))}
       </div>
 
+      {/* Barra de progresso: indexados / total indexavel da(s) fonte(s). */}
+      {mostraProgresso ? (
+        <div
+          role="progressbar"
+          aria-valuenow={pct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label="Progresso da indexação"
+          style={{ display: "grid", gap: 6 }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+              fontSize: 12.5,
+              color: "var(--faint)",
+            }}
+          >
+            <span>
+              {concluida.toLocaleString("pt-BR")} de {total.toLocaleString("pt-BR")} indexados
+            </span>
+            <b style={{ fontSize: 13, color: "var(--fg)" }}>{pct}%</b>
+          </div>
+          <div
+            style={{
+              height: 8,
+              borderRadius: 999,
+              background: "var(--surface-2, rgba(127,127,127,.18))",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                width: `${pct}%`,
+                height: "100%",
+                borderRadius: 999,
+                background: "var(--accent)",
+                transition: "width .4s ease",
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
+
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 10 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {confirmar ? (
@@ -149,6 +225,32 @@ export function IndexacaoDisparoForm({
               : "Ligue o interruptor da indexação para liberar o disparo."}
           </span>
         </div>
+
+        {erros > 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <button
+              className="btn"
+              type="button"
+              onClick={executarReprocesso}
+              disabled={reprocessando}
+              title="Recoloca na fila os documentos que falharam (erros transitórios da OpenAI)."
+            >
+              {reprocessando ? (
+                <Loader2 className="spin" aria-hidden="true" />
+              ) : (
+                <RotateCcw aria-hidden="true" />
+              )}
+              <span>
+                {reprocessando
+                  ? "Reprocessando…"
+                  : `Reprocessar ${erros.toLocaleString("pt-BR")} ${erros === 1 ? "erro" : "erros"}`}
+              </span>
+            </button>
+            <span className="helper" style={capStyle}>
+              Erros de indexação são transitórios. Volta os documentos para a fila (reprocesso idempotente).
+            </span>
+          </div>
+        ) : null}
 
         {feedback ? (
           <span className={cn("save-note", feedback.kind === "err" && "err")}>
