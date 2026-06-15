@@ -45,6 +45,7 @@ async function handleGet(): Promise<Response> {
   const { data, error } = await service
     .from("config_llm")
     .select(SELECT_COLS)
+    .order("id")
     .limit(1)
     .maybeSingle();
   if (error) {
@@ -70,6 +71,27 @@ async function handlePut(req: Request): Promise<Response> {
   const { db, email } = await requireAuthorizedUser(req);
   const input = await parseJsonBody(req, configLlmSchema);
 
+  // Invariante DETERMINISTICA no backend (nao so na UI): IA ativa exige chave.
+  // Vale para a chave que chega no corpo OU para a que ja esta no Vault.
+  const chaveJaConfigurada = (await getServiceSecret(LLM_OPENAI_API_KEY_NAME)) != null;
+  const chaveNoCorpo = typeof input.apiKey === "string" && input.apiKey.trim() !== "";
+  if (input.ativo && !chaveNoCorpo && !chaveJaConfigurada) {
+    throw new HttpError(
+      400,
+      "chave_obrigatoria",
+      "ative a IA somente com uma chave configurada",
+    );
+  }
+
+  // Chave opcional: grava CIFRADA no Vault ANTES de marcar a config (nunca
+  // volta ao cliente). Assim, se a tabela falhar, no maximo a chave fica
+  // presente sem a config ativa; nunca o inverso (ativo sem chave).
+  let keyAtualizada = false;
+  if (chaveNoCorpo) {
+    await setServiceSecret(LLM_OPENAI_API_KEY_NAME, input.apiKey!.trim());
+    keyAtualizada = true;
+  }
+
   const payload = {
     provider: input.provider,
     modelo: input.modelo,
@@ -82,6 +104,7 @@ async function handlePut(req: Request): Promise<Response> {
   const { data: existing, error: selErr } = await db
     .from("config_llm")
     .select("id")
+    .order("id")
     .limit(1)
     .maybeSingle();
   if (selErr) {
@@ -103,16 +126,7 @@ async function handlePut(req: Request): Promise<Response> {
     }
   }
 
-  // Chave opcional: presente -> grava CIFRADA no Vault (nunca volta ao cliente).
-  let keyAtualizada = false;
-  if (input.apiKey) {
-    await setServiceSecret(LLM_OPENAI_API_KEY_NAME, input.apiKey);
-    keyAtualizada = true;
-  }
-
-  // Estado final de configuracao da chave (apos eventual gravacao).
-  const segredo = await getServiceSecret(LLM_OPENAI_API_KEY_NAME);
-  const keyConfigurada = segredo != null;
+  const keyConfigurada = chaveJaConfigurada || keyAtualizada;
 
   // Audit SEM o segredo: registra apenas se a chave foi atualizada.
   await logSensitiveAction({
