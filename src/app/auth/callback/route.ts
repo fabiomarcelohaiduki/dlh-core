@@ -12,7 +12,16 @@ import { edgeAuthHeaders, functionsUrl } from "@/lib/supabase/functions";
  *   - cancelado/sem code -> /login (idle, sem erro)
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const { searchParams, origin } = request.nextUrl;
+  const { searchParams } = request.nextUrl;
+  // A origem dos redirects acompanha o host REAL da requisicao (suporta acesso
+  // via localhost e via IP da LAN). request.nextUrl.origin resolve para
+  // localhost no next dev, ignorando o host -> derivamos do header host.
+  const requestHost =
+    request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  const requestProto = request.headers.get("x-forwarded-proto") ?? "http";
+  const origin = requestHost
+    ? `${requestProto}://${requestHost}`
+    : request.nextUrl.origin;
   const code = searchParams.get("code");
   const oauthError = searchParams.get("error");
   const next = searchParams.get("next");

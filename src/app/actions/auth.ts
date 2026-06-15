@@ -20,10 +20,16 @@ export async function loginWithGoogle(
 ): Promise<LoginError | void> {
   const supabase = await createClient();
   const hdrs = await headers();
+  // A origem do callback acompanha o host REAL da requisicao (suporta acesso
+  // via localhost e via IP da LAN). So cai no NEXT_PUBLIC_APP_URL se nem o
+  // header origin nem o host estiverem disponiveis.
+  const requestHost = hdrs.get("x-forwarded-host") ?? hdrs.get("host");
+  const requestProto = hdrs.get("x-forwarded-proto") ?? "http";
   const origin =
     hdrs.get("origin") ??
+    (requestHost ? `${requestProto}://${requestHost}` : undefined) ??
     process.env.NEXT_PUBLIC_APP_URL ??
-    `https://${hdrs.get("host") ?? ""}`;
+    "http://localhost:3000";
 
   const callbackUrl = new URL("/auth/callback", origin);
   if (redirectTo && redirectTo.startsWith("/")) {
