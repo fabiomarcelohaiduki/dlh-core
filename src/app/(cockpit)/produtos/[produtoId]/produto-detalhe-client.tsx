@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
@@ -385,55 +385,92 @@ function SkusSection({
                   const desc = precoEstadoDescriptor(sku.estado_calculo);
                   const active = sku.id === selectedId;
                   return (
-                    <tr
-                      key={sku.id}
-                      className={active ? "clk active-row" : "clk"}
-                      aria-selected={active}
-                      style={active ? { background: "var(--accent-soft)" } : undefined}
-                      onClick={() => {
-                        setSelectedId(active ? null : sku.id);
-                        setEditingId(null);
-                        setCreating(false);
-                      }}
-                    >
-                      <td className="mono">
-                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <StatusPill state={desc.state} label={desc.label} iconOnly />
-                          <FotoThumb url={sku.foto_url} alt={sku.codigo_sku} size={32} />
-                          {sku.codigo_sku}
-                        </div>
-                      </td>
-                      <td className="sub">
-                        {sku.tipo_origem === "fabricado" ? "Fabricado" : "Comprado"}
-                      </td>
-                      <td>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "flex-end",
-                            gap: 8,
-                          }}
-                        >
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-icon"
-                            style={{ color: "var(--accent)" }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedId(sku.id);
-                              setEditingId(sku.id);
-                              setCreating(false);
-                              setErro(null);
+                    <Fragment key={sku.id}>
+                      <tr
+                        className={active ? "clk active-row" : "clk"}
+                        aria-selected={active}
+                        style={active ? { background: "var(--accent-soft)" } : undefined}
+                        onClick={() => {
+                          setSelectedId(active ? null : sku.id);
+                          setEditingId(null);
+                          setCreating(false);
+                        }}
+                      >
+                        <td className="mono">
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <StatusPill state={desc.state} label={desc.label} iconOnly />
+                            <FotoThumb url={sku.foto_url} alt={sku.codigo_sku} size={32} />
+                            {sku.codigo_sku}
+                          </div>
+                        </td>
+                        <td className="sub">
+                          {sku.tipo_origem === "fabricado" ? "Fabricado" : "Comprado"}
+                        </td>
+                        <td>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "flex-end",
+                              gap: 8,
                             }}
-                            aria-label="Editar SKU"
-                            title="Editar"
                           >
-                            <ChevronRight aria-hidden="true" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-icon"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const params = new URLSearchParams({
+                                  linhas: linhaId,
+                                  produtos: sku.produto_id,
+                                  skus: sku.id,
+                                });
+                                window.open(
+                                  `/produtos/ficha-tecnica/imprimir?${params.toString()}`,
+                                  "_blank",
+                                );
+                              }}
+                              aria-label="Gerar ficha técnica"
+                              title="Gerar ficha técnica"
+                            >
+                              <ClipboardList aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-icon"
+                              style={{ color: "var(--accent)" }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedId(sku.id);
+                                setEditingId(sku.id);
+                                setCreating(false);
+                                setErro(null);
+                              }}
+                              aria-label="Editar SKU"
+                              title="Editar"
+                            >
+                              <ChevronRight aria-hidden="true" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {active && selected && (
+                        <tr className="sku-detail-row">
+                          <td colSpan={3} style={{ padding: "4px 12px 16px" }}>
+                            <SkuDetail
+                              key={selected.id}
+                              sku={selected}
+                              schema={schema}
+                              produtoAtributos={produtoAtributos}
+                              editing={editingId === selected.id}
+                              onEditEnd={() => setEditingId(null)}
+                              onDelete={() => onConfirmDelete(selected.id)}
+                              deleting={deleteSku.isPending}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -463,20 +500,6 @@ function SkusSection({
           </div>
         )}
       </div>
-
-      {selected && (
-        <SkuDetail
-          key={selected.id}
-          sku={selected}
-          linhaId={linhaId}
-          schema={schema}
-          produtoAtributos={produtoAtributos}
-          editing={editingId === selected.id}
-          onEditEnd={() => setEditingId(null)}
-          onDelete={() => onConfirmDelete(selected.id)}
-          deleting={deleteSku.isPending}
-        />
-      )}
     </>
   );
 }
@@ -485,7 +508,6 @@ function SkusSection({
  * grid de precos e apoio. Identidade e acoes vivem na linha da tabela acima. */
 function SkuDetail({
   sku,
-  linhaId,
   schema,
   produtoAtributos,
   editing,
@@ -494,7 +516,6 @@ function SkuDetail({
   deleting,
 }: {
   sku: ProdutoSku;
-  linhaId: string;
   schema: AtributoSchema[];
   produtoAtributos: Record<string, unknown>;
   editing: boolean;
@@ -502,26 +523,8 @@ function SkuDetail({
   onDelete: () => void;
   deleting: boolean;
 }) {
-  // Ficha tecnica deste unico SKU: reaproveita a rota de impressao das fichas,
-  // restringindo linha/produto/SKU pela query (a rota filtra por `skus`).
-  function gerarFicha() {
-    const params = new URLSearchParams({
-      linhas: linhaId,
-      produtos: sku.produto_id,
-      skus: sku.id,
-    });
-    window.open(`/produtos/ficha-tecnica/imprimir?${params.toString()}`, "_blank");
-  }
-
   return (
     <div style={{ display: "grid", gap: 16, marginTop: 4 }}>
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <button type="button" className="btn btn-sm" onClick={gerarFicha}>
-          <ClipboardList aria-hidden="true" />
-          <span>Gerar ficha técnica</span>
-        </button>
-      </div>
-
       {editing && (
         <SkuForm
           produtoId={sku.produto_id}
