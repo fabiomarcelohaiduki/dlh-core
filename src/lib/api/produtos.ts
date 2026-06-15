@@ -43,6 +43,7 @@ export interface LinhaInput {
   nome: string;
   descricao?: string | null;
   ativo?: boolean;
+  produto_capa_id?: string | null;
 }
 
 export function createLinha(input: LinhaInput): Promise<ProdutoLinha> {

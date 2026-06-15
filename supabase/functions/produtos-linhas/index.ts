@@ -42,7 +42,8 @@ import {
 } from "../_shared/validation.ts";
 
 const FUNCTION_SEGMENT = "produtos-linhas";
-const LINHA_COLUMNS = "id, nome, descricao, ativo, created_at, updated_at";
+const LINHA_COLUMNS =
+  "id, nome, descricao, ativo, produto_capa_id, created_at, updated_at";
 const ATRIBUTO_COLUMNS =
   "id, linha_id, chave, tipo, obrigatorio, mostra_catalogo, mostra_ficha, created_at, updated_at";
 
@@ -53,17 +54,24 @@ const FOTO_SIGNED_URL_TTL_SECONDS = 3600;
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
 /**
- * Foto representativa de cada Linha (reuso de imagem de Produto; sem coluna
- * propria na Linha). Pega o 1o Produto da Linha (por nome) que tem imagem e
- * usa a 1a foto dele (por ordem). Assina tudo num unico lote. Retorna
+ * Foto representativa de cada Linha (reuso de imagem de Produto; sem foto
+ * propria na Linha). Quando a Linha tem produto_capa_id, usa a 1a foto (por
+ * ordem) desse Produto escolhido; senao cai no fallback de pegar o 1o Produto
+ * da Linha (por nome) que tem imagem. Assina tudo num unico lote. Retorna
  * linha_id -> signed URL (ausencia = sem foto).
  */
 async function resolverFotoLinhas(
   db: ServiceClient,
-  linhaIds: string[],
+  linhas: Array<{ id: string; produto_capa_id?: string | null }>,
 ): Promise<Map<string, string>> {
   const out = new Map<string, string>();
-  if (linhaIds.length === 0) return out;
+  if (linhas.length === 0) return out;
+
+  const linhaIds = linhas.map((l) => l.id);
+  const capaPorLinha = new Map<string, string>();
+  for (const l of linhas) {
+    if (l.produto_capa_id) capaPorLinha.set(l.id, l.produto_capa_id);
+  }
 
   const { data: produtos, error: prodErr } = await db
     .from("produtos")
@@ -88,8 +96,13 @@ async function resolverFotoLinhas(
     if (pid && path && !pathPorProduto.has(pid)) pathPorProduto.set(pid, path);
   }
 
-  // 1o produto (por nome) com foto, por Linha.
+  // Capa explicita (produto_capa_id) tem prioridade; fallback = 1o produto por
+  // nome com foto.
   const pathPorLinha = new Map<string, string>();
+  for (const [lid, capaPid] of capaPorLinha) {
+    const path = pathPorProduto.get(capaPid);
+    if (path) pathPorLinha.set(lid, path);
+  }
   for (const p of produtos) {
     const lid = p.linha_id as string;
     if (pathPorLinha.has(lid)) continue;
@@ -157,7 +170,7 @@ async function listLinhas(req: Request): Promise<Response> {
   const items = data ?? [];
   const fotoPorLinha = await resolverFotoLinhas(
     db,
-    items.map((l) => l.id),
+    items.map((l) => ({ id: l.id, produto_capa_id: l.produto_capa_id })),
   );
   const itemsComFoto = items.map((l) => ({
     ...l,
@@ -171,7 +184,7 @@ async function createLinha(req: Request, email: string): Promise<Response> {
   const input = await parseJsonBody(req, produtoLinhaCreateSchema);
   const db = createServiceClient();
 
-  const payload = pickDefined(input, ["nome", "descricao", "ativo"]);
+  const payload = pickDefined(input, ["nome", "descricao", "ativo", "produto_capa_id"]);
 
   const { data, error } = await db
     .from("produto_linhas")
@@ -201,7 +214,7 @@ async function updateLinha(req: Request, linhaId: string, email: string): Promis
   const input = await parseJsonBody(req, produtoLinhaUpdateSchema);
   const db = createServiceClient();
 
-  const payload = pickDefined(input, ["nome", "descricao", "ativo"]);
+  const payload = pickDefined(input, ["nome", "descricao", "ativo", "produto_capa_id"]);
   if (Object.keys(payload).length === 0) {
     throw new HttpError(400, "validation_error", "nenhum campo para atualizar");
   }

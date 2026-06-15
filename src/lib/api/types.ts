@@ -527,7 +527,9 @@ export interface ProdutoLinha {
   nome: string;
   descricao: string | null;
   ativo: boolean;
-  /** Foto representativa da Linha (1a imagem de um Produto da Linha; signed URL TTL 1h). */
+  /** Produto cuja 1a foto representa a Linha; null = automatico (1o produto por nome). */
+  produto_capa_id?: string | null;
+  /** Foto representativa da Linha (capa escolhida, ou 1a imagem de um Produto da Linha; signed URL TTL 1h). */
   foto_url?: string | null;
   created_at: string;
   updated_at: string;

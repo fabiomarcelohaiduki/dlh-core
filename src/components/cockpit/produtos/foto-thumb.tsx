@@ -36,12 +36,25 @@ export function FotoThumb({
   }
 
   return (
-    <div style={box}>
+    <div style={{ ...box, position: "relative" }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={url}
         alt={alt ?? ""}
         style={{ width: "100%", height: "100%", objectFit: "cover" }}
+      />
+      {/* vinheta interna: harmoniza fotos de fundo claro com o tema dark,
+          escurecendo as bordas para que o branco nao "estoure" sobre o fundo */}
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          borderRadius: 8,
+          pointerEvents: "none",
+          boxShadow:
+            "inset 0 0 0 1px rgba(0,0,0,.35), inset 0 0 10px 2px rgba(0,0,0,.30)",
+        }}
       />
     </div>
   );

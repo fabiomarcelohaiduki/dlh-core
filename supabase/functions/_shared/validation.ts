@@ -774,6 +774,10 @@ export const produtoLinhaCreateSchema = z
       .min(1, "nome nao pode ser vazio"),
     descricao: z.string({ invalid_type_error: "descricao deve ser string" }).trim().nullish(),
     ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
+    produto_capa_id: z
+      .string({ invalid_type_error: "produto_capa_id deve ser string" })
+      .uuid("produto_capa_id deve ser um uuid")
+      .nullish(),
   })
   .strict();
 
@@ -788,6 +792,10 @@ export const produtoLinhaUpdateSchema = z
       .optional(),
     descricao: z.string({ invalid_type_error: "descricao deve ser string" }).trim().nullish(),
     ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
+    produto_capa_id: z
+      .string({ invalid_type_error: "produto_capa_id deve ser string" })
+      .uuid("produto_capa_id deve ser um uuid")
+      .nullish(),
   })
   .strict();
 

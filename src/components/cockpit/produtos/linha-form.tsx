@@ -4,10 +4,12 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Check, Loader2, TriangleAlert, X } from "lucide-react";
+import { Check, Loader2, Sparkles, TriangleAlert, X } from "lucide-react";
 import { useCreateLinha, useUpdateLinha } from "@/hooks/use-linhas";
+import { useProdutos } from "@/hooks/use-produtos";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
+import { FotoThumb } from "@/components/cockpit/produtos/foto-thumb";
 import type { ProdutoLinha } from "@/lib/api/types";
 
 const linhaSchema = z.object({
@@ -40,6 +42,14 @@ export function LinhaForm({
 
   const [apiError, setApiError] = useState<string | null>(null);
 
+  // Foto de capa: produto da Linha cuja 1a foto representa a Linha. null =
+  // automatico (1o produto por nome com foto). So no modo edicao (precisa da
+  // Linha existente para listar seus produtos).
+  const [capaId, setCapaId] = useState<string | null>(linha?.produto_capa_id ?? null);
+  const produtos = useProdutos(linha ? { linha_id: linha.id } : {});
+  const produtosComFoto = (produtos.data?.items ?? []).filter((p) => p.foto_url);
+  const capaChanged = isEdit && capaId !== (linha?.produto_capa_id ?? null);
+
   const {
     register,
     handleSubmit,
@@ -59,6 +69,7 @@ export function LinhaForm({
       nome: values.nome,
       descricao: values.descricao ? values.descricao : null,
       ativo: values.ativo,
+      ...(isEdit ? { produto_capa_id: capaId } : {}),
     };
     try {
       const saved =
@@ -114,6 +125,96 @@ export function LinhaForm({
         <div className="t">Linha ativa</div>
       </label>
 
+      {isEdit && (
+        <div className="field" style={{ marginTop: 18 }}>
+          <label>Foto de capa</label>
+          <div className="helper" style={{ marginBottom: 10 }}>
+            Escolhe qual produto representa a linha na listagem. Automático usa o
+            primeiro produto por nome.
+          </div>
+          {produtosComFoto.length === 0 ? (
+            <div className="helper">
+              Nenhum produto desta linha tem foto ainda.
+            </div>
+          ) : (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))",
+                gap: 10,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setCapaId(null)}
+                aria-pressed={capaId === null}
+                className={cn("card", capaId === null && "active-row")}
+                style={{
+                  margin: 0,
+                  padding: 8,
+                  display: "grid",
+                  gap: 6,
+                  justifyItems: "center",
+                  cursor: "pointer",
+                  borderColor: capaId === null ? "var(--accent)" : undefined,
+                }}
+                title="Automático (1º produto por nome)"
+              >
+                <div
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 8,
+                    display: "grid",
+                    placeItems: "center",
+                    background: "var(--surface-2)",
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  <Sparkles size={18} style={{ color: "var(--muted)" }} aria-hidden="true" />
+                </div>
+                <span className="sub" style={{ textAlign: "center" }}>
+                  Automático
+                </span>
+              </button>
+              {produtosComFoto.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setCapaId(p.id)}
+                  aria-pressed={capaId === p.id}
+                  className={cn("card", capaId === p.id && "active-row")}
+                  style={{
+                    margin: 0,
+                    padding: 8,
+                    display: "grid",
+                    gap: 6,
+                    justifyItems: "center",
+                    cursor: "pointer",
+                    borderColor: capaId === p.id ? "var(--accent)" : undefined,
+                  }}
+                  title={p.nome}
+                >
+                  <FotoThumb url={p.foto_url} alt={p.nome} size={44} />
+                  <span
+                    className="sub"
+                    style={{
+                      textAlign: "center",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      maxWidth: "100%",
+                    }}
+                  >
+                    {p.nome}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="form-foot" style={{ marginTop: 22 }}>
         <button className="btn btn-primary" type="submit" disabled={pending}>
           {pending ? (
@@ -134,7 +235,7 @@ export function LinhaForm({
             <span>Cancelar</span>
           </button>
         )}
-        {isEdit && !isDirty && !apiError ? (
+        {isEdit && !isDirty && !capaChanged && !apiError ? (
           <span className="save-note">Sem alterações pendentes</span>
         ) : null}
         {apiError && (
