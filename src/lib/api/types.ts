@@ -250,6 +250,8 @@ export interface ConfigIndexacaoState {
   pausaMs: number;
   /** Teto de tokens/min mirado ao chamar a OpenAI (pacer; 0 = sem pacing). */
   tpmAlvo: number;
+  /** Teto de tentativas antes de marcar a indexacao como 'erro' definitivo. */
+  tentativasMax: number;
 }
 
 /** Contagem de documentos indexaveis por status (foto da fila de indexacao). */

@@ -62,6 +62,7 @@ async function handlePut(req: Request): Promise<Response> {
     lote_chunks: input.loteChunks,
     pausa_ms: input.pausaMs,
     tpm_alvo: input.tpmAlvo,
+    tentativas_max: input.tentativasMax,
     updated_at: new Date().toISOString(),
   };
 
@@ -100,6 +101,7 @@ async function handlePut(req: Request): Promise<Response> {
       loteChunks: input.loteChunks,
       pausaMs: input.pausaMs,
       tpmAlvo: input.tpmAlvo,
+      tentativasMax: input.tentativasMax,
     },
   });
 

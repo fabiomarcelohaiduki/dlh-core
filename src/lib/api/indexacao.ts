@@ -32,6 +32,7 @@ export function salvarConfigIndexacao(
       loteChunks: input.loteChunks,
       pausaMs: input.pausaMs,
       tpmAlvo: input.tpmAlvo,
+      tentativasMax: input.tentativasMax,
     }),
   });
 }

@@ -20,6 +20,7 @@ interface ConfigIndexacaoRow {
   lote_chunks: number | null;
   pausa_ms: number | null;
   tpm_alvo: number | null;
+  tentativas_max: number | null;
 }
 
 /**
@@ -31,7 +32,7 @@ async function loadConfigIndexacao(): Promise<ConfigIndexacaoState> {
   const supabase = await createClient();
   const { data: raw } = await supabase
     .from("config_indexacao")
-    .select("ativo, fontes_habilitadas, lote_chunks, pausa_ms, tpm_alvo")
+    .select("ativo, fontes_habilitadas, lote_chunks, pausa_ms, tpm_alvo, tentativas_max")
     .limit(1)
     .maybeSingle();
 
@@ -47,6 +48,7 @@ async function loadConfigIndexacao(): Promise<ConfigIndexacaoState> {
     loteChunks: data?.lote_chunks ?? 1500,
     pausaMs: data?.pausa_ms ?? 0,
     tpmAlvo: data?.tpm_alvo ?? 800000,
+    tentativasMax: data?.tentativas_max ?? 3,
   };
 }
 

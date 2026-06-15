@@ -741,10 +741,12 @@ export type ExtracaoConfigInput = z.infer<typeof extracaoConfigSchema>;
 // OpenAI quando ON); `fontesHabilitadas` null = todas (gating por fonte no
 // continuo e no backfill); `loteChunks` = orcamento de chunks por invocacao
 // do backfill (proxy ~2000 chars/chunk); `pausaMs` = pausa entre documentos;
-// `tpmAlvo` = teto de tokens/min do pacer (0 = sem pacing).
+// `tpmAlvo` = teto de tokens/min do pacer (0 = sem pacing);
+// `tentativasMax` = teto de tentativas antes de marcar 'erro' definitivo.
 // ---------------------------------------------------------------------
 const MAX_LOTE_CHUNKS = 10_000;
 const MAX_TPM_ALVO = 10_000_000;
+const MAX_TENTATIVAS = 10;
 
 export const indexacaoConfigSchema = z
   .object({
@@ -776,6 +778,11 @@ export const indexacaoConfigSchema = z
       .int("tpmAlvo deve ser inteiro")
       .min(0, "tpmAlvo deve ser >= 0")
       .max(MAX_TPM_ALVO, `tpmAlvo deve ser <= ${MAX_TPM_ALVO}`),
+    tentativasMax: z
+      .number({ invalid_type_error: "tentativasMax deve ser numero" })
+      .int("tentativasMax deve ser inteiro")
+      .min(1, "tentativasMax deve ser >= 1")
+      .max(MAX_TENTATIVAS, `tentativasMax deve ser <= ${MAX_TENTATIVAS}`),
   })
   .strict();
 

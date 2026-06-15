@@ -39,6 +39,11 @@ const cfgSchema = z.object({
     .int("Use um valor inteiro.")
     .min(0, "Não pode ser negativo.")
     .max(10000000, "Máximo 10000000."),
+  tentativasMax: z
+    .number({ invalid_type_error: "Informe o máximo de tentativas." })
+    .int("Use um valor inteiro.")
+    .min(1, "Mínimo 1.")
+    .max(10, "Máximo 10."),
 });
 type CfgValues = z.infer<typeof cfgSchema>;
 
@@ -52,6 +57,7 @@ function toDefaults(initial: ConfigIndexacaoState): CfgValues {
     loteChunks: initial.loteChunks,
     pausaMs: initial.pausaMs,
     tpmAlvo: initial.tpmAlvo,
+    tentativasMax: initial.tentativasMax,
   };
 }
 
@@ -104,6 +110,7 @@ export function IndexacaoConfigForm({ initial }: { initial: ConfigIndexacaoState
         loteChunks: values.loteChunks,
         pausaMs: values.pausaMs,
         tpmAlvo: values.tpmAlvo,
+        tentativasMax: values.tentativasMax,
       });
       reset(values);
       setFeedback({ kind: "ok", message: "Configuração salva · vale na próxima indexação." });
@@ -136,7 +143,10 @@ export function IndexacaoConfigForm({ initial }: { initial: ConfigIndexacaoState
           <input type="checkbox" checked={ativo} {...register("ativo")} />
           <div className="t">{ativo ? "Ligada (gerando embeddings)" : "Desligada (sem custo)"}</div>
         </label>
-        <div className="helper">Master switch global: governa o contínuo e o backfill.</div>
+        <div className="helper">
+          Master switch global: governa o contínuo e o backfill. Recomendado desligado até decidir
+          gastar na OpenAI.
+        </div>
       </div>
 
       <div className={cn("field", errors.fontes && "invalid")}>
@@ -162,7 +172,7 @@ export function IndexacaoConfigForm({ initial }: { initial: ConfigIndexacaoState
         </div>
         <div className="helper">
           Só os documentos das fontes marcadas são indexados. Todas marcadas = todas as fontes
-          (inclui fontes novas no futuro).
+          (inclui fontes novas no futuro). Recomendado: todas marcadas.
         </div>
       </div>
 
@@ -186,7 +196,7 @@ export function IndexacaoConfigForm({ initial }: { initial: ConfigIndexacaoState
           </div>
           <div className="helper">
             Teto de chunks por invocação do backfill (~2000 caracteres/chunk). Limita o wall-clock do
-            Edge; o restante segue no próximo lote auto-encadeado.
+            Edge; o restante segue no próximo lote auto-encadeado. Recomendado 1000.
           </div>
         </div>
 
@@ -207,7 +217,10 @@ export function IndexacaoConfigForm({ initial }: { initial: ConfigIndexacaoState
             <TriangleAlert aria-hidden="true" />
             {errors.pausaMs?.message ?? "Entre 0 e 600000 ms."}
           </div>
-          <div className="helper">Alivia a OpenAI. 0 = sem pausa.</div>
+          <div className="helper">
+            Pausa entre documentos no backfill, para aliviar a OpenAI. Com o teto de tokens/min
+            ligado, o ritmo já vem dele. Recomendado 0 (sem pausa).
+          </div>
         </div>
 
         <div className={cn("field", errors.tpmAlvo && "invalid")}>
@@ -230,6 +243,29 @@ export function IndexacaoConfigForm({ initial }: { initial: ConfigIndexacaoState
           <div className="helper">
             Ritma os envios à OpenAI para não estourar o limite do plano (tier 1 = 1.000.000).
             Recomendado 800000 (80%). 0 = sem ritmo.
+          </div>
+        </div>
+
+        <div className={cn("field", errors.tentativasMax && "invalid")}>
+          <label htmlFor="ix-tentativas">Máximo de tentativas</label>
+          <div className="input-affix">
+            <input
+              type="number"
+              id="ix-tentativas"
+              min={1}
+              max={10}
+              aria-invalid={Boolean(errors.tentativasMax)}
+              {...register("tentativasMax", { valueAsNumber: true })}
+            />
+            <span className="suffix">tentativas</span>
+          </div>
+          <div className="err-msg">
+            <TriangleAlert aria-hidden="true" />
+            {errors.tentativasMax?.message ?? "Entre 1 e 10."}
+          </div>
+          <div className="helper">
+            Quantas vezes o backfill re-tenta um documento (erro transitório) antes de marcá-lo como
+            erro definitivo. Recomendado 3.
           </div>
         </div>
       </div>
