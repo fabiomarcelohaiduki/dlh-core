@@ -12,6 +12,7 @@ import type {
   DocAtributo,
   DocumentoLinhaDados,
   DocumentoProduto,
+  DocumentoSku,
 } from "@/lib/api/types";
 
 /** Valor de atributo formatado para o documento; vazio -> "—". */
@@ -106,27 +107,40 @@ export function CatalogoImpressao() {
     </header>
   );
 
+  // Cada card = um SKU. Produto sem SKU vira um card unico (sku = null) com os
+  // valores uniformes do Produto.
   const renderCard = (
     atributosLinha: DocAtributo[],
     produto: DocumentoProduto,
+    sku: DocumentoSku | null,
   ) => {
-    // So os atributos da Linha visiveis no catalogo, com valor preenchido.
-    const visiveis = atributosLinha
+    // Atributos da Linha (valor herdado em sku.atributos; cai para o valor
+    // uniforme do Produto se o SKU nao o materializou ou inexiste).
+    const doLinha = atributosLinha
       .filter((a) => a.mostra_catalogo)
-      .map((a) => ({ chave: a.chave, valor: formatAttr(a.tipo, produto.atributos?.[a.chave]) }))
-      .filter((x) => x.valor !== "—");
+      .map((a) => ({
+        chave: a.chave,
+        valor: formatAttr(a.tipo, sku?.atributos?.[a.chave] ?? produto.atributos?.[a.chave]),
+      }));
+    // Atributos PROPRIOS do Produto variam por SKU -> so vem de sku.atributos.
+    const doProduto = (sku ? produto.atributos_produto : [])
+      .filter((a) => a.mostra_catalogo)
+      .map((a) => ({ chave: a.chave, valor: formatAttr(a.tipo, sku?.atributos?.[a.chave]) }));
+    const visiveis = [...doLinha, ...doProduto].filter((x) => x.valor !== "—");
+    const fotoUrl = sku?.foto_url ?? produto.foto_url;
     return (
-      <article key={produto.id} className="cat-card">
+      <article key={sku ? sku.id : produto.id} className="cat-card">
         <div className="cat-card-foto">
-          {produto.foto_url ? (
+          {fotoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={produto.foto_url} alt={produto.nome} />
+            <img src={fotoUrl} alt={produto.nome} />
           ) : (
             <span className="cat-card-foto-vazia">Sem imagem</span>
           )}
         </div>
         <div className="cat-card-body">
           <h4 className="cat-card-nome">{produto.nome}</h4>
+          {sku ? <span className="cat-card-sku">{sku.codigo_sku}</span> : null}
           {produto.descricao ? (
             <p className="cat-card-desc">{produto.descricao}</p>
           ) : null}
@@ -139,14 +153,6 @@ export function CatalogoImpressao() {
                 </div>
               ))}
             </dl>
-          ) : null}
-          {produto.skus.length > 0 ? (
-            <div className="cat-card-skus">
-              <span className="cat-card-skus-label">Variações</span>
-              <span className="cat-card-skus-list">
-                {produto.skus.map((s) => s.codigo_sku).join(" · ")}
-              </span>
-            </div>
           ) : null}
         </div>
       </article>
@@ -174,44 +180,66 @@ export function CatalogoImpressao() {
         </div>
       ) : (
         <div className="print-page">
-          {cabecalho}
-          <div className="print-title">
-            <div className="print-title-text">
-              <h2>Catálogo</h2>
-            </div>
-            <div className="print-meta">
-              <span className="print-meta-label">Emissão</span>
-              <span className="print-meta-value">
-                {formatDate(new Date().toISOString())}
-              </span>
-            </div>
-          </div>
-
-          {linhaIds.map((linhaId, i) => {
-            const data = dados[i]?.data as DocumentoLinhaDados | undefined;
-            const nome = nomePorLinha.get(linhaId) ?? data?.linha.nome ?? "Linha";
-            const produtos = (data?.produtos ?? []).filter(
-              (p) => !produtoFilter || produtoFilter.has(p.id),
-            );
-            const atributosLinha = data?.atributos_linha ?? [];
-
-            return (
-              <section key={linhaId} className="cat-linha">
-                <h3 className="print-linha-nome">{nome}</h3>
-                {produtos.length === 0 ? (
-                  <div className="print-vazio">Nenhum produto ativo nesta linha.</div>
-                ) : (
-                  <div className="cat-grid">
-                    {produtos.map((produto) => renderCard(atributosLinha, produto))}
+          {/* Tabela so para o efeito de cabecalho corrido: o <thead> e repetido
+              pelo navegador no topo de CADA pagina impressa (mesmo padrao da
+              Tabela de Precos). O conteudo flui no unico <td> do <tbody>. */}
+          <table className="cat-doc">
+            <thead>
+              <tr>
+                <td>
+                  {cabecalho}
+                  <div className="print-title">
+                    <div className="print-title-text">
+                      <h2>Catálogo</h2>
+                    </div>
+                    <div className="print-meta">
+                      <span className="print-meta-label">Emissão</span>
+                      <span className="print-meta-value">
+                        {formatDate(new Date().toISOString())}
+                      </span>
+                    </div>
                   </div>
-                )}
-              </section>
-            );
-          })}
+                </td>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  {linhaIds.map((linhaId, i) => {
+                    const data = dados[i]?.data as DocumentoLinhaDados | undefined;
+                    const nome = nomePorLinha.get(linhaId) ?? data?.linha.nome ?? "Linha";
+                    const produtos = (data?.produtos ?? []).filter(
+                      (p) => !produtoFilter || produtoFilter.has(p.id),
+                    );
+                    const atributosLinha = data?.atributos_linha ?? [];
 
-          {e?.observacaoRodape ? (
-            <footer className="print-foot">{e.observacaoRodape}</footer>
-          ) : null}
+                    return (
+                      <section key={linhaId} className="cat-linha">
+                        <h3 className="print-linha-nome">{nome}</h3>
+                        {produtos.length === 0 ? (
+                          <div className="print-vazio">Nenhum produto ativo nesta linha.</div>
+                        ) : (
+                          <div className="cat-grid">
+                            {produtos.flatMap((produto) =>
+                              produto.skus.length === 0
+                                ? [renderCard(atributosLinha, produto, null)]
+                                : produto.skus.map((sku) =>
+                                    renderCard(atributosLinha, produto, sku),
+                                  ),
+                            )}
+                          </div>
+                        )}
+                      </section>
+                    );
+                  })}
+
+                  {e?.observacaoRodape ? (
+                    <footer className="print-foot">{e.observacaoRodape}</footer>
+                  ) : null}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       )}
     </div>

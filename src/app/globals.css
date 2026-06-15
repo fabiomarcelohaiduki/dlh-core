@@ -2750,6 +2750,21 @@ select:focus {
 /* =====================================================================
    CATALOGO — cards de produto em grade de 2 colunas, fluindo por paginas
    ===================================================================== */
+/* Tabela-casca do catalogo: existe so para repetir o cabecalho no topo de cada
+   pagina impressa via <thead> (display:table-header-group). O conteudo flui no
+   unico <td> do <tbody>. */
+.cat-doc {
+  width: 100%;
+  border-collapse: collapse;
+}
+.cat-doc > thead {
+  display: table-header-group;
+}
+.cat-doc > thead > tr > td,
+.cat-doc > tbody > tr > td {
+  padding: 0;
+  vertical-align: top;
+}
 .cat-linha {
   margin-top: 18px;
 }
@@ -2803,10 +2818,19 @@ select:focus {
 .cat-card-nome {
   font-size: 13px;
   font-weight: 700;
-  margin: 0 0 4px;
+  margin: 0 0 2px;
   color: var(--pp-ink);
   line-height: 1.25;
   text-wrap: balance;
+}
+.cat-card-sku {
+  display: block;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--pp-muted);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  margin: 0 0 5px;
 }
 .cat-card-desc {
   font-size: 10.5px;
@@ -2841,30 +2865,6 @@ select:focus {
   font-weight: 600;
   color: var(--pp-ink);
   text-align: right;
-}
-.cat-card-skus {
-  margin-top: 7px;
-  padding-top: 6px;
-  border-top: 1px solid var(--pp-line);
-  display: flex;
-  flex-flow: row wrap;
-  align-items: baseline;
-  gap: 3px 8px;
-}
-.cat-card-skus-label {
-  flex: none;
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--pp-muted);
-}
-.cat-card-skus-list {
-  font-size: 9.5px;
-  color: var(--pp-muted);
-  font-family: var(--font-mono), ui-monospace, monospace;
-  line-height: 1.4;
-  word-break: break-word;
 }
 
 /* =====================================================================
