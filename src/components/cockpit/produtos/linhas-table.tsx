@@ -4,6 +4,7 @@ import { ChevronRight, Layers, Plus, TriangleAlert } from "lucide-react";
 import type { ProdutoLinha } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { StatusPill } from "@/components/cockpit/status-pill";
+import { FotoThumb } from "@/components/cockpit/produtos/foto-thumb";
 
 function ativoDescriptor(ativo: boolean) {
   return ativo
@@ -129,6 +130,7 @@ export function LinhasTable({
                   <td>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <StatusPill state={desc.state} label={desc.label} iconOnly />
+                      <FotoThumb url={l.foto_url} alt={l.nome} />
                       <div className="cell-stack">
                         <b style={{ fontSize: "13.5px" }}>{l.nome}</b>
                         {l.descricao ? (

@@ -26,6 +26,7 @@ import { SkuForm } from "@/components/cockpit/produtos/sku-form";
 import { ComposicaoEditor } from "@/components/cockpit/produtos/composicao-editor";
 import { CustoAquisicaoForm } from "@/components/cockpit/produtos/custo-aquisicao-form";
 import { FotosUploader } from "@/components/cockpit/produtos/fotos-uploader";
+import { FotoThumb } from "@/components/cockpit/produtos/foto-thumb";
 import { PrecoRegionalGrid } from "@/components/cockpit/produtos/preco-regional-grid";
 import { ApoioPrecosForm } from "@/components/cockpit/produtos/apoio-precos-form";
 import { CriteriosPanel } from "@/components/cockpit/produtos/criterios-panel";
@@ -264,6 +265,10 @@ function ProdutoDetalhe({
             <span className="count">nível produto</span>
           </div>
           <CriteriosPanel nivel="produto" escopoId={produto.id} />
+
+          <div style={{ marginTop: 24 }}>
+            <FotosUploader produtoId={produto.id} />
+          </div>
         </>
       ) : (
         <SkusSection
@@ -394,6 +399,7 @@ function SkusSection({
                       <td className="mono">
                         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <StatusPill state={desc.state} label={desc.label} iconOnly />
+                          <FotoThumb url={sku.foto_url} alt={sku.codigo_sku} size={32} />
                           {sku.codigo_sku}
                         </div>
                       </td>

@@ -22,6 +22,7 @@ import { useLinhaAtributos } from "@/hooks/use-linha-atributos";
 import { useProdutos } from "@/hooks/use-produtos";
 import { ApiError } from "@/lib/api/client";
 import { StatusPill } from "@/components/cockpit/status-pill";
+import { FotoThumb } from "@/components/cockpit/produtos/foto-thumb";
 import { LinhasTable } from "@/components/cockpit/produtos/linhas-table";
 import { LinhaForm } from "@/components/cockpit/produtos/linha-form";
 import { AtributosEditor } from "@/components/cockpit/produtos/atributos-editor";
@@ -380,6 +381,7 @@ function ProdutosDaLinha({ linha }: { linha: ProdutoLinha }) {
                         label={p.ativo ? "Ativo" : "Inativo"}
                         iconOnly
                       />
+                      <FotoThumb url={p.foto_url} alt={p.nome} />
                       <div className="cell-stack">
                         <b style={{ fontSize: "13.5px" }}>{p.nome}</b>
                         {p.descricao ? (

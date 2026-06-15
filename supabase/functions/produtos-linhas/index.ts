@@ -46,7 +46,75 @@ const LINHA_COLUMNS = "id, nome, descricao, ativo, created_at, updated_at";
 const ATRIBUTO_COLUMNS =
   "id, linha_id, chave, tipo, obrigatorio, mostra_catalogo, mostra_ficha, created_at, updated_at";
 
+// Bucket privado das imagens de Produto/SKU; TTL da URL assinada (1h).
+const PRODUTOS_BUCKET = "produtos";
+const FOTO_SIGNED_URL_TTL_SECONDS = 3600;
+
 type ServiceClient = ReturnType<typeof createServiceClient>;
+
+/**
+ * Foto representativa de cada Linha (reuso de imagem de Produto; sem coluna
+ * propria na Linha). Pega o 1o Produto da Linha (por nome) que tem imagem e
+ * usa a 1a foto dele (por ordem). Assina tudo num unico lote. Retorna
+ * linha_id -> signed URL (ausencia = sem foto).
+ */
+async function resolverFotoLinhas(
+  db: ServiceClient,
+  linhaIds: string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (linhaIds.length === 0) return out;
+
+  const { data: produtos, error: prodErr } = await db
+    .from("produtos")
+    .select("id, linha_id, nome")
+    .in("linha_id", linhaIds)
+    .order("nome", { ascending: true });
+  if (prodErr || !produtos || produtos.length === 0) return out;
+
+  const produtoIds = produtos.map((p) => p.id as string);
+  const { data: imagens, error: imgErr } = await db
+    .from("produto_imagens")
+    .select("produto_id, storage_path, ordem")
+    .in("produto_id", produtoIds)
+    .order("ordem", { ascending: true });
+  if (imgErr || !imagens) return out;
+
+  // 1a path por produto (ja ordenado por ordem).
+  const pathPorProduto = new Map<string, string>();
+  for (const r of imagens as Array<Record<string, unknown>>) {
+    const pid = r.produto_id as string | null;
+    const path = r.storage_path as string | null;
+    if (pid && path && !pathPorProduto.has(pid)) pathPorProduto.set(pid, path);
+  }
+
+  // 1o produto (por nome) com foto, por Linha.
+  const pathPorLinha = new Map<string, string>();
+  for (const p of produtos) {
+    const lid = p.linha_id as string;
+    if (pathPorLinha.has(lid)) continue;
+    const path = pathPorProduto.get(p.id as string);
+    if (path) pathPorLinha.set(lid, path);
+  }
+
+  const paths = [...new Set(pathPorLinha.values())];
+  if (paths.length === 0) return out;
+
+  const signed = await db.storage
+    .from(PRODUTOS_BUCKET)
+    .createSignedUrls(paths, FOTO_SIGNED_URL_TTL_SECONDS);
+  if (signed.error) return out;
+
+  const urlPorPath = new Map<string, string>();
+  for (const s of signed.data ?? []) {
+    if (s.path && s.signedUrl) urlPorPath.set(s.path, s.signedUrl);
+  }
+  for (const [lid, path] of pathPorLinha) {
+    const u = urlPorPath.get(path);
+    if (u) out.set(lid, u);
+  }
+  return out;
+}
 
 /** Garante que a Linha existe antes de operar seus atributos. */
 async function assertLinhaExists(db: ServiceClient, linhaId: string): Promise<void> {
@@ -86,7 +154,17 @@ async function listLinhas(req: Request): Promise<Response> {
     throw new HttpError(500, "linhas_query_failed", "falha ao listar as linhas");
   }
 
-  return jsonResponse({ items: data ?? [], total: count ?? 0, limit, offset }, 200);
+  const items = data ?? [];
+  const fotoPorLinha = await resolverFotoLinhas(
+    db,
+    items.map((l) => l.id),
+  );
+  const itemsComFoto = items.map((l) => ({
+    ...l,
+    foto_url: fotoPorLinha.get(l.id) ?? null,
+  }));
+
+  return jsonResponse({ items: itemsComFoto, total: count ?? 0, limit, offset }, 200);
 }
 
 async function createLinha(req: Request, email: string): Promise<Response> {

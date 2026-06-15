@@ -527,6 +527,8 @@ export interface ProdutoLinha {
   nome: string;
   descricao: string | null;
   ativo: boolean;
+  /** Foto representativa da Linha (1a imagem de um Produto da Linha; signed URL TTL 1h). */
+  foto_url?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -583,6 +585,8 @@ export interface Produto {
   disponibilidade: string | null;
   pedido_minimo: string | null;
   ativo: boolean;
+  /** Foto do Produto (1a imagem propria por ordem; signed URL TTL 1h). */
+  foto_url?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -609,6 +613,8 @@ export interface ProdutoSku {
   tempo_producao: number | null;
   estado_calculo: EstadoCalculo;
   ativo: boolean;
+  /** Foto do SKU (1a imagem propria por ordem; signed URL TTL 1h). */
+  foto_url?: string | null;
   created_at: string;
   updated_at: string;
 }

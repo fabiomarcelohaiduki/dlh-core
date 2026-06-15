@@ -239,6 +239,56 @@ function validateAtributos(
 }
 
 // ---------------------------------------------------------------------
+// Fotos (thumbnail das listagens)
+// ---------------------------------------------------------------------
+
+/**
+ * Resolve a 1a foto (por `ordem`) de cada id de Produto ou SKU em signed URL.
+ * Le `produto_imagens` filtrando por `coluna`, pega a 1a path por id e assina
+ * tudo num unico lote. Retorna id -> signed URL (ausencia = sem foto).
+ */
+async function resolverFotoUrls(
+  db: SupabaseClient,
+  coluna: "produto_id" | "sku_id",
+  ids: string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (ids.length === 0) return out;
+
+  const { data, error } = await db
+    .from("produto_imagens")
+    .select(`${coluna}, storage_path, ordem`)
+    .in(coluna, ids)
+    .order("ordem", { ascending: true });
+  if (error || !data) return out;
+
+  const pathPorId = new Map<string, string>();
+  for (const r of data as Array<Record<string, unknown>>) {
+    const id = r[coluna] as string | null;
+    const path = r.storage_path as string | null;
+    if (id && path && !pathPorId.has(id)) pathPorId.set(id, path);
+  }
+
+  const paths = [...new Set(pathPorId.values())];
+  if (paths.length === 0) return out;
+
+  const signed = await db.storage
+    .from(PRODUTOS_BUCKET)
+    .createSignedUrls(paths, DOC_SIGNED_URL_TTL_SECONDS);
+  if (signed.error) return out;
+
+  const urlPorPath = new Map<string, string>();
+  for (const s of signed.data ?? []) {
+    if (s.path && s.signedUrl) urlPorPath.set(s.path, s.signedUrl);
+  }
+  for (const [id, path] of pathPorId) {
+    const u = urlPorPath.get(path);
+    if (u) out.set(id, u);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------
 // Produtos
 // ---------------------------------------------------------------------
 
@@ -265,7 +315,18 @@ async function listProdutos(req: Request): Promise<Response> {
     throw new HttpError(500, "produtos_query_failed", "falha ao listar os produtos");
   }
 
-  return jsonResponse({ items: data ?? [], total: count ?? 0, limit, offset }, 200);
+  const items = data ?? [];
+  const fotoPorProduto = await resolverFotoUrls(
+    db,
+    "produto_id",
+    items.map((p) => p.id),
+  );
+  const itemsComFoto = items.map((p) => ({
+    ...p,
+    foto_url: fotoPorProduto.get(p.id) ?? null,
+  }));
+
+  return jsonResponse({ items: itemsComFoto, total: count ?? 0, limit, offset }, 200);
 }
 
 async function getProduto(produtoId: string): Promise<Response> {
@@ -318,11 +379,22 @@ async function getProduto(produtoId: string): Promise<Response> {
     ...(produtoSchemaRes.data ?? []).map((a) => ({ ...a, origem: "produto" as const })),
   ];
 
+  const skus = skusRes.data ?? [];
+  const fotoPorSku = await resolverFotoUrls(
+    db,
+    "sku_id",
+    skus.map((s) => s.id),
+  );
+  const skusComFoto = skus.map((s) => ({
+    ...s,
+    foto_url: fotoPorSku.get(s.id) ?? null,
+  }));
+
   return jsonResponse(
     {
       produto,
       atributos_schema,
-      skus: skusRes.data ?? [],
+      skus: skusComFoto,
       imagens: imagensRes.data ?? [],
     },
     200,
