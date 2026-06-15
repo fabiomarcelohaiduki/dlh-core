@@ -61,6 +61,7 @@ async function handlePut(req: Request): Promise<Response> {
         : null,
     lote_chunks: input.loteChunks,
     pausa_ms: input.pausaMs,
+    tpm_alvo: input.tpmAlvo,
     updated_at: new Date().toISOString(),
   };
 
@@ -98,6 +99,7 @@ async function handlePut(req: Request): Promise<Response> {
       fontesHabilitadas: payload.fontes_habilitadas,
       loteChunks: input.loteChunks,
       pausaMs: input.pausaMs,
+      tpmAlvo: input.tpmAlvo,
     },
   });
 

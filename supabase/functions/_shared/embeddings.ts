@@ -82,6 +82,8 @@ export class LocalHttpEmbeddingProvider implements EmbeddingProvider {
   private readonly timeoutMs: number;
   private readonly apiKey?: string;
   private readonly sendDimensions: boolean;
+  private readonly maxRetries: number;
+  private readonly retryBaseMs: number;
 
   constructor(config: {
     id: string;
@@ -92,6 +94,10 @@ export class LocalHttpEmbeddingProvider implements EmbeddingProvider {
     sendDimensions?: boolean;
     fetchImpl?: typeof fetch;
     timeoutMs?: number;
+    /** Tentativas extras em 429/5xx antes de desistir (default 4). */
+    maxRetries?: number;
+    /** Base do backoff exponencial entre tentativas, em ms (default 500). */
+    retryBaseMs?: number;
   }) {
     if (!config.endpoint || config.endpoint.trim() === "") {
       throw new EmbeddingError(
@@ -105,11 +111,37 @@ export class LocalHttpEmbeddingProvider implements EmbeddingProvider {
     this.sendDimensions = config.sendDimensions ?? false;
     this.fetchImpl = config.fetchImpl ?? globalThis.fetch.bind(globalThis);
     this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.maxRetries = Math.max(0, config.maxRetries ?? 4);
+    this.retryBaseMs = Math.max(0, config.retryBaseMs ?? 500);
   }
 
   async embed(texts: string[], signal?: AbortSignal): Promise<number[][]> {
     if (texts.length === 0) return [];
 
+    // Retry com backoff exponencial em 429/5xx: o gargalo do backfill era o
+    // burst de requests OpenAI (um doc grande dispara dezenas de lotes sem
+    // pausa -> 429/500 transitorios derrubavam o doc inteiro). Aqui cada lote
+    // sobrevive a throttle transitorio respeitando Retry-After quando vier.
+    let lastErr: EmbeddingError | null = null;
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        return await this.embedOnce(texts, signal);
+      } catch (err) {
+        if (!(err instanceof RetryableEmbeddingError)) throw err;
+        lastErr = err;
+        if (attempt === this.maxRetries) break;
+        if (signal?.aborted) {
+          throw new EmbeddingError("indexacao cancelada");
+        }
+        const backoff = err.retryAfterMs ?? this.retryBaseMs * 2 ** attempt;
+        await delay(backoff);
+      }
+    }
+    throw lastErr ?? new EmbeddingError("falha ao gerar embeddings apos retries");
+  }
+
+  /** Uma unica tentativa de chamada ao servico de embeddings. */
+  private async embedOnce(texts: string[], signal?: AbortSignal): Promise<number[][]> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
     const onExternalAbort = () => controller.abort();
@@ -133,6 +165,13 @@ export class LocalHttpEmbeddingProvider implements EmbeddingProvider {
       });
 
       if (!res.ok) {
+        // 429 (rate limit) e 5xx (instabilidade) sao transitorios -> retry.
+        if (res.status === 429 || res.status >= 500) {
+          throw new RetryableEmbeddingError(
+            `servico de embeddings respondeu ${res.status}`,
+            parseRetryAfter(res.headers.get("retry-after")),
+          );
+        }
         throw new EmbeddingError(
           `servico de embeddings respondeu ${res.status}`,
         );
@@ -156,14 +195,43 @@ export class LocalHttpEmbeddingProvider implements EmbeddingProvider {
     } catch (err) {
       if (err instanceof EmbeddingError) throw err;
       if (isAbortError(err)) {
-        throw new EmbeddingError("tempo de resposta excedido ao gerar embeddings (timeout)");
+        // timeout/abort de rede e transitorio -> deixa o retry tentar de novo.
+        throw new RetryableEmbeddingError(
+          "tempo de resposta excedido ao gerar embeddings (timeout)",
+        );
       }
-      throw new EmbeddingError("falha de rede ao contatar o servico de embeddings");
+      throw new RetryableEmbeddingError(
+        "falha de rede ao contatar o servico de embeddings",
+      );
     } finally {
       clearTimeout(timeoutId);
       signal?.removeEventListener("abort", onExternalAbort);
     }
   }
+}
+
+/** Falha transitoria (429/5xx/rede/timeout) que justifica retry com backoff. */
+class RetryableEmbeddingError extends EmbeddingError {
+  readonly retryAfterMs?: number;
+  constructor(message: string, retryAfterMs?: number) {
+    super(message);
+    this.name = "RetryableEmbeddingError";
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+/** Converte o header Retry-After (segundos ou data HTTP) em ms, se valido. */
+function parseRetryAfter(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const secs = Number(value);
+  if (Number.isFinite(secs)) return Math.max(0, secs * 1000);
+  const date = Date.parse(value);
+  if (Number.isFinite(date)) return Math.max(0, date - Date.now());
+  return undefined;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -443,6 +511,162 @@ export async function generateAndStoreMemoriaChunks(
   }
 
   return { chunks: rows.length };
+}
+
+export interface SliceResult {
+  /** Chunks inseridos NESTA fatia. */
+  inseridos: number;
+  /** Total de chunks do documento (texto inteiro). */
+  total: number;
+  /** Checkpoint: quantos chunks (do inicio) ja indagados apos esta fatia. */
+  proximoOffset: number;
+  /** true quando o documento inteiro ja foi indexado (proximoOffset >= total). */
+  concluido: boolean;
+}
+
+export interface SliceOptions extends IndexOptions {
+  /**
+   * Pacer POR TOKENS aplicado ANTES de cada lote de embeddings: recebe a
+   * estimativa de tokens do lote e dorme o necessario para manter a taxa
+   * abaixo do teto de TPM da OpenAI (substitui a pausa fixa, que era cega a
+   * tokens -> encostava em 1M TPM e tomava 429). O estado (relogio de taxa)
+   * vive no chamador e atravessa documentos da mesma invocacao.
+   */
+  pace?: (tokensEstimados: number) => Promise<void>;
+  /**
+   * Callback chamado APOS cada lote ser embeddado E persistido, com o novo
+   * checkpoint (chunks indexados do inicio). Permite ao chamador gravar o
+   * progresso de forma DURAVEL lote-a-lote: se a invocacao morrer (429
+   * exaurido ou wall-clock), o documento retoma de onde parou em vez de
+   * recomecar do zero (recall total garantido para documentos enormes).
+   */
+  onProgress?: (checkpoint: number) => Promise<void>;
+}
+
+/**
+ * Indexa uma FATIA de chunks de um documento, comecando em `chunkOffset` e
+ * indo ate `chunkOffset + maxChunks` (ou o fim do documento). Permite indexar
+ * documentos enormes em varias invocacoes sem estourar o wall-clock do Edge,
+ * preservando 100% do texto (recall total — nada de truncar).
+ *
+ * Idempotente por fatia (crash-safe): ANTES de inserir, apaga a cauda
+ * (chunk_index >= chunkOffset) do registro. Os chunks anteriores [0, offset)
+ * permanecem intactos. Um crash no meio da fatia e recuperado reprocessando
+ * a MESMA fatia a partir do checkpoint salvo pelo chamador (nunca duplica nem
+ * deixa buraco).
+ *
+ * `db` deve ser service_role (escrita server-side contornando RLS). Lanca
+ * EmbeddingError em falha.
+ */
+export async function generateAndStoreMemoriaChunksSlice(
+  db: SupabaseClient,
+  params: {
+    origem: string;
+    tipo: string | null;
+    registroId: string;
+    verbatim: string;
+    provider: EmbeddingProvider;
+    /** Indice do 1o chunk a processar nesta fatia (checkpoint). */
+    chunkOffset: number;
+    /** Maximo de chunks a processar nesta fatia. */
+    maxChunks: number;
+  },
+  options: SliceOptions = {},
+): Promise<SliceResult> {
+  const batchSize = Math.max(1, options.embedBatchSize ?? 32);
+  const chunkOffset = Math.max(0, Math.floor(params.chunkOffset));
+  const maxChunks = Math.max(1, Math.floor(params.maxChunks));
+
+  const chunks = chunkText(params.verbatim, options.chunk);
+  const total = chunks.length;
+
+  // Documento sem conteudo segmentavel: limpa tudo e conclui (defensivo;
+  // o claim ja exige texto_chars>0).
+  if (total === 0) {
+    const { error: delAllError } = await db
+      .from("memoria_chunks")
+      .delete()
+      .eq("origem", params.origem)
+      .eq("registro_id", params.registroId);
+    if (delAllError) {
+      throw new EmbeddingError(`falha ao limpar chunks de memoria: ${delAllError.message}`);
+    }
+    return { inseridos: 0, total: 0, proximoOffset: 0, concluido: true };
+  }
+
+  const fim = Math.min(chunkOffset + maxChunks, total);
+
+  // Idempotencia por fatia: apaga a cauda a partir do offset (preserva
+  // [0, offset)). Reprocessar a mesma fatia nunca duplica nem deixa buraco.
+  const { error: delError } = await db
+    .from("memoria_chunks")
+    .delete()
+    .eq("origem", params.origem)
+    .eq("registro_id", params.registroId)
+    .gte("chunk_index", chunkOffset);
+  if (delError) {
+    throw new EmbeddingError(`falha ao limpar cauda de chunks: ${delError.message}`);
+  }
+
+  // Checkpoint ja alem do total (defensivo): nada a fazer, doc concluido.
+  if (chunkOffset >= total) {
+    return { inseridos: 0, total, proximoOffset: total, concluido: true };
+  }
+
+  const fatia = chunks.slice(chunkOffset, fim);
+  let inseridos = 0;
+
+  // Insert INCREMENTAL por lote: cada lote embeddado e persistido na hora e
+  // o checkpoint avanca (via onProgress) ANTES de seguir. Assim um doc enorme
+  // nunca perde o que ja indexou se a invocacao morrer no meio (429 exaurido
+  // ou wall-clock) — retoma do checkpoint duravel. A delecao da cauda (acima)
+  // garante que reprocessar a fatia nunca duplica.
+  for (let i = 0; i < fatia.length; i += batchSize) {
+    if (options.signal?.aborted) {
+      throw new EmbeddingError("indexacao cancelada");
+    }
+    const lote = fatia.slice(i, i + batchSize);
+    // Pacer por tokens ANTES do request: espaca a chamada pela carga do lote
+    // para a taxa nao estourar o teto de TPM. Estimativa ~3.5 chars/token
+    // (conservadora p/ PT-BR denso de editais: tabelas/numeros/pontuacao
+    // fragmentam mais que ingles; subestimar tokens permitiria taxa acima do
+    // alvo). Erra para o lado lento, dentro da margem do tpm_alvo.
+    if (options.pace) {
+      const chars = lote.reduce((acc, c) => acc + c.conteudo.length, 0);
+      await options.pace(Math.ceil(chars / 3.5));
+    }
+    const vectors = await params.provider.embed(
+      lote.map((c) => c.conteudo),
+      options.signal,
+    );
+    const rows = lote.map((chunk, idx) => ({
+      origem: params.origem,
+      tipo: params.tipo,
+      registro_id: params.registroId,
+      // chunk.ordem e relativo ao texto inteiro -> chunk_index global coerente.
+      chunk_index: chunk.ordem,
+      verbatim: chunk.conteudo,
+      embedding: toVectorLiteral(vectors[idx]),
+    }));
+
+    const { error: insError } = await db.from("memoria_chunks").insert(rows);
+    if (insError) {
+      throw new EmbeddingError(`falha ao gravar lote de chunks: ${insError.message}`);
+    }
+    inseridos += rows.length;
+
+    // Checkpoint duravel ate aqui (chunks do inicio ja persistidos).
+    if (options.onProgress) {
+      await options.onProgress(chunkOffset + inseridos);
+    }
+  }
+
+  return {
+    inseridos,
+    total,
+    proximoOffset: fim,
+    concluido: fim >= total,
+  };
 }
 
 // ---------------------------------------------------------------------

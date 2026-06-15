@@ -740,9 +740,11 @@ export type ExtracaoConfigInput = z.infer<typeof extracaoConfigSchema>;
 // Singleton config_indexacao. `ativo` = master switch (gasta dinheiro na
 // OpenAI quando ON); `fontesHabilitadas` null = todas (gating por fonte no
 // continuo e no backfill); `loteChunks` = orcamento de chunks por invocacao
-// do backfill (proxy ~2000 chars/chunk); `pausaMs` = pausa entre documentos.
+// do backfill (proxy ~2000 chars/chunk); `pausaMs` = pausa entre documentos;
+// `tpmAlvo` = teto de tokens/min do pacer (0 = sem pacing).
 // ---------------------------------------------------------------------
 const MAX_LOTE_CHUNKS = 10_000;
+const MAX_TPM_ALVO = 10_000_000;
 
 export const indexacaoConfigSchema = z
   .object({
@@ -769,6 +771,11 @@ export const indexacaoConfigSchema = z
       .int("pausaMs deve ser inteiro")
       .min(0, "pausaMs deve ser >= 0")
       .max(MAX_PAUSA_MS, "pausaMs excede o teto (10 min)"),
+    tpmAlvo: z
+      .number({ invalid_type_error: "tpmAlvo deve ser numero" })
+      .int("tpmAlvo deve ser inteiro")
+      .min(0, "tpmAlvo deve ser >= 0")
+      .max(MAX_TPM_ALVO, `tpmAlvo deve ser <= ${MAX_TPM_ALVO}`),
   })
   .strict();
 

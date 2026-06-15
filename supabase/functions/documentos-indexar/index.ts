@@ -38,7 +38,7 @@ import { getEnv } from "../_shared/env.ts";
 import { extractBearerToken, matchesCronSecret } from "../_shared/auth.ts";
 import { timingSafeEqual } from "../_shared/crypto.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
-import { generateAndStoreMemoriaChunks } from "../_shared/embeddings.ts";
+import { generateAndStoreMemoriaChunksSlice } from "../_shared/embeddings.ts";
 import {
   CHARS_POR_CHUNK,
   loadConfigIndexacao,
@@ -50,6 +50,7 @@ interface DocClaim {
   id: string;
   tipo_documento: string | null;
   texto: string;
+  chunks_indexados: number | null;
 }
 
 // ---------------------------------------------------------------------
@@ -66,6 +67,27 @@ async function assertInternalAuth(req: Request): Promise<void> {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * Cria um pacer POR TOKENS: cada chamada `pace(tokens)` espera o necessario
+ * para que a taxa de tokens enviados a OpenAI fique abaixo de `tpmAlvo`
+ * (tokens/min). Serial (a indexacao roda em fluxo unico), com estado de taxa
+ * que atravessa todos os documentos da invocacao. tpmAlvo<=0 desliga o pacing.
+ */
+function criarPacer(tpmAlvo: number): (tokens: number) => Promise<void> {
+  let proximoInicio = 0; // timestamp (ms) em que o proximo request pode comecar
+  return async (tokens: number): Promise<void> => {
+    if (tpmAlvo <= 0 || tokens <= 0) return;
+    const agora = Date.now();
+    if (agora < proximoInicio) {
+      await sleep(proximoInicio - agora);
+    }
+    const inicio = Math.max(agora, proximoInicio);
+    // Intervalo minimo que este lote "ocupa" da janela de 1 min na taxa alvo.
+    const intervaloMs = (tokens / tpmAlvo) * 60_000;
+    proximoInicio = inicio + intervaloMs;
+  };
+}
+
 // ---------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------
@@ -74,11 +96,18 @@ async function handler(req: Request): Promise<Response> {
   const preflight = handleCorsPreflight(req);
   if (preflight) return preflight;
 
+  let service: ReturnType<typeof createServiceClient> | null = null;
+  let holdsLock = false;
+  // Encadeamento DEPOIS de soltar o lock: a continuacao da cadeia (pg_net)
+  // so e disparada no finally, ja com o lock livre. Disparar dentro do try
+  // (com o lock ainda na mao) criava a corrida que devolvia "ocupado" e
+  // matava a cadeia -> backfill so andava pelo cron de seguranca.
+  let deveEncadear = false;
   try {
     assertMethod(req, "POST");
     await assertInternalAuth(req);
 
-    const service = createServiceClient();
+    service = createServiceClient();
 
     // Master switch + gating. OFF => nao faz nada (nao encadeia).
     const config = await loadConfigIndexacao(service);
@@ -86,11 +115,38 @@ async function handler(req: Request): Promise<Response> {
       return jsonResponse({ estado: "inativo", processados: 0 }, 200);
     }
 
+    // FLUXO UNICO: so UMA invocacao processa por vez. Sem isto, o auto-
+    // encadeamento + cron + disparos manuais geram cadeias PARALELAS que
+    // somam burst na OpenAI -> 429 sustentado derruba ate ~90% dos docs.
+    // Stale-aware: lock vencido (>2min, invocacao morta sem liberar) e
+    // retomado. O finally do handler libera o lock ao sair. 2min e margem
+    // segura sobre o wall-clock de um lote pequeno (lote_chunks menor garante
+    // que a invocacao termina e alcanca o finally bem antes de vencer).
+    const { data: lockOk, error: lockErr } = await service.rpc("try_lock_indexacao", {
+      p_stale_minutes: 2,
+    });
+    if (lockErr) {
+      throw new HttpError(500, "lock_failed", "falha ao adquirir lock de indexacao");
+    }
+    if (lockOk !== true) {
+      return jsonResponse({ estado: "ocupado", processados: 0 }, 200);
+    }
+    holdsLock = true;
+
+    // Referencia nao-nula para uso dentro de closures (o `let service` perde
+    // a narrowing dentro do callback onProgress).
+    const db = service;
+
     // Provider ANTES do claim: se a chave faltar, nada e reivindicado.
     const provider = await resolveEmbeddingProvider();
 
     const fontes = config.fontesHabilitadas;
     const maxChars = config.loteChunks * CHARS_POR_CHUNK;
+
+    // Pacer por tokens compartilhado por TODOS os docs desta invocacao: mantem
+    // a taxa de tokens enviados a OpenAI abaixo de tpm_alvo (evita o 429 por
+    // burst que derrubava documentos grandes no tier 1).
+    const pace = criarPacer(config.tpmAlvo);
 
     // Reivindica atomicamente o lote (marca em_andamento), por fonte + orcamento.
     const { data: claimed, error: claimErr } = await service.rpc("claim_documentos_indexacao", {
@@ -107,30 +163,102 @@ async function handler(req: Request): Promise<Response> {
     }
 
     let indexados = 0;
+    let parciais = 0;
     let erros = 0;
     let chunksTotais = 0;
 
+    // ORCAMENTO POR CHUNKS por invocacao: um doc enorme NAO e processado
+    // inteiro (estourava o wall-clock e ficava orfao). Cada invocacao gasta
+    // ate `lote_chunks` chunks no total, fatiando documentos grandes a partir
+    // do checkpoint (chunks_indexados) sem NUNCA truncar o texto (recall
+    // total). Quando o orcamento acaba, os docs reivindicados e nao tocados
+    // voltam a 'pendente' para a proxima invocacao reivindicar.
+    let restante = Math.max(1, config.loteChunks);
+
     for (let i = 0; i < docs.length; i += 1) {
       const doc = docs[i];
+
+      // Orcamento esgotado: libera o doc reivindicado de volta para a fila
+      // (sem queimar tentativa nem mexer no checkpoint).
+      if (restante <= 0) {
+        const { error: relErr } = await service
+          .from("documentos")
+          .update({ status_indexacao: "pendente" })
+          .eq("id", doc.id);
+        if (relErr) {
+          console.error("[documentos-indexar] falha ao liberar doc nao processado", relErr.message);
+        }
+        continue;
+      }
+
       try {
-        const { chunks } = await generateAndStoreMemoriaChunks(service, {
+        const resultado = await generateAndStoreMemoriaChunksSlice(service, {
           origem: "documento",
           tipo: doc.tipo_documento ?? null,
           registroId: doc.id,
           verbatim: doc.texto,
           provider,
+          chunkOffset: doc.chunks_indexados ?? 0,
+          maxChunks: restante,
+        }, {
+          // Pacer POR TOKENS entre lotes (dentro e atravessando docs): mantem a
+          // taxa abaixo do teto de TPM da OpenAI, eliminando o burst que
+          // derrubava documentos grandes (a causa raiz dos ~28% de erro).
+          pace,
+          // Checkpoint DURAVEL lote-a-lote: doc enorme nunca recomeca do zero
+          // se a invocacao morrer no meio (429/wall-clock). Mantem em_andamento
+          // durante o progresso (orphan recovery de 15min retoma se morrer).
+          onProgress: async (checkpoint) => {
+            // Progresso real limpa o orcamento de falhas: um doc enorme que
+            // avanca lote-a-lote (mesmo errando no fim de uma fatia) nunca
+            // esgota tentativas_max -> sempre conclui (recall total).
+            const { error } = await db
+              .from("documentos")
+              .update({ chunks_indexados: checkpoint, tentativas_indexacao: 0 })
+              .eq("id", doc.id);
+            if (error) {
+              console.error("[documentos-indexar] falha ao gravar checkpoint", {
+                documentoId: doc.id,
+                checkpoint,
+                error: error.message,
+              });
+            }
+          },
         });
-        await service
-          .from("documentos")
-          .update({ status_indexacao: "concluida" })
-          .eq("id", doc.id);
-        indexados += 1;
-        chunksTotais += chunks;
+
+        restante -= resultado.inseridos;
+        chunksTotais += resultado.inseridos;
+
+        if (resultado.concluido) {
+          // Doc inteiro indexado: conclui e fixa o checkpoint no total.
+          await service
+            .from("documentos")
+            .update({
+              status_indexacao: "concluida",
+              chunks_indexados: resultado.total,
+            })
+            .eq("id", doc.id);
+          indexados += 1;
+        } else {
+          // Progresso parcial: salva o checkpoint e devolve a 'pendente' para
+          // retomar na proxima invocacao. ZERA tentativas (progresso real
+          // limpa o orcamento de falhas -> doc grande nunca esgota o teto).
+          await service
+            .from("documentos")
+            .update({
+              status_indexacao: "pendente",
+              chunks_indexados: resultado.proximoOffset,
+              tentativas_indexacao: 0,
+            })
+            .eq("id", doc.id);
+          parciais += 1;
+        }
       } catch (err) {
         erros += 1;
         // Auto-retry: incrementa tentativas e re-marca 'pendente' enquanto
         // abaixo do teto (a cadeia drena pendente sozinha -> reprocesso
-        // automatico do transitorio); so vira 'erro' DEFINITIVO no teto.
+        // automatico do transitorio); so vira 'erro' DEFINITIVO no teto. O
+        // checkpoint (chunks_indexados) e preservado -> retoma de onde parou.
         const { error: falhaErr } = await service.rpc("marcar_falha_indexacao", {
           p_id: doc.id,
           p_teto: config.tentativasMax,
@@ -145,12 +273,14 @@ async function handler(req: Request): Promise<Response> {
       }
 
       // Pausa entre documentos (alivia a OpenAI), exceto apos o ultimo.
-      if (config.pausaMs > 0 && i < docs.length - 1) {
+      if (config.pausaMs > 0 && i < docs.length - 1 && restante > 0) {
         await sleep(config.pausaMs);
       }
     }
 
-    // Ainda ha pendentes? Encadeia o proximo lote (fire-and-forget pelo banco).
+    // Ainda ha pendentes? So MARCA que deve encadear; o disparo (pg_net) sai
+    // no finally, DEPOIS de soltar o lock, para a continuacao nunca bater no
+    // proprio lock ("ocupado") e morrer.
     let estado: "avancou" | "concluiu" = "concluiu";
     const { data: temMais, error: temMaisErr } = await service.rpc(
       "tem_documento_pendente_indexacao",
@@ -160,19 +290,35 @@ async function handler(req: Request): Promise<Response> {
       console.error("[documentos-indexar] falha ao checar pendentes", temMaisErr.message);
     } else if (temMais === true) {
       estado = "avancou";
-      const { error: reqErr } = await service.rpc("reenfileirar_indexacao");
-      if (reqErr) {
-        // Nao derruba a resposta: o disparo manual/cron retoma o backfill.
-        console.error("[documentos-indexar] reenfileirar_indexacao falhou", reqErr.message);
-      }
+      deveEncadear = true;
     }
 
     return jsonResponse(
-      { estado, processados: docs.length, indexados, erros, chunks: chunksTotais },
+      { estado, processados: docs.length, indexados, parciais, erros, chunks: chunksTotais },
       200,
     );
   } catch (err) {
     return await errorResponse(err, { fn: "documentos-indexar" });
+  } finally {
+    // Libera o lock de fluxo unico ao sair (qualquer caminho). So se ESTA
+    // invocacao o detem -> nunca libera o lock de outra (erros pre-lock como
+    // auth/method nao chegam aqui com holdsLock=true).
+    if (service && holdsLock) {
+      const { error: unlockErr } = await service.rpc("unlock_indexacao");
+      if (unlockErr) {
+        console.error("[documentos-indexar] unlock_indexacao falhou", unlockErr.message);
+      }
+      // Encadeia o proximo lote SO depois de soltar o lock: a invocacao
+      // seguinte encontra o lock livre e processa de verdade (em vez de cair
+      // em "ocupado"). Se esta invocacao morreu por wall-clock, o finally nao
+      // roda -> o cron-heartbeat (1min) religa a cadeia. Fire-and-forget.
+      if (deveEncadear) {
+        const { error: reqErr } = await service.rpc("reenfileirar_indexacao");
+        if (reqErr) {
+          console.error("[documentos-indexar] reenfileirar_indexacao falhou", reqErr.message);
+        }
+      }
+    }
   }
 }
 

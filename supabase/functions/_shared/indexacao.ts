@@ -36,6 +36,8 @@ export interface ConfigIndexacao {
   pausaMs: number;
   /** Teto de tentativas: ao atingi-lo a falha vira 'erro' definitivo (auto-retry abaixo dele). */
   tentativasMax: number;
+  /** Teto de tokens/min mirado ao chamar a OpenAI (pacer por tokens; 0 = sem pacing). */
+  tpmAlvo: number;
 }
 
 /**
@@ -49,7 +51,7 @@ export async function loadConfigIndexacao(
 ): Promise<ConfigIndexacao | null> {
   const { data, error } = await service
     .from("config_indexacao")
-    .select("ativo, fontes_habilitadas, lote_chunks, pausa_ms, tentativas_max")
+    .select("ativo, fontes_habilitadas, lote_chunks, pausa_ms, tentativas_max, tpm_alvo")
     .limit(1)
     .maybeSingle();
   if (error) {
@@ -69,6 +71,7 @@ export async function loadConfigIndexacao(
     loteChunks: typeof c.lote_chunks === "number" && c.lote_chunks > 0 ? c.lote_chunks : 1500,
     pausaMs: typeof c.pausa_ms === "number" && c.pausa_ms > 0 ? c.pausa_ms : 0,
     tentativasMax: typeof c.tentativas_max === "number" && c.tentativas_max > 0 ? c.tentativas_max : 3,
+    tpmAlvo: typeof c.tpm_alvo === "number" && c.tpm_alvo >= 0 ? c.tpm_alvo : 800_000,
   };
 }
 
