@@ -34,6 +34,8 @@ export interface ConfigIndexacao {
   loteChunks: number;
   /** Pausa entre documentos no backfill (ms; alivia a OpenAI). */
   pausaMs: number;
+  /** Teto de tentativas: ao atingi-lo a falha vira 'erro' definitivo (auto-retry abaixo dele). */
+  tentativasMax: number;
 }
 
 /**
@@ -47,7 +49,7 @@ export async function loadConfigIndexacao(
 ): Promise<ConfigIndexacao | null> {
   const { data, error } = await service
     .from("config_indexacao")
-    .select("ativo, fontes_habilitadas, lote_chunks, pausa_ms")
+    .select("ativo, fontes_habilitadas, lote_chunks, pausa_ms, tentativas_max")
     .limit(1)
     .maybeSingle();
   if (error) {
@@ -66,6 +68,7 @@ export async function loadConfigIndexacao(
       : null,
     loteChunks: typeof c.lote_chunks === "number" && c.lote_chunks > 0 ? c.lote_chunks : 1500,
     pausaMs: typeof c.pausa_ms === "number" && c.pausa_ms > 0 ? c.pausa_ms : 0,
+    tentativasMax: typeof c.tentativas_max === "number" && c.tentativas_max > 0 ? c.tentativas_max : 3,
   };
 }
 

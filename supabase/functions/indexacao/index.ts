@@ -19,6 +19,12 @@
 //           efeito quando `ativo=true` (o proprio documentos-indexar checa o
 //           master switch; OFF => no-op).
 //
+//   POST { action:"reprocessar_erros", fontes? } -> move os docs em
+//           status_indexacao=erro de volta para pendente (RPC
+//           reenfileirar_erros_indexacao, filtrado por fonte) e reabre o
+//           backfill. Retry idempotente (chunks inseridos atomicamente).
+//           Exige sessao autorizada + audit. So gasta quando ativo=true.
+//
 //   O cockpit NAO chama documentos-indexar direto: aquele Edge so aceita
 //   service_role/X-Cron-Secret (chamada interna). Esta funcao e a ponte com
 //   sessao de usuario -> service_role.
@@ -103,8 +109,8 @@ async function handlePut(req: Request): Promise<Response> {
 // ---------------------------------------------------------------------
 const acaoSchema = z
   .object({
-    action: z.enum(["resumo", "disparar"], {
-      errorMap: () => ({ message: "action invalida (use: resumo, disparar)" }),
+    action: z.enum(["resumo", "disparar", "reprocessar_erros"], {
+      errorMap: () => ({ message: "action invalida (use: resumo, disparar, reprocessar_erros)" }),
     }),
     fontes: z
       .array(
@@ -146,6 +152,31 @@ async function handlePost(req: Request): Promise<Response> {
       else if (r.status === "erro") contagens.erro += n;
     }
     return jsonResponse({ contagens }, 200);
+  }
+
+  if (input.action === "reprocessar_erros") {
+    // Move os docs em status_indexacao=erro de volta para pendente (filtrado
+    // por fonte) e reabre o backfill. Retry idempotente (chunks atomicos).
+    const fontes = input.fontes && input.fontes.length > 0 ? input.fontes : null;
+    const { data, error } = await service.rpc("reenfileirar_erros_indexacao", {
+      p_fontes: fontes,
+    });
+    if (error) {
+      throw new HttpError(502, "indexacao_reprocessar_erros_failed", "falha ao reprocessar os erros de indexacao");
+    }
+    const reenfileirados = typeof data === "number" ? data : 0;
+
+    await logSensitiveAction({
+      tabela: "config_indexacao",
+      acao: "reprocessar_erros_indexacao",
+      registroId: null,
+      usuario: email,
+      dadosNovos: { fontes, reenfileirados },
+    });
+
+    // 202 Accepted: o backfill roda assincrono. Se o master switch estiver
+    // OFF, os docs ficam pendentes (sem gasto) ate ligar.
+    return jsonResponse({ ok: true, reenfileirados }, 202);
   }
 
   // action === "disparar": aciona 1 lote de backfill (auto-encadeado).

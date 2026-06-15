@@ -14,6 +14,8 @@
 //                         documento_vinculos.fonte, controle de custo).
 //     lote_chunks         ORCAMENTO por invocacao (proxy: ~2000 chars/chunk).
 //     pausa_ms            pausa entre documentos (alivia a OpenAI).
+//     tentativas_max      teto de tentativas: falha < teto volta 'pendente'
+//                         (auto-retry); >= teto vira 'erro' definitivo.
 //
 //   AUTO-ENCADEAMENTO (mesmo padrao da coleta Effecti): processa 1 lote
 //   limitado pelo orcamento (teto de wall-clock do Edge) e, se ainda ha
@@ -26,7 +28,8 @@
 //   reusada da config de IA) e injetada no provider em runtime.
 //
 //   - Autentica por chamada interna: Bearer service_role OU X-Cron-Secret.
-//   - Falha isolada por documento NAO derruba o lote: vira status='erro'.
+//   - Falha isolada por documento NAO derruba o lote: incrementa tentativas
+//     e volta 'pendente' (auto-retry) ate o teto -> 'erro' definitivo.
 // =====================================================================
 
 import { handleCorsPreflight } from "../_shared/cors.ts";
@@ -125,10 +128,16 @@ async function handler(req: Request): Promise<Response> {
         chunksTotais += chunks;
       } catch (err) {
         erros += 1;
-        await service
-          .from("documentos")
-          .update({ status_indexacao: "erro" })
-          .eq("id", doc.id);
+        // Auto-retry: incrementa tentativas e re-marca 'pendente' enquanto
+        // abaixo do teto (a cadeia drena pendente sozinha -> reprocesso
+        // automatico do transitorio); so vira 'erro' DEFINITIVO no teto.
+        const { error: falhaErr } = await service.rpc("marcar_falha_indexacao", {
+          p_id: doc.id,
+          p_teto: config.tentativasMax,
+        });
+        if (falhaErr) {
+          console.error("[documentos-indexar] marcar_falha_indexacao falhou", falhaErr.message);
+        }
         console.error("[documentos-indexar] falha ao indexar documento", {
           documentoId: doc.id,
           error: err instanceof Error ? err.message : String(err),
