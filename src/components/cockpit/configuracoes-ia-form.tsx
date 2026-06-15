@@ -174,8 +174,10 @@ export function ConfiguracoesIaForm() {
               id="ia-max-palavras"
               min={MAX_PALAVRAS_MIN}
               max={MAX_PALAVRAS_MAX}
-              value={maxPalavras}
-              onChange={(e) => setMaxPalavras(Number(e.target.value))}
+              value={Number.isNaN(maxPalavras) ? "" : maxPalavras}
+              onChange={(e) =>
+                setMaxPalavras(e.target.value === "" ? Number.NaN : Number(e.target.value))
+              }
             />
             <span className="suffix">palavras</span>
           </div>

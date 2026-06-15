@@ -164,8 +164,10 @@ async function gerarDescricao(contexto: string, config: LlmConfig): Promise<stri
   }
 
   if (!res.ok) {
+    // 401 = chave presente mas REJEITADA pelo provedor (invalida/revogada);
+    // distinto de "sem chave" (openai_nao_configurado, tratado em resolverConfigLlm).
     const status = res.status === 401 ? 503 : 502;
-    const code = res.status === 401 ? "openai_nao_configurado" : "openai_erro";
+    const code = res.status === 401 ? "openai_auth_falhou" : "openai_erro";
     throw new HttpError(status, code, `provedor de IA respondeu ${res.status}`);
   }
 
