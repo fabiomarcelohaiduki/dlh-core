@@ -2766,6 +2766,8 @@ select:focus {
   gap: 12px;
   padding: 12px;
   border: 1px solid var(--pp-line-strong);
+  /* sotaque institucional na borda esquerda (mesmo gesto da tabela de preco) */
+  border-left: 3px solid var(--pp-accent);
   border-radius: 8px;
   background: #fff;
   /* cada card e indivisivel; flui inteiro para a proxima pagina se nao couber */
@@ -2801,7 +2803,7 @@ select:focus {
 .cat-card-nome {
   font-size: 13px;
   font-weight: 700;
-  margin: 0 0 3px;
+  margin: 0 0 4px;
   color: var(--pp-ink);
   line-height: 1.25;
   text-wrap: balance;
@@ -2821,15 +2823,18 @@ select:focus {
 .cat-attr {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
   gap: 8px;
   font-size: 10.5px;
   line-height: 1.4;
-  border-bottom: 1px dotted var(--pp-line);
   padding-bottom: 1px;
 }
 .cat-attr dt {
+  flex: none;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--pp-muted);
-  letter-spacing: 0.01em;
 }
 .cat-attr dd {
   margin: 0;
@@ -2842,15 +2847,17 @@ select:focus {
   padding-top: 6px;
   border-top: 1px solid var(--pp-line);
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-flow: row wrap;
+  align-items: baseline;
+  gap: 3px 8px;
 }
 .cat-card-skus-label {
-  font-size: 8.5px;
+  flex: none;
+  font-size: 9.5px;
   font-weight: 600;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--pp-faint);
+  color: var(--pp-muted);
 }
 .cat-card-skus-list {
   font-size: 9.5px;
@@ -2888,7 +2895,7 @@ select:focus {
 .ficha-sku {
   font-size: 12px;
   font-weight: 600;
-  color: var(--pp-muted);
+  color: var(--pp-ink);
   font-family: var(--font-mono), ui-monospace, monospace;
 }
 .ficha-corpo {
@@ -2937,8 +2944,11 @@ select:focus {
   font-size: 12px;
 }
 .ficha-spec dt {
+  align-self: center;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--pp-muted);
-  letter-spacing: 0.02em;
 }
 .ficha-spec dd {
   margin: 0;
