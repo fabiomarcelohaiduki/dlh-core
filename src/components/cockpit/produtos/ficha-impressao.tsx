@@ -69,6 +69,13 @@ export function FichaImpressao() {
     if (raw == null) return null;
     return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
   }, [params]);
+  // Filtro opcional de SKUs: usado pela ficha de um unico SKU (botao na tela do
+  // SKU). Ausente => imprime as fichas de todos os SKUs dos produtos.
+  const skuFilter = useMemo(() => {
+    const raw = params.get("skus");
+    if (raw == null) return null;
+    return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
+  }, [params]);
 
   const empresa = useConfigEmpresa();
   const linhas = useLinhas();
@@ -99,6 +106,7 @@ export function FichaImpressao() {
       const visiveisLinha = data.atributos_linha.filter((a) => a.mostra_ficha);
       const visiveisProduto = produto.atributos_produto.filter((a) => a.mostra_ficha);
       for (const sku of produto.skus) {
+        if (skuFilter && !skuFilter.has(sku.id)) continue;
         // Atributos da Linha: valor herdado deve estar materializado em
         // sku.atributos, mas SKUs legados podem nao te-lo -> cai para o valor
         // uniforme do Produto (produto.atributos). Atributos PROPRIOS do

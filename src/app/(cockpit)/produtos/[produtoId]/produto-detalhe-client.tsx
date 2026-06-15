@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   Cpu,
   Loader2,
   PackageX,
@@ -267,6 +268,7 @@ function ProdutoDetalhe({
       ) : (
         <SkusSection
           produtoId={produto.id}
+          linhaId={produto.linha_id}
           schema={atributos_schema}
           produtoAtributos={produto.atributos}
           skus={skus}
@@ -280,11 +282,13 @@ function ProdutoDetalhe({
  * como icones a direita, no padrao da tela de Linhas) + detalhe + criacao. */
 function SkusSection({
   produtoId,
+  linhaId,
   schema,
   produtoAtributos,
   skus,
 }: {
   produtoId: string;
+  linhaId: string;
   schema: AtributoSchema[];
   produtoAtributos: Record<string, unknown>;
   skus: ProdutoSku[];
@@ -458,6 +462,7 @@ function SkusSection({
         <SkuDetail
           key={selected.id}
           sku={selected}
+          linhaId={linhaId}
           schema={schema}
           produtoAtributos={produtoAtributos}
           editing={editingId === selected.id}
@@ -474,6 +479,7 @@ function SkusSection({
  * grid de precos e apoio. Identidade e acoes vivem na linha da tabela acima. */
 function SkuDetail({
   sku,
+  linhaId,
   schema,
   produtoAtributos,
   editing,
@@ -482,6 +488,7 @@ function SkuDetail({
   deleting,
 }: {
   sku: ProdutoSku;
+  linhaId: string;
   schema: AtributoSchema[];
   produtoAtributos: Record<string, unknown>;
   editing: boolean;
@@ -489,8 +496,26 @@ function SkuDetail({
   onDelete: () => void;
   deleting: boolean;
 }) {
+  // Ficha tecnica deste unico SKU: reaproveita a rota de impressao das fichas,
+  // restringindo linha/produto/SKU pela query (a rota filtra por `skus`).
+  function gerarFicha() {
+    const params = new URLSearchParams({
+      linhas: linhaId,
+      produtos: sku.produto_id,
+      skus: sku.id,
+    });
+    window.open(`/produtos/ficha-tecnica/imprimir?${params.toString()}`, "_blank");
+  }
+
   return (
     <div style={{ display: "grid", gap: 16, marginTop: 4 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <button type="button" className="btn btn-sm" onClick={gerarFicha}>
+          <ClipboardList aria-hidden="true" />
+          <span>Gerar ficha técnica</span>
+        </button>
+      </div>
+
       {editing && (
         <SkuForm
           produtoId={sku.produto_id}
