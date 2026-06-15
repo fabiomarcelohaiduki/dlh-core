@@ -248,6 +248,8 @@ export interface ConfigIndexacaoState {
   fontesHabilitadas: FonteIndexacao[] | null;
   loteChunks: number;
   pausaMs: number;
+  /** Teto de tokens/min mirado ao chamar a OpenAI (pacer; 0 = sem pacing). */
+  tpmAlvo: number;
 }
 
 /** Contagem de documentos indexaveis por status (foto da fila de indexacao). */

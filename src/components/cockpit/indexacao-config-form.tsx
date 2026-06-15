@@ -34,6 +34,11 @@ const cfgSchema = z.object({
     .int("Use um valor inteiro.")
     .min(0, "Não pode ser negativo.")
     .max(600000, "Máximo 600000 ms (10 min)."),
+  tpmAlvo: z
+    .number({ invalid_type_error: "Informe o teto de tokens/min." })
+    .int("Use um valor inteiro.")
+    .min(0, "Não pode ser negativo.")
+    .max(10000000, "Máximo 10000000."),
 });
 type CfgValues = z.infer<typeof cfgSchema>;
 
@@ -46,6 +51,7 @@ function toDefaults(initial: ConfigIndexacaoState): CfgValues {
     fontes: initial.fontesHabilitadas ?? FONTES.map((f) => f.value),
     loteChunks: initial.loteChunks,
     pausaMs: initial.pausaMs,
+    tpmAlvo: initial.tpmAlvo,
   };
 }
 
@@ -97,6 +103,7 @@ export function IndexacaoConfigForm({ initial }: { initial: ConfigIndexacaoState
         fontesHabilitadas: parseFontes(values.fontes),
         loteChunks: values.loteChunks,
         pausaMs: values.pausaMs,
+        tpmAlvo: values.tpmAlvo,
       });
       reset(values);
       setFeedback({ kind: "ok", message: "Configuração salva · vale na próxima indexação." });
@@ -201,6 +208,29 @@ export function IndexacaoConfigForm({ initial }: { initial: ConfigIndexacaoState
             {errors.pausaMs?.message ?? "Entre 0 e 600000 ms."}
           </div>
           <div className="helper">Alivia a OpenAI. 0 = sem pausa.</div>
+        </div>
+
+        <div className={cn("field", errors.tpmAlvo && "invalid")}>
+          <label htmlFor="ix-tpm">Teto de tokens por minuto</label>
+          <div className="input-affix">
+            <input
+              type="number"
+              id="ix-tpm"
+              min={0}
+              max={10000000}
+              aria-invalid={Boolean(errors.tpmAlvo)}
+              {...register("tpmAlvo", { valueAsNumber: true })}
+            />
+            <span className="suffix">tok/min</span>
+          </div>
+          <div className="err-msg">
+            <TriangleAlert aria-hidden="true" />
+            {errors.tpmAlvo?.message ?? "Entre 0 e 10000000."}
+          </div>
+          <div className="helper">
+            Ritma os envios à OpenAI para não estourar o limite do plano (tier 1 = 1.000.000).
+            Recomendado 800000 (80%). 0 = sem ritmo.
+          </div>
         </div>
       </div>
 

@@ -31,6 +31,7 @@ export function salvarConfigIndexacao(
       fontesHabilitadas: input.fontesHabilitadas,
       loteChunks: input.loteChunks,
       pausaMs: input.pausaMs,
+      tpmAlvo: input.tpmAlvo,
     }),
   });
 }
