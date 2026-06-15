@@ -25,3 +25,12 @@ verify_jwt = false
 # X-Cron-Secret). Sem este pin, deploy sem --no-verify-jwt reabre o bug 401.
 [functions.gmail-oauth]
 verify_jwt = false
+
+# Backfill de indexacao auto-encadeado: reenfileirar_indexacao() dispara este
+# Edge via pg_net com X-Cron-Secret PURO (sem Authorization). Com verify_jwt no
+# default (ON) o gateway barraria a cadeia com 401 antes do codigo -> backfill
+# morto em silencio. A funcao se autentica sozinha (assertInternalAuth:
+# X-Cron-Secret do Vault OU service_role bearer). Sem este pin, deploy sem
+# --no-verify-jwt reabre o bug.
+[functions.documentos-indexar]
+verify_jwt = false

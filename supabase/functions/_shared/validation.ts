@@ -687,6 +687,45 @@ export const extracaoConfigSchema = z
 export type ExtracaoConfigInput = z.infer<typeof extracaoConfigSchema>;
 
 // ---------------------------------------------------------------------
+// Schema: config da INDEXACAO (embeddings) — PUT /indexacao.
+// Singleton config_indexacao. `ativo` = master switch (gasta dinheiro na
+// OpenAI quando ON); `fontesHabilitadas` null = todas (gating por fonte no
+// continuo e no backfill); `loteChunks` = orcamento de chunks por invocacao
+// do backfill (proxy ~2000 chars/chunk); `pausaMs` = pausa entre documentos.
+// ---------------------------------------------------------------------
+const MAX_LOTE_CHUNKS = 10_000;
+
+export const indexacaoConfigSchema = z
+  .object({
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }),
+    // Allowlist de fontes: null/ausente = todas; array = subconjunto.
+    fontesHabilitadas: z
+      .array(
+        z.enum(FONTES_EXTRACAO, {
+          errorMap: () => ({
+            message: `fonte invalida (use: ${FONTES_EXTRACAO.join(", ")})`,
+          }),
+        }),
+      )
+      .transform((items) => Array.from(new Set(items)))
+      .nullable()
+      .optional(),
+    loteChunks: z
+      .number({ invalid_type_error: "loteChunks deve ser numero" })
+      .int("loteChunks deve ser inteiro")
+      .min(1, "loteChunks deve ser >= 1")
+      .max(MAX_LOTE_CHUNKS, `loteChunks deve ser <= ${MAX_LOTE_CHUNKS}`),
+    pausaMs: z
+      .number({ invalid_type_error: "pausaMs deve ser numero" })
+      .int("pausaMs deve ser inteiro")
+      .min(0, "pausaMs deve ser >= 0")
+      .max(MAX_PAUSA_MS, "pausaMs excede o teto (10 min)"),
+  })
+  .strict();
+
+export type IndexacaoConfigInput = z.infer<typeof indexacaoConfigSchema>;
+
+// ---------------------------------------------------------------------
 // Schema: agendamento da EXTRACAO (PUT /extracao-agendamento).
 // Mora no singleton config_extracao (colunas de agendamento, separadas dos
 // parametros do Tika) e materializa o pg_cron 'extrair-anexos' via

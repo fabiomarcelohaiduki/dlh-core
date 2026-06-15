@@ -47,10 +47,20 @@ export interface EmbeddingProviderConfig {
   provider?: string;
   endpoint?: string;
   dimensions?: number;
+  /**
+   * API key injetada em runtime (ex.: OpenAI lida do Vault). Quando presente,
+   * o provider envia `Authorization: Bearer <apiKey>`. Resolvida pela Edge
+   * (server-side), nunca de .env do cliente.
+   */
+  apiKey?: string;
   /** fetch injetavel para testabilidade. Default: globalThis.fetch. */
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }
+
+/** Defaults do provider OpenAI (text-embedding-3-small, vector(1024) via Matryoshka). */
+const OPENAI_DEFAULT_ENDPOINT = "https://api.openai.com/v1";
+const OPENAI_DEFAULT_MODEL = "text-embedding-3-small";
 
 // ---------------------------------------------------------------------
 // Provider default: bge-m3 local self-hosted (sem custo por token)
@@ -70,11 +80,16 @@ export class LocalHttpEmbeddingProvider implements EmbeddingProvider {
   private readonly endpoint: string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
+  private readonly apiKey?: string;
+  private readonly sendDimensions: boolean;
 
   constructor(config: {
     id: string;
     endpoint: string;
     dimensions: number;
+    apiKey?: string;
+    /** Inclui `dimensions` no body (OpenAI Matryoshka); bge-m3 nao precisa. */
+    sendDimensions?: boolean;
     fetchImpl?: typeof fetch;
     timeoutMs?: number;
   }) {
@@ -86,6 +101,8 @@ export class LocalHttpEmbeddingProvider implements EmbeddingProvider {
     this.id = config.id;
     this.endpoint = config.endpoint.replace(/\/+$/, "");
     this.dimensions = config.dimensions;
+    this.apiKey = config.apiKey;
+    this.sendDimensions = config.sendDimensions ?? false;
     this.fetchImpl = config.fetchImpl ?? globalThis.fetch.bind(globalThis);
     this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
@@ -99,10 +116,19 @@ export class LocalHttpEmbeddingProvider implements EmbeddingProvider {
     signal?.addEventListener("abort", onExternalAbort, { once: true });
 
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      };
+      if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`;
+
+      const body: Record<string, unknown> = { model: this.id, input: texts };
+      if (this.sendDimensions) body.dimensions = this.dimensions;
+
       const res = await this.fetchImpl(`${this.endpoint}/embeddings`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ model: this.id, input: texts }),
+        headers,
+        body: JSON.stringify(body),
         signal: controller.signal,
       });
 
@@ -153,6 +179,21 @@ export function createEmbeddingProvider(
   const dimensions = config.dimensions ?? env.embeddingsDim;
 
   switch (provider) {
+    // OpenAI gerenciado: mesma rota /embeddings, mas com Bearer auth e o
+    // parametro `dimensions` (Matryoshka -> vector(1024)). A apiKey vem
+    // injetada (Vault LLM_OPENAI_API_KEY), nunca de .env. O id e o NOME do
+    // modelo (vai no campo `model` do body).
+    case "openai":
+      return new LocalHttpEmbeddingProvider({
+        id: OPENAI_DEFAULT_MODEL,
+        endpoint: endpoint || OPENAI_DEFAULT_ENDPOINT,
+        dimensions,
+        apiKey: config.apiKey,
+        sendDimensions: true,
+        fetchImpl: config.fetchImpl,
+        timeoutMs: config.timeoutMs,
+      });
+
     // bge-m3 local e o default; outros providers self-hosted compativeis
     // (mesmo contrato HTTP) podem reutilizar a mesma implementacao.
     case "bge-m3-local":

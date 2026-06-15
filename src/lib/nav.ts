@@ -7,6 +7,7 @@ import {
   KeyRound,
   Braces,
   FileCog,
+  Sparkles,
   Layers,
   Package,
   SlidersHorizontal,
@@ -71,6 +72,7 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/extracao-config",
         icon: FileCog,
       },
+      { id: "nav-indexacao", label: "Indexação", href: "/indexacao", icon: Sparkles },
       { id: "nav-api", label: "API LLM-ready", href: "/api", icon: Braces },
       {
         id: "nav-configuracoes-empresa",
@@ -90,6 +92,7 @@ export const SCREEN_TITLES: Record<string, string> = {
   "/erros": "Erros",
   "/fontes": "Fontes e credenciais",
   "/extracao-config": "Parâmetros de extração",
+  "/indexacao": "Indexação",
   "/api": "API LLM-ready",
   "/configuracoes-empresa": "Configurações da empresa",
   "/produtos": "Linha de produtos",

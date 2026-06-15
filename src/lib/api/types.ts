@@ -233,6 +233,32 @@ export interface AgendamentoExtracaoState {
   diaMes: number | null;
 }
 
+/** Fontes cujos documentos podem ser indexados (mesmo universo da extracao). */
+export type FonteIndexacao = FonteExtracao;
+
+/**
+ * Snapshot da config da INDEXACAO (embeddings) — singleton config_indexacao,
+ * lido server-side para hidratar o cmp-indexacao-config-form. `ativo` = master
+ * switch (gasta na OpenAI quando ON); `fontesHabilitadas` null = todas as
+ * fontes; `loteChunks` = orcamento de chunks por invocacao do backfill;
+ * `pausaMs` = pausa entre documentos. Vale na PROXIMA invocacao.
+ */
+export interface ConfigIndexacaoState {
+  ativo: boolean;
+  fontesHabilitadas: FonteIndexacao[] | null;
+  loteChunks: number;
+  pausaMs: number;
+}
+
+/** Contagem de documentos indexaveis por status (foto da fila de indexacao). */
+export interface IndexacaoResumo {
+  pendente: number;
+  emAndamento: number;
+  concluida: number;
+  erro: number;
+  total: number;
+}
+
 /**
  * Pasta do Google Drive cadastrada no cockpit (tabela drive_pastas), lida
  * server-side para hidratar o cmp-drive-pastas-form. O runner descobre as

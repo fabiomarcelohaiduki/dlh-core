@@ -30,11 +30,8 @@ import { getEnv } from "../_shared/env.ts";
 import { extractBearerToken, matchesCronSecret } from "../_shared/auth.ts";
 import { timingSafeEqual } from "../_shared/crypto.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
-import {
-  createEmbeddingProvider,
-  type EmbeddingProvider,
-  generateAndStoreMemoriaChunks,
-} from "../_shared/embeddings.ts";
+import { type EmbeddingProvider, generateAndStoreMemoriaChunks } from "../_shared/embeddings.ts";
+import { loadConfigIndexacao, resolveEmbeddingProvider } from "../_shared/indexacao.ts";
 
 const DEFAULT_PENDENTES_LIMITE = 50;
 const MAX_PENDENTES_LIMITE = 500;
@@ -240,9 +237,30 @@ async function acharDocumentoExistente(
 // Processa um resultado de extracao: dedup -> grava/linka -> indexa.
 // ---------------------------------------------------------------------
 
+/**
+ * Gating por fonte no continuo (config_indexacao.fontes_habilitadas): so
+ * indexa inline se a fonte DESTE vinculo estiver habilitada. fontes=null =>
+ * todas habilitadas (sem consulta). Espelha o gating do backfill, que filtra
+ * por documento_vinculos.fonte; aqui o vinculo e conhecido pelo id.
+ */
+async function fonteHabilitada(
+  service: ServiceClient,
+  vinculoId: string,
+  fontes: string[] | null,
+): Promise<boolean> {
+  if (!fontes) return true;
+  const { data } = await service
+    .from("documento_vinculos")
+    .select("fonte")
+    .eq("id", vinculoId)
+    .maybeSingle();
+  return !!data && fontes.includes((data as { fonte: string }).fonte);
+}
+
 async function processarResultado(
   service: ServiceClient,
   provider: EmbeddingProvider | undefined,
+  fontesIndex: string[] | null,
   r: ResultadoExtracao,
 ): Promise<ItemResultado> {
   // Extracao falhou no runner: marca o vinculo e segue.
@@ -306,10 +324,14 @@ async function processarResultado(
     .update({ documento_id: documentoId, status_extracao: "extraido", erro: null })
     .eq("id", r.vinculo_id);
 
-  // Indexacao (chunks/embeddings) reusa o motor agnostico. NAO bloqueia: se o
-  // endpoint esta OFF, o texto ja esta salvo e fica status_indexacao='pendente'.
+  // Indexacao (chunks/embeddings) reusa o motor agnostico. NAO bloqueia: se a
+  // indexacao esta OFF (ou a fonte deste vinculo nao esta habilitada), o texto
+  // ja esta salvo e fica status_indexacao='pendente' para o backfill cobrir.
   let indexado = false;
-  if (provider && r.texto && r.texto.trim() !== "") {
+  if (
+    provider && r.texto && r.texto.trim() !== "" &&
+    (await fonteHabilitada(service, r.vinculo_id, fontesIndex))
+  ) {
     try {
       await generateAndStoreMemoriaChunks(service, {
         origem: "documento",
@@ -361,8 +383,12 @@ async function handler(req: Request): Promise<Response> {
       return jsonResponse({ pendentes, config, total: pendentes.length }, 200);
     }
 
-    const env = getEnv();
-    const provider = env.embeddingsEndpoint ? createEmbeddingProvider() : undefined;
+    // Gating da indexacao continua pela config administravel (master switch +
+    // fontes). OFF => provider undefined: grava o texto 'pendente' e o backfill
+    // (documentos-indexar) cobre depois. A chave OpenAI vem do Vault.
+    const config = await loadConfigIndexacao(service);
+    const provider = config?.ativo ? await resolveEmbeddingProvider() : undefined;
+    const fontesIndex = config?.fontesHabilitadas ?? null;
 
     const resultados: ItemResultado[] = [];
     let novos = 0;
@@ -371,7 +397,7 @@ async function handler(req: Request): Promise<Response> {
 
     for (const r of input.documentos) {
       try {
-        const out = await processarResultado(service, provider, r);
+        const out = await processarResultado(service, provider, fontesIndex, r);
         resultados.push(out);
         if (out.estado === "novo") novos += 1;
         else if (out.estado === "herdado") herdados += 1;
