@@ -550,6 +550,55 @@ export function normalizeTopK(topK: number | undefined): number {
 }
 
 // ---------------------------------------------------------------------
+// Schema: leitura integral de documento do acervo /v1
+//   (POST /v1/acervo/ler-documento). documento_id: UUID obrigatorio.
+//   offset: chars a pular (>=0, default 0). limite: tamanho da janela em
+//   chars, normalizado/limitado em [1, MAX_DOC_CHARS] (default
+//   DEFAULT_DOC_CHARS) — clamp aplicado no handler, espelhando a RPC.
+// ---------------------------------------------------------------------
+export const MIN_DOC_CHARS = 1;
+export const MAX_DOC_CHARS = 200_000;
+export const DEFAULT_DOC_CHARS = 50_000;
+
+export const acervoLerDocumentoSchema = z
+  .object({
+    documento_id: z
+      .string({
+        required_error: "documento_id e obrigatorio",
+        invalid_type_error: "documento_id deve ser string",
+      })
+      .uuid("documento_id deve ser UUID"),
+    offset: z
+      .number({ invalid_type_error: "offset deve ser numero" })
+      .int("offset deve ser inteiro")
+      .nonnegative("offset deve ser >= 0")
+      .optional(),
+    limite: z
+      .number({ invalid_type_error: "limite deve ser numero" })
+      .int("limite deve ser inteiro")
+      .positive("limite deve ser positivo")
+      .optional(),
+  })
+  .strict();
+
+export type AcervoLerDocumentoInput = z.infer<typeof acervoLerDocumentoSchema>;
+
+/** Normaliza o offset de leitura do acervo: ausente/negativo -> 0. */
+export function normalizeDocOffset(offset: number | undefined): number {
+  if (offset === undefined) return 0;
+  return Math.max(Math.trunc(offset), 0);
+}
+
+/**
+ * Normaliza/limita a janela de leitura do acervo (em chars) ao intervalo
+ * suportado. Ausente -> DEFAULT_DOC_CHARS; fora -> clamp em [MIN, MAX].
+ */
+export function normalizeDocLimite(limite: number | undefined): number {
+  if (limite === undefined) return DEFAULT_DOC_CHARS;
+  return Math.min(Math.max(Math.trunc(limite), MIN_DOC_CHARS), MAX_DOC_CHARS);
+}
+
+// ---------------------------------------------------------------------
 // Schema: busca semantica do dominio Produtos /v1 (POST /v1-produtos-busca-semantica).
 // Diferente da busca multi-origem do substrato: o escopo e FIXO em
 // 'produto-cotacao' (definido no handler, nao no corpo) e o `limite` e

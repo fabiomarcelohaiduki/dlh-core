@@ -44,3 +44,11 @@ verify_jwt = false
 # bug e a Lia nao consegue chamar a tool.
 [functions.v1-acervo-busca-semantica]
 verify_jwt = false
+
+# Leitura integral de documento do acervo /v1: mesma autenticacao da busca
+# (API key da Lia lia_sk_ no Vault OU sessao do cockpit via authenticateV1).
+# A API key NAO e JWT -> sem este pin o gateway barra o Bearer lia_sk_ com
+# {UNAUTHORIZED_INVALID_JWT_FORMAT} antes do codigo. Sem o pin, deploy sem
+# --no-verify-jwt reabre o bug e a Lia nao consegue chamar a tool.
+[functions.v1-acervo-ler-documento]
+verify_jwt = false
