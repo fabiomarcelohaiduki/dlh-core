@@ -192,6 +192,26 @@ export function deleteProduto(id: string): Promise<{ ok: boolean }> {
   });
 }
 
+/** Input para a geracao assistida da descricao comercial (produtos-descricao). */
+export interface GerarDescricaoInput {
+  nome: string;
+  descricao?: string;
+  atributos?: Record<string, unknown>;
+}
+
+/**
+ * Gera uma descricao comercial sugerida via IA a partir do que o produto ja
+ * tem. Nao grava nada: devolve o texto para o usuario revisar e aplicar.
+ */
+export function gerarDescricaoProduto(
+  input: GerarDescricaoInput,
+): Promise<{ descricao: string }> {
+  return apiFetch<{ descricao: string }>("produtos-descricao", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 // --- Atributos proprios do Produto ---------------------------------
 
 export function listProdutoAtributos(

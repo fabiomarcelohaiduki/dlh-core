@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { ConfiguracoesEmpresaForm } from "@/components/cockpit/configuracoes-empresa-form";
+import { ConfiguracoesIaForm } from "@/components/cockpit/configuracoes-ia-form";
 import type { ConfigEmpresa } from "@/lib/api/types";
 
 export const metadata: Metadata = { title: "Configurações da empresa" };
@@ -68,6 +69,8 @@ export default async function ConfiguracoesEmpresaPage() {
       </div>
 
       <ConfiguracoesEmpresaForm initial={config} />
+
+      <ConfiguracoesIaForm />
     </section>
   );
 }

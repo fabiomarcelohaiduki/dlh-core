@@ -26,6 +26,14 @@ export const EFFECTI_TIPO = "effecti" as const;
  */
 export const LIA_SERVICE_KEY_NAME = "LIA_SERVICE_API_KEY" as const;
 
+/**
+ * Nome deterministico do segredo da API key da LLM (OpenAI) no Vault,
+ * usado pelas geracoes assistidas do cockpit. Configurado pela tela de
+ * "Configuracoes da empresa" (card de IA); server-side only, nunca volta
+ * ao cliente.
+ */
+export const LLM_OPENAI_API_KEY_NAME = "LLM_OPENAI_API_KEY" as const;
+
 export interface FonteRecord {
   id: string;
   nome: string;

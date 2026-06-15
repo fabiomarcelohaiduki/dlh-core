@@ -4,9 +4,10 @@ import { useMemo, useState } from "react";
 import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Check, Info, Loader2, TriangleAlert, X } from "lucide-react";
+import { Check, Info, Loader2, Sparkles, TriangleAlert, X } from "lucide-react";
 import { useCreateProduto, useUpdateProduto } from "@/hooks/use-produtos";
 import { ApiError } from "@/lib/api/client";
+import { gerarDescricaoProduto } from "@/lib/api/produtos";
 import { cn } from "@/lib/utils";
 import type { AtributoSchema, Produto } from "@/lib/api/types";
 
@@ -111,6 +112,8 @@ export function ProdutoForm({
   const {
     register,
     handleSubmit,
+    getValues,
+    setValue,
     formState: { errors },
   } = useForm<ProdutoFormValues>({
     resolver: zodResolver(formSchema) as Resolver<ProdutoFormValues>,
@@ -124,9 +127,62 @@ export function ProdutoForm({
     },
   });
 
+  const [gerando, setGerando] = useState(false);
+  const [sugestao, setSugestao] = useState<string | null>(null);
+  const [gerarErro, setGerarErro] = useState<string | null>(null);
+
   const atributoErrors = errors.atributos as
     | Record<string, { message?: string } | undefined>
     | undefined;
+
+  /**
+   * Pede a Lia uma versao comercial da descricao com base no que o produto ja
+   * tem (nome, descricao atual e atributos preenchidos). A IA SUGERE; o texto
+   * cai num preview e so substitui o campo se o usuario aplicar.
+   */
+  async function onGerarDescricao() {
+    setGerarErro(null);
+    const nome = getValues("nome")?.trim();
+    if (!nome) {
+      setGerarErro("Informe o nome do produto antes de gerar.");
+      return;
+    }
+
+    const atributos: Record<string, unknown> = {};
+    for (const a of schema) {
+      const v = getValues(`atributos.${a.chave}`);
+      if (a.tipo === "booleano") {
+        if (v) atributos[a.chave] = true;
+      } else if (a.tipo === "numero") {
+        if (typeof v === "number" && !Number.isNaN(v)) atributos[a.chave] = v;
+      } else if (typeof v === "string" && v.trim() !== "") {
+        atributos[a.chave] = v.trim();
+      }
+    }
+
+    setGerando(true);
+    try {
+      const { descricao } = await gerarDescricaoProduto({
+        nome,
+        descricao: getValues("descricao")?.trim() || undefined,
+        atributos,
+      });
+      setSugestao(descricao);
+    } catch (err) {
+      setGerarErro(
+        err instanceof ApiError && err.status === 503
+          ? "Geração indisponível: configure e ative a IA em Configurações da empresa."
+          : "Não foi possível gerar a descrição. Tente novamente.",
+      );
+    } finally {
+      setGerando(false);
+    }
+  }
+
+  function aplicarSugestao() {
+    if (sugestao) setValue("descricao", sugestao, { shouldDirty: true });
+    setSugestao(null);
+  }
 
   async function onSubmit(values: ProdutoFormValues) {
     setApiError(null);
@@ -194,13 +250,71 @@ export function ProdutoForm({
       </div>
 
       <div className="field" style={{ marginTop: 14, maxWidth: 640 }}>
-        <label htmlFor="produto-descricao">Descrição</label>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+          }}
+        >
+          <label htmlFor="produto-descricao" style={{ marginBottom: 0 }}>
+            Descrição
+          </label>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={onGerarDescricao}
+            disabled={gerando}
+            title="Gerar uma versão comercial da descrição com a Lia"
+          >
+            {gerando ? (
+              <Loader2 className="spin" aria-hidden="true" />
+            ) : (
+              <Sparkles aria-hidden="true" />
+            )}
+            <span>{gerando ? "Gerando…" : "Gerar com a Lia"}</span>
+          </button>
+        </div>
         <textarea
           id="produto-descricao"
           rows={3}
           placeholder="Texto comercial: uso, benefício e diferencial do produto."
           {...register("descricao")}
         />
+        {gerarErro && (
+          <div className="err-msg" style={{ display: "flex" }}>
+            <TriangleAlert aria-hidden="true" />
+            {gerarErro}
+          </div>
+        )}
+        {sugestao && (
+          <div
+            className="card"
+            style={{ marginTop: 10, padding: 12, display: "grid", gap: 10 }}
+          >
+            <span className="sub">Sugestão da Lia</span>
+            <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{sugestao}</p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                onClick={aplicarSugestao}
+              >
+                <Check aria-hidden="true" />
+                <span>Aplicar</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setSugestao(null)}
+              >
+                <X aria-hidden="true" />
+                <span>Descartar</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {schema.length === 0 ? (

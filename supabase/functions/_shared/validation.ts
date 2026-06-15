@@ -1399,6 +1399,39 @@ export const configEmpresaSchema = z
 
 export type ConfigEmpresaInput = z.infer<typeof configEmpresaSchema>;
 
+// ---------------------------------------------------------------------
+// Schema: config da IA/LLM (PUT /config-llm).
+//   provider: allowlist (so 'openai' no MVP).
+//   modelo:   nome do modelo, nao-vazio.
+//   ativo:    liga/desliga a geracao assistida.
+//   apiKey:   OPCIONAL — quando presente, vai CIFRADA p/ o Vault e nunca
+//             volta ao cliente; ausente preserva a chave ja gravada.
+// ---------------------------------------------------------------------
+export const LLM_PROVIDERS = ["openai"] as const;
+export type LlmProvider = (typeof LLM_PROVIDERS)[number];
+
+export const configLlmSchema = z
+  .object({
+    provider: z.enum(LLM_PROVIDERS, {
+      errorMap: () => ({ message: "provider invalido (use 'openai')" }),
+    }),
+    modelo: z
+      .string({ required_error: "modelo e obrigatorio", invalid_type_error: "modelo deve ser string" })
+      .trim()
+      .min(1, "modelo nao pode ser vazio")
+      .max(80, "modelo muito longo"),
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }),
+    apiKey: z
+      .string({ invalid_type_error: "apiKey deve ser string" })
+      .trim()
+      .min(1, "apiKey nao pode ser vazia")
+      .max(400, "apiKey muito longa")
+      .optional(),
+  })
+  .strict();
+
+export type ConfigLlmInput = z.infer<typeof configLlmSchema>;
+
 /**
  * Valida dados ja desserializados (ex.: metadados de multipart/form-data) com
  * um schema zod. Espelha a semantica do parseJsonBody (400 validation_error

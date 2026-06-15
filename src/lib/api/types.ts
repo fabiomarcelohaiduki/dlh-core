@@ -921,6 +921,26 @@ export interface ConfigEmpresa {
   observacaoRodape: string | null;
 }
 
+/**
+ * config_llm — configuracao da IA (LLM) das geracoes assistidas do cockpit
+ * (singleton). A chave da API NUNCA trafega no contrato; key_configurada
+ * apenas sinaliza se ha segredo gravado no Vault.
+ */
+export interface ConfigLlm {
+  provider: "openai";
+  modelo: string;
+  ativo: boolean;
+  key_configurada: boolean;
+}
+
+/** Payload de gravacao da config de IA. apiKey opcional (so quando trocar). */
+export interface ConfigLlmInput {
+  provider: "openai";
+  modelo: string;
+  ativo: boolean;
+  apiKey?: string;
+}
+
 // ---------------------------------------------------------------------
 // Dominio E — Diretrizes/regras de cotacao e politica de participacao
 // ---------------------------------------------------------------------
