@@ -1,13 +1,27 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ImageOff, Loader2, Trash2, TriangleAlert, Upload } from "lucide-react";
+import { Download, ImageOff, Loader2, Trash2, TriangleAlert, Upload } from "lucide-react";
 import { useDeleteFoto, useFotos, useUploadFoto } from "@/hooks/use-fotos";
 import { ApiError } from "@/lib/api/client";
 import type { ProdutoImagem } from "@/lib/api/types";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const ACCEPT = ["image/jpeg", "image/png", "image/webp"];
+
+function nomeArquivo(foto: ProdutoImagem): string {
+  let ext = "jpg";
+  try {
+    const m = new URL(foto.signed_url!).pathname.match(/\.(\w+)$/);
+    if (m) ext = m[1];
+  } catch {
+    // signed_url ausente ou malformada: mantem extensao padrao
+  }
+  const base = foto.legenda?.trim()
+    ? foto.legenda.trim().replace(/[^\w.-]+/g, "_")
+    : `foto-${foto.ordem}`;
+  return `${base}.${ext}`;
+}
 
 /**
  * cmp-fotos-uploader — upload, ordenacao e legenda das fotos de um Produto ou
@@ -95,6 +109,25 @@ export function FotosUploader({
     }
   }
 
+  async function onDownload(foto: ProdutoImagem) {
+    if (!foto.signed_url) return;
+    setErro(null);
+    try {
+      const res = await fetch(foto.signed_url);
+      const blob = await res.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objUrl;
+      a.download = nomeArquivo(foto);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objUrl);
+    } catch {
+      setErro("Não foi possível baixar a foto.");
+    }
+  }
+
   return (
     <div className="card">
       <div className="section-title" style={{ margin: "0 0 14px" }}>
@@ -177,6 +210,15 @@ export function FotosUploader({
                   <span className="tnum">#{foto.ordem}</span>
                   {foto.legenda ? ` · ${foto.legenda}` : ""}
                 </span>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => onDownload(foto)}
+                  disabled={!foto.signed_url}
+                  aria-label="Baixar foto"
+                >
+                  <Download aria-hidden="true" />
+                </button>
                 <button
                   type="button"
                   className="btn btn-sm"
