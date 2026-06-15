@@ -930,6 +930,7 @@ export interface ConfigLlm {
   provider: "openai";
   modelo: string;
   ativo: boolean;
+  descricaoMaxPalavras: number;
   key_configurada: boolean;
 }
 
@@ -938,6 +939,7 @@ export interface ConfigLlmInput {
   provider: "openai";
   modelo: string;
   ativo: boolean;
+  descricaoMaxPalavras: number;
   apiKey?: string;
 }
 

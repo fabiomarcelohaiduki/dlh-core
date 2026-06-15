@@ -1421,6 +1421,14 @@ export const configLlmSchema = z
       .min(1, "modelo nao pode ser vazio")
       .max(80, "modelo muito longo"),
     ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }),
+    descricaoMaxPalavras: z
+      .number({
+        required_error: "descricaoMaxPalavras e obrigatorio",
+        invalid_type_error: "descricaoMaxPalavras deve ser numero",
+      })
+      .int("descricaoMaxPalavras deve ser inteiro")
+      .min(10, "descricaoMaxPalavras deve ser >= 10")
+      .max(300, "descricaoMaxPalavras excede o teto (300)"),
     apiKey: z
       .string({ invalid_type_error: "apiKey deve ser string" })
       .trim()

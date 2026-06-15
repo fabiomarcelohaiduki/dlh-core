@@ -32,9 +32,13 @@ interface ConfigLlmRow {
   provider: string;
   modelo: string;
   ativo: boolean;
+  descricao_max_palavras: number;
 }
 
-const SELECT_COLS = "id, provider, modelo, ativo";
+const SELECT_COLS = "id, provider, modelo, ativo, descricao_max_palavras";
+
+/** Default de palavras quando a config ainda nao foi salva. */
+const DESCRICAO_MAX_PALAVRAS_DEFAULT = 40;
 
 async function handleGet(): Promise<Response> {
   const service = createServiceClient();
@@ -55,6 +59,7 @@ async function handleGet(): Promise<Response> {
       provider: row?.provider ?? "openai",
       modelo: row?.modelo ?? "gpt-4o-mini",
       ativo: row?.ativo ?? false,
+      descricaoMaxPalavras: row?.descricao_max_palavras ?? DESCRICAO_MAX_PALAVRAS_DEFAULT,
       key_configurada: segredo != null,
     },
     200,
@@ -69,6 +74,7 @@ async function handlePut(req: Request): Promise<Response> {
     provider: input.provider,
     modelo: input.modelo,
     ativo: input.ativo,
+    descricao_max_palavras: input.descricaoMaxPalavras,
     updated_at: new Date().toISOString(),
   };
 
@@ -118,6 +124,7 @@ async function handlePut(req: Request): Promise<Response> {
       provider: payload.provider,
       modelo: payload.modelo,
       ativo: payload.ativo,
+      descricaoMaxPalavras: payload.descricao_max_palavras,
       chaveAtualizada: keyAtualizada,
     },
   });

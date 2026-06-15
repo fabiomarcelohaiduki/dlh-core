@@ -31,30 +31,40 @@ const FUNCTION_SEGMENT = "produtos-descricao";
 const OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_MODEL = "gpt-4o-mini";
 const OPENAI_TIMEOUT_MS = 30_000;
-const MAX_OUTPUT_TOKENS = 320;
+const DEFAULT_MAX_PALAVRAS = 40;
+
+/** Teto de tokens a partir do limite de palavras (margem p/ pt-BR). */
+function tetoTokens(maxPalavras: number): number {
+  return Math.ceil(maxPalavras * 2.2) + 16;
+}
 
 interface LlmConfig {
   modelo: string;
   apiKey: string;
+  maxPalavras: number;
 }
 
 /**
- * Resolve a configuracao da IA: le config_llm (ativo/modelo) e a chave do
- * Vault. IA desativada -> 503 ia_desativada; chave ausente -> 503
+ * Resolve a configuracao da IA: le config_llm (ativo/modelo/tamanho) e a
+ * chave do Vault. IA desativada -> 503 ia_desativada; chave ausente -> 503
  * openai_nao_configurado. Nenhum segredo volta ao cliente.
  */
 async function resolverConfigLlm(): Promise<LlmConfig> {
   const service = createServiceClient();
   const { data, error } = await service
     .from("config_llm")
-    .select("modelo, ativo")
+    .select("modelo, ativo, descricao_max_palavras")
     .limit(1)
     .maybeSingle();
   if (error) {
     throw new HttpError(500, "config_llm_query_failed", "falha ao consultar a config da IA");
   }
 
-  const row = data as { modelo: string | null; ativo: boolean | null } | null;
+  const row = data as {
+    modelo: string | null;
+    ativo: boolean | null;
+    descricao_max_palavras: number | null;
+  } | null;
   if (!row?.ativo) {
     throw new HttpError(
       503,
@@ -72,7 +82,11 @@ async function resolverConfigLlm(): Promise<LlmConfig> {
     );
   }
 
-  return { modelo: row.modelo?.trim() || DEFAULT_MODEL, apiKey };
+  return {
+    modelo: row.modelo?.trim() || DEFAULT_MODEL,
+    apiKey,
+    maxPalavras: row.descricao_max_palavras ?? DEFAULT_MAX_PALAVRAS,
+  };
 }
 
 const gerarSchema = z.object({
@@ -102,16 +116,19 @@ function montarContexto(input: z.infer<typeof gerarSchema>): string {
   return linhas.join("\n");
 }
 
-const SYSTEM_PROMPT = [
-  "Voce e redator comercial da DLH Industrial, fabricante que vende em licitacoes publicas.",
-  "Reescreva a descricao do produto em portugues do Brasil, com tom comercial e profissional.",
-  "Objetivo: destacar uso, beneficio e diferencial competitivo de forma clara e direta.",
-  "Regras:",
-  "- 2 a 4 frases, sem listas e sem titulos.",
-  "- NAO invente especificacoes tecnicas, medidas ou materiais que nao foram informados.",
-  "- Nao use superlativos vazios nem promessas exageradas.",
-  "- Retorne APENAS o texto da descricao, sem aspas e sem comentarios.",
-].join("\n");
+/** Prompt do sistema com o limite de palavras configurado no cockpit. */
+function buildSystemPrompt(maxPalavras: number): string {
+  return [
+    "Voce e redator comercial da DLH Industrial, fabricante que vende em licitacoes publicas.",
+    "Reescreva a descricao do produto em portugues do Brasil, com tom comercial e profissional.",
+    "Objetivo: destacar uso, beneficio e diferencial competitivo de forma clara e direta.",
+    "Regras:",
+    `- Use no maximo ${maxPalavras} palavras, em texto corrido, sem listas e sem titulos.`,
+    "- NAO invente especificacoes tecnicas, medidas ou materiais que nao foram informados.",
+    "- Nao use superlativos vazios nem promessas exageradas.",
+    "- Retorne APENAS o texto da descricao, sem aspas e sem comentarios.",
+  ].join("\n");
+}
 
 /** Chama a OpenAI (chat completions) e devolve o texto gerado. */
 async function gerarDescricao(contexto: string, config: LlmConfig): Promise<string> {
@@ -129,9 +146,9 @@ async function gerarDescricao(contexto: string, config: LlmConfig): Promise<stri
       body: JSON.stringify({
         model: config.modelo,
         temperature: 0.7,
-        max_tokens: MAX_OUTPUT_TOKENS,
+        max_tokens: tetoTokens(config.maxPalavras),
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: buildSystemPrompt(config.maxPalavras) },
           { role: "user", content: contexto },
         ],
       }),

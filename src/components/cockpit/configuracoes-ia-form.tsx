@@ -14,6 +14,9 @@ import { cn } from "@/lib/utils";
 import type { ConfigLlmInput } from "@/lib/api/types";
 
 const MODELO_DEFAULT = "gpt-4o-mini";
+const MAX_PALAVRAS_DEFAULT = 40;
+const MAX_PALAVRAS_MIN = 10;
+const MAX_PALAVRAS_MAX = 300;
 
 type Feedback = { kind: "ok" | "err"; message: string };
 
@@ -30,6 +33,7 @@ export function ConfiguracoesIaForm() {
 
   const [ativo, setAtivo] = useState(false);
   const [modelo, setModelo] = useState(MODELO_DEFAULT);
+  const [maxPalavras, setMaxPalavras] = useState(MAX_PALAVRAS_DEFAULT);
   const [keyConfigurada, setKeyConfigurada] = useState(false);
   const [substituindo, setSubstituindo] = useState(false);
   const [apiKey, setApiKey] = useState("");
@@ -40,6 +44,7 @@ export function ConfiguracoesIaForm() {
     if (!data) return;
     setAtivo(data.ativo);
     setModelo(data.modelo || MODELO_DEFAULT);
+    setMaxPalavras(data.descricaoMaxPalavras || MAX_PALAVRAS_DEFAULT);
     setKeyConfigurada(data.key_configurada);
     setSubstituindo(false);
     setApiKey("");
@@ -59,10 +64,23 @@ export function ConfiguracoesIaForm() {
       return;
     }
 
+    if (
+      !Number.isInteger(maxPalavras) ||
+      maxPalavras < MAX_PALAVRAS_MIN ||
+      maxPalavras > MAX_PALAVRAS_MAX
+    ) {
+      setFeedback({
+        kind: "err",
+        message: `Tamanho da descrição deve ser entre ${MAX_PALAVRAS_MIN} e ${MAX_PALAVRAS_MAX} palavras.`,
+      });
+      return;
+    }
+
     const input: ConfigLlmInput = {
       provider: "openai",
       modelo: modelo.trim() || MODELO_DEFAULT,
       ativo,
+      descricaoMaxPalavras: maxPalavras,
     };
     const chave = apiKey.trim();
     if (chave !== "") input.apiKey = chave;
@@ -146,6 +164,24 @@ export function ConfiguracoesIaForm() {
             onChange={(e) => setModelo(e.target.value)}
           />
           <div className="helper">Ex.: gpt-4o-mini.</div>
+        </div>
+
+        <div className="field">
+          <label htmlFor="ia-max-palavras">Tamanho máximo da descrição</label>
+          <div className="input-affix">
+            <input
+              type="number"
+              id="ia-max-palavras"
+              min={MAX_PALAVRAS_MIN}
+              max={MAX_PALAVRAS_MAX}
+              value={maxPalavras}
+              onChange={(e) => setMaxPalavras(Number(e.target.value))}
+            />
+            <span className="suffix">palavras</span>
+          </div>
+          <div className="helper">
+            Entre {MAX_PALAVRAS_MIN} e {MAX_PALAVRAS_MAX}. ~40 palavras ≈ 3 a 4 linhas.
+          </div>
         </div>
       </div>
 
