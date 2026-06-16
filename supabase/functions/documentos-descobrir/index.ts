@@ -323,32 +323,13 @@ async function montarResumo(service: ServiceClient): Promise<unknown> {
     });
   });
 
-  // Enriquece os itens Effecti com o link do AVISO (a pagina do processo no
-  // portal de origem), distinto do link do ANEXO acima. A url vive em
-  // avisos.payload_bruto.url; casa registro_origem_id (vinculo) = effecti_id.
-  const effectiIds = Array.from(
-    new Set(
-      itens
-        .filter((e) => e.fonte === "effecti" && e.processoId != null)
-        .map((e) => Number(e.processoId))
-        .filter((n) => Number.isFinite(n)),
-    ),
-  );
-  if (effectiIds.length > 0) {
-    const { data: avisos } = await service
-      .from("avisos")
-      .select("effecti_id, aviso_url:payload_bruto->>url")
-      .in("effecti_id", effectiIds);
-    const linkPorId = new Map<string, string>();
-    for (const a of avisos ?? []) {
-      const o = a as Record<string, unknown>;
-      const u = typeof o.aviso_url === "string" && o.aviso_url ? o.aviso_url : null;
-      if (u) linkPorId.set(String(o.effecti_id), u);
-    }
-    for (const e of itens) {
-      if (e.fonte === "effecti" && e.processoId != null) {
-        e.avisoUrl = linkPorId.get(String(e.processoId)) ?? null;
-      }
+  // Enriquece os itens Effecti com o link do AVISO na plataforma Effecti
+  // (minha.effecti.com.br), distinto do link do ANEXO acima. O id do aviso na
+  // Effecti = idLicitacao = registro_origem_id do vinculo, entao o link sai
+  // direto do proprio item, sem consultar a tabela de avisos.
+  for (const e of itens) {
+    if (e.fonte === "effecti" && e.processoId != null) {
+      e.avisoUrl = `https://minha.effecti.com.br/#/aviso-edital-minhas/${e.processoId}`;
     }
   }
 

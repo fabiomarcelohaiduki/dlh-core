@@ -589,14 +589,14 @@ export function ExtracaoPanel({
                     </td>
                     <td>
                       {/* Effecti com aviso conhecido: o proprio rotulo da fonte
-                          vira link para a pagina do aviso no portal de origem. */}
+                          vira link para a pagina do aviso na plataforma Effecti. */}
                       {e.fonte === "effecti" && e.avisoUrl ? (
                         <a
                           href={e.avisoUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="link"
-                          title="Abrir o aviso no portal de origem"
+                          title="Abrir o aviso no Effecti"
                         >
                           <span>{FONTE_LABEL.effecti}</span>
                           <ExternalLink aria-hidden="true" />
@@ -614,7 +614,7 @@ export function ExtracaoPanel({
                           target="_blank"
                           rel="noopener noreferrer"
                           className="link"
-                          title="Abrir o aviso no portal de origem"
+                          title="Abrir o aviso no Effecti"
                         >
                           <span>Abrir</span>
                           <ExternalLink aria-hidden="true" />
