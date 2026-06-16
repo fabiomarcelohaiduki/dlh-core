@@ -504,7 +504,8 @@ async function substituirLink(
 // descoberta e ON CONFLICT DO NOTHING (nao ressuscita) e o reprocesso so toca
 // o status alvo. Reversivel pelo card "Ignorados" (ignorado -> pendente).
 // Vale para QUALQUER fonte. Preserva 'erro' (motivo) p/ contexto na lista.
-// So ignora a partir de estados nao-bem-sucedidos (nunca extraido/herdado).
+// So ignora a partir de 'erro' ou 'inobtenivel' (allowlist); o UPDATE e
+// condicionado a esses status (fecha TOCTOU, 0 linhas -> 409).
 // ESCRITA -> auditada.
 // ---------------------------------------------------------------------
 async function ignorarAnexo(
@@ -528,22 +529,35 @@ async function ignorarAnexo(
     throw new HttpError(404, "vinculo_nao_encontrado", "vinculo de documento nao encontrado");
   }
   const statusAnterior = String(row.status_extracao);
-  // Nao deixa ignorar um anexo ja extraido/herdado (sucesso): ignorar e uma
-  // saida para anexos problematicos, nao para descartar conteudo bom.
-  if (statusAnterior === "extraido" || statusAnterior === "herdado") {
+  // Allowlist: ignorar e uma saida SO para anexos que falharam (erro ou
+  // inobtenivel). Nunca para sucesso (extraido/herdado) nem para 'pendente'
+  // (ainda em processamento) ou 'precisa_ocr' (na fila do OCR).
+  if (statusAnterior !== "erro" && statusAnterior !== "inobtenivel") {
     throw new HttpError(
       422,
       "status_nao_ignoravel",
-      "apenas anexos pendentes ou com falha podem ser ignorados",
+      "apenas anexos com falha (erro ou inacessivel) podem ser ignorados",
     );
   }
 
-  const { error: updErr } = await service
+  // UPDATE condicionado ao status alvo: fecha a janela TOCTOU (o status pode
+  // mudar entre o SELECT e o UPDATE, ex.: um run concorrente reextrai o anexo).
+  // 0 linhas afetadas = o status saiu da allowlist no meio -> 409.
+  const { data: atualizadas, error: updErr } = await service
     .from("documento_vinculos")
     .update({ status_extracao: "ignorado" })
-    .eq("id", id);
+    .eq("id", id)
+    .in("status_extracao", ["erro", "inobtenivel"])
+    .select("id");
   if (updErr) {
     throw new HttpError(500, "ignorar_falhou", "falha ao marcar o anexo como ignorado");
+  }
+  if (!atualizadas || atualizadas.length === 0) {
+    throw new HttpError(
+      409,
+      "status_mudou",
+      "o anexo deixou de estar em falha antes de ser ignorado; recarregue e tente de novo",
+    );
   }
   return { id, statusAnterior };
 }

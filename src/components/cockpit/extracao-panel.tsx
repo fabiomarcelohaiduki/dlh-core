@@ -102,6 +102,10 @@ export function ExtracaoPanel({
   // Id do anexo aguardando confirmacao inline do "ignorar" (2 cliques: o 1o
   // arma a confirmacao na propria linha, o 2o efetiva). Evita ignorar por engano.
   const [confirmIgnorarId, setConfirmIgnorarId] = useState<string | null>(null);
+  // Confirmacao inline do "Restaurar ignorados" em massa (2 cliques): simetrico
+  // ao ignorar item-a-item (que tem confirmacao), evita restaurar em massa por
+  // engano. So vale no card Ignorados.
+  const [confirmRestaurar, setConfirmRestaurar] = useState(false);
 
   const modo: ModoAcao = FONTES.find((f) => f.value === fonte)?.modo ?? "descobrir";
   // Acao por fonte (descobrir/coletar): NAO inclui o drain da fila (botao proprio).
@@ -243,6 +247,7 @@ export function ExtracaoPanel({
           : "com erro";
     try {
       const r = await reprocessar.mutateAsync({ fonte: alvoFonte, status: filtroStatus });
+      setConfirmRestaurar(false);
       setFeedback({
         kind: "ok",
         message:
@@ -319,6 +324,7 @@ export function ExtracaoPanel({
     setFiltroStatus(status);
     setFiltroFonte("todas");
     setConfirmIgnorarId(null);
+    setConfirmRestaurar(false);
   }
 
   return (
@@ -524,12 +530,48 @@ export function ExtracaoPanel({
             ? errosCount
             : filtroStatus === "inobtenivel"
               ? inacessiveisCount
-              : ignoradosCount) > 0 && (
+              : ignoradosCount) > 0 &&
+          // Restaurar em massa (card Ignorados) pede confirmacao inline em 2
+          // cliques, simetrico ao ignorar item-a-item. Reprocessar erro/inacessivel
+          // (re-enfileira falha, nao-destrutivo) segue direto.
+          (filtroStatus === "ignorado" && confirmRestaurar ? (
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={handleReprocessar}
+                disabled={reprocessar.isPending}
+                aria-disabled={reprocessar.isPending}
+                title="Confirmar: voltar os anexos ignorados para a fila"
+              >
+                {reprocessar.isPending ? (
+                  <Loader2 className="spin" aria-hidden="true" />
+                ) : (
+                  <Check aria-hidden="true" />
+                )}
+                <span>{reprocessar.isPending ? "Restaurando…" : "Confirmar restaurar"}</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm btn-icon"
+                onClick={() => setConfirmRestaurar(false)}
+                disabled={reprocessar.isPending}
+                aria-label="Cancelar"
+                title="Cancelar"
+              >
+                <X aria-hidden="true" />
+              </button>
+            </div>
+          ) : (
             <button
               type="button"
               className="btn btn-ghost btn-sm"
               style={{ marginLeft: "auto" }}
-              onClick={handleReprocessar}
+              onClick={
+                filtroStatus === "ignorado"
+                  ? () => setConfirmRestaurar(true)
+                  : handleReprocessar
+              }
               disabled={reprocessar.isPending}
               aria-disabled={reprocessar.isPending}
               title={
@@ -551,7 +593,7 @@ export function ExtracaoPanel({
                     : `${reprocessarLabel} · ${FONTE_LABEL[filtroFonte as FontePainel] ?? filtroFonte}`}
               </span>
             </button>
-          )}
+          ))}
         {/* Card "Pendentes" selecionado: o botao de acao contextual e o disparo
             do extrair-anexos.yml (Tika), que drena a fila pendente de TODAS as
             fontes. Mesmo lugar/design do Reprocessar. */}
