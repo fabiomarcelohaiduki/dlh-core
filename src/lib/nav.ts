@@ -76,9 +76,8 @@ export const NAV_GROUPS: NavGroup[] = [
 /** Mapa rota -> titulo para breadcrumb/metadata. */
 export const SCREEN_TITLES: Record<string, string> = {
   "/dashboard": "Dashboard",
-  "/ingestao/execucoes": "Execução",
+  "/ingestao/execucoes": "Coleta",
   "/ingestao/extracao": "Extração",
-  "/ingestao/configuracao": "Configuração de extração",
   "/ingestao/fontes": "Fontes e credenciais",
   "/ingestao": "Ingestão",
   "/erros": "Erros",
