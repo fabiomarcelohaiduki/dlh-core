@@ -273,13 +273,30 @@ async function obterBytesNomus(ref) {
 }
 
 /**
+ * Normaliza a URL de anexo do Effecti. O PNCP so atende em 443, mas a
+ * descoberta as vezes guarda uma porta efemera (ex pncp.gov.br:52569) que ja
+ * morreu -> o fetch trava e morre como "fetch failed" em 100% dos casos.
+ * Descartar a porta nao-padrao do host pncp.gov.br restaura o download.
+ */
+function normalizarUrlEffecti(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    if (u.hostname === "pncp.gov.br" && u.port) u.port = "";
+    return u.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
+/**
  * Effecti: a URL do anexo e publica e nao expira (CDN content-addressed do
  * Compras Publicas; ComprasNet via middleware pode exigir token Effecti -
  * tratar quando exercido). Re-fetchavel por demanda.
  */
 async function obterBytesEffecti(ref) {
-  const url = ref?.url;
-  if (!url) throw new Error("ref_obtencao.url ausente (effecti)");
+  const rawUrl = ref?.url;
+  if (!rawUrl) throw new Error("ref_obtencao.url ausente (effecti)");
+  const url = normalizarUrlEffecti(rawUrl);
   // Retry/backoff (mesmo padrao do adaptador nomus): a URL do CDN/middleware
   // pode recusar em rajada numa janela de rede ruim do runner. Sem retry, uma
   // janela curta derrubava dezenas de downloads em serie como "fetch failed".
