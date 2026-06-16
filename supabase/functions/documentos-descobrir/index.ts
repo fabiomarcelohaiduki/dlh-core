@@ -562,6 +562,39 @@ async function ignorarAnexo(
   return { id, statusAnterior };
 }
 
+// ---------------------------------------------------------------------
+// action='ignorar-em-massa': marca TODOS os vinculos de um status de falha
+// (status alvo -> 'ignorado') de uma vez, CONTEXTUAL ao card selecionado:
+// card Erros ignora 'erro', card Inacessíveis ignora 'inobtenivel'. Fonte
+// opcional (ausente = todas). Versao em volume do 'ignorar-anexo': o humano
+// avaliou a lista e decidiu que todos sao dispensaveis (ex.: lote de arquivos
+// mortos na origem que nao vale recuperar). Sai das listas e nao volta a ser
+// processado. Allowlist no UPDATE (so 'erro'/'inobtenivel') -> nunca ignora
+// sucesso/pendente/OCR. Reversivel em massa pelo card "Ignorados". Preserva
+// 'erro' (motivo) p/ contexto. ESCRITA -> auditada.
+// ---------------------------------------------------------------------
+async function ignorarEmMassa(
+  service: ServiceClient,
+  fonte: FonteDescobrivel | null,
+  statusAlvo: "erro" | "inobtenivel",
+): Promise<number> {
+  let q = service
+    .from("documento_vinculos")
+    .update({ status_extracao: "ignorado" })
+    .eq("status_extracao", statusAlvo)
+    // Trava defensiva (cinto-e-suspensorio, igual ao ignorar-anexo 1-a-1): a
+    // funcao nao confia SO na sanitizacao do handler. Ignorar e saida apenas
+    // para anexos com falha; nunca toca sucesso (extraido/herdado), pendente
+    // nem precisa_ocr, mesmo que um caller futuro passe outro statusAlvo.
+    .in("status_extracao", ["erro", "inobtenivel"]);
+  if (fonte) q = q.eq("fonte", fonte);
+  const { data, error } = await q.select("id");
+  if (error) {
+    throw new HttpError(500, "ignorar_em_massa_falhou", "falha ao ignorar os anexos em massa");
+  }
+  return Array.isArray(data) ? data.length : 0;
+}
+
 async function handler(req: Request): Promise<Response> {
   const preflight = handleCorsPreflight(req);
   if (preflight) return preflight;
@@ -629,6 +662,26 @@ async function handler(req: Request): Promise<Response> {
         dadosNovos: { gatilho: caller.gatilho, status: "ignorado" },
       });
       return jsonResponse({ ok: true, id }, 200);
+    }
+
+    // ESCRITA: marca TODOS os anexos de um status de falha como 'ignorado' de
+    // uma vez (versao em massa do ignorar-anexo). status alvo contextual ao
+    // card: 'inobtenivel' (inacessiveis) ou 'erro'. Fonte opcional. Reversivel
+    // em massa pelo card Ignorados.
+    if (body.action === "ignorar-em-massa") {
+      const fonteRaw = typeof body.fonte === "string" ? body.fonte : null;
+      const fonte = fonteRaw && FONTES_DESCOBRIVEIS.includes(fonteRaw as FonteDescobrivel)
+        ? (fonteRaw as FonteDescobrivel)
+        : null;
+      const statusAlvo = body.status === "inobtenivel" ? "inobtenivel" : "erro";
+      const ignorados = await ignorarEmMassa(service, fonte, statusAlvo);
+      await logSensitiveAction({
+        tabela: "documento_vinculos",
+        acao: "ignorar_em_massa_extracao",
+        usuario: caller.usuario,
+        dadosNovos: { gatilho: caller.gatilho, fonte, status: statusAlvo, ignorados },
+      });
+      return jsonResponse({ ignorados, fonte, status: statusAlvo }, 200);
     }
 
     const input = parseInput(body);

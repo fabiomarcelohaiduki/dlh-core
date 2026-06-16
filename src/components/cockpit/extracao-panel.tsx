@@ -22,6 +22,7 @@ import {
   useDescobrir,
   useExtracaoResumo,
   useIgnorarAnexo,
+  useIgnorarEmMassa,
   useReprocessarErros,
 } from "@/hooks/use-documentos";
 import { useDispararDrive, useDispararExtracao, useDispararGmail, useDispararOcr } from "@/hooks/use-admin";
@@ -90,6 +91,7 @@ export function ExtracaoPanel({
   const dispararOcr = useDispararOcr();
   const reprocessar = useReprocessarErros();
   const ignorar = useIgnorarAnexo();
+  const ignorarMassa = useIgnorarEmMassa();
   const [fonte, setFonte] = useState<FontePainel>("nomus");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   // Filtro de origem da tabela (client-side, sobre a lista carregada).
@@ -106,6 +108,10 @@ export function ExtracaoPanel({
   // ao ignorar item-a-item (que tem confirmacao), evita restaurar em massa por
   // engano. So vale no card Ignorados.
   const [confirmRestaurar, setConfirmRestaurar] = useState(false);
+  // Confirmacao inline do "Ignorar todos" em massa (2 cliques): so vale nos
+  // cards Erros/Inacessíveis. E uma acao em volume (marca todos como ignorado),
+  // entao pede confirmacao para nao disparar por engano.
+  const [confirmIgnorarMassa, setConfirmIgnorarMassa] = useState(false);
 
   const modo: ModoAcao = FONTES.find((f) => f.value === fonte)?.modo ?? "descobrir";
   // Acao por fonte (descobrir/coletar): NAO inclui o drain da fila (botao proprio).
@@ -276,6 +282,31 @@ export function ExtracaoPanel({
     }
   }
 
+  // Marca TODOS os anexos do card (status alvo + fonte) como 'ignorado' de uma
+  // vez. So vale nos cards Erros/Inacessíveis. Confirmacao inline em 2 cliques
+  // (confirmIgnorarMassa), simetrico ao restaurar em massa: e acao em volume.
+  // Em sucesso o resumo invalida e os itens migram para o card Ignorados.
+  async function handleIgnorarMassa() {
+    if (ignorarMassa.isPending) return;
+    if (filtroStatus !== "erro" && filtroStatus !== "inobtenivel") return;
+    setFeedback(null);
+    const alvoFonte = filtroFonte === "todas" ? undefined : filtroFonte;
+    const rotulo = filtroStatus === "inobtenivel" ? "inacessível(is)" : "com erro";
+    try {
+      const r = await ignorarMassa.mutateAsync({ fonte: alvoFonte, status: filtroStatus });
+      setConfirmIgnorarMassa(false);
+      setFeedback({
+        kind: "ok",
+        message:
+          r.ignorados > 0
+            ? `${formatNumber(r.ignorados)} anexo(s) ${rotulo} ignorado(s) · disponíveis no card Ignorados para reverter.`
+            : `Nenhum anexo ${rotulo} para ignorar.`,
+      });
+    } catch {
+      setFeedback({ kind: "err", message: "Não foi possível ignorar os anexos. Tente novamente." });
+    }
+  }
+
   const pendentesCount = contagens?.pendente ?? 0;
   const errosCount = contagens?.erro ?? 0;
   const inacessiveisCount = contagens?.inobtenivel ?? 0;
@@ -325,6 +356,7 @@ export function ExtracaoPanel({
     setFiltroFonte("todas");
     setConfirmIgnorarId(null);
     setConfirmRestaurar(false);
+    setConfirmIgnorarMassa(false);
   }
 
   return (
@@ -591,6 +623,61 @@ export function ExtracaoPanel({
                   : filtroFonte === "todas"
                     ? reprocessarLabel
                     : `${reprocessarLabel} · ${FONTE_LABEL[filtroFonte as FontePainel] ?? filtroFonte}`}
+              </span>
+            </button>
+          ))}
+        {/* Ignorar em massa: so cards Erros/Inacessíveis. Marca todos os anexos
+            do status+fonte como 'ignorado' (terminal manual, reversivel pelo
+            card Ignorados). Confirmacao inline em 2 cliques (simetrico ao
+            restaurar em massa): e acao em volume. Fica ao lado do Reprocessar. */}
+        {(filtroStatus === "erro" || filtroStatus === "inobtenivel") &&
+          (filtroStatus === "erro" ? errosCount : inacessiveisCount) > 0 &&
+          (confirmIgnorarMassa ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={handleIgnorarMassa}
+                disabled={ignorarMassa.isPending}
+                aria-disabled={ignorarMassa.isPending}
+                title="Confirmar: marcar todos os anexos deste card como ignorados"
+              >
+                {ignorarMassa.isPending ? (
+                  <Loader2 className="spin" aria-hidden="true" />
+                ) : (
+                  <Check aria-hidden="true" />
+                )}
+                <span>{ignorarMassa.isPending ? "Ignorando…" : "Confirmar ignorar"}</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm btn-icon"
+                onClick={() => setConfirmIgnorarMassa(false)}
+                disabled={ignorarMassa.isPending}
+                aria-label="Cancelar"
+                title="Cancelar"
+              >
+                <X aria-hidden="true" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setConfirmIgnorarMassa(true)}
+              disabled={ignorarMassa.isPending}
+              aria-disabled={ignorarMassa.isPending}
+              title={
+                filtroFonte === "todas"
+                  ? `Marca todos os anexos ${reprocessarRotulo} como ignorados (sai das listas, reversível)`
+                  : `Marca os anexos ${reprocessarRotulo} do ${FONTE_LABEL[filtroFonte as FontePainel] ?? filtroFonte} como ignorados`
+              }
+            >
+              <EyeOff aria-hidden="true" />
+              <span>
+                {filtroFonte === "todas"
+                  ? "Ignorar todos"
+                  : `Ignorar todos · ${FONTE_LABEL[filtroFonte as FontePainel] ?? filtroFonte}`}
               </span>
             </button>
           ))}

@@ -95,6 +95,35 @@ export function ignorarAnexo(id: string): Promise<IgnorarAnexoResultado> {
   });
 }
 
+/** Status de falha que o "ignorar em massa" aceita (contextual ao card). */
+export type StatusIgnoravelEmMassa = "erro" | "inobtenivel";
+
+export interface IgnorarEmMassaResultado {
+  ignorados: number;
+  fonte: FonteReprocessavel | null;
+  status: StatusIgnoravelEmMassa;
+}
+
+/**
+ * POST /documentos-descobrir { action:'ignorar-em-massa' } — marca TODOS os
+ * anexos de um status de falha como 'ignorado' de uma vez (versao em massa do
+ * ignorar-anexo). 'status' = contextual ao card: 'erro' (default) ou
+ * 'inobtenivel'. Fonte opcional (ausente = todas). O humano avaliou a lista e
+ * decidiu que todos sao dispensaveis. Reversivel em massa pelo card "Ignorados"
+ * (reprocessa 'ignorado' -> 'pendente').
+ */
+export function ignorarEmMassa(
+  fonte?: FonteReprocessavel | null,
+  status: StatusIgnoravelEmMassa = "erro",
+): Promise<IgnorarEmMassaResultado> {
+  const body: Record<string, unknown> = { action: "ignorar-em-massa", status };
+  if (fonte) body.fonte = fonte;
+  return apiFetch<IgnorarEmMassaResultado>("documentos-descobrir", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 /**
  * POST /documentos-descobrir { action:'substituir-link' } — troca a URL do
  * anexo de UM vinculo Effecti e o re-enfileira (status 'pendente', contador

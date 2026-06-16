@@ -5,12 +5,14 @@ import {
   descobrirAnexos,
   fetchExtracaoResumo,
   ignorarAnexo,
+  ignorarEmMassa,
   reprocessarErros,
   salvarConfigExtracao,
   substituirLink,
   type DescobrirInput,
   type FonteReprocessavel,
   type SalvarConfigExtracaoInput,
+  type StatusIgnoravelEmMassa,
   type StatusReprocessavel,
 } from "@/lib/api/documentos";
 
@@ -96,6 +98,24 @@ export function useIgnorarAnexo() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => ignorarAnexo(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: documentosKeys.resumo });
+    },
+  });
+}
+
+/**
+ * useIgnorarEmMassa — marca TODOS os anexos de um status de falha como
+ * 'ignorado' de uma vez via POST documentos-descobrir { action:'ignorar-em-massa' }.
+ * O status alvo ('erro' ou 'inobtenivel') e contextual ao card; fonte opcional
+ * (ausente = todas). Em sucesso invalida o resumo: os itens saem de
+ * Erros/Inacessiveis e passam a contar no card Ignorados (reversivel).
+ */
+export function useIgnorarEmMassa() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars?: { fonte?: FonteReprocessavel | null; status?: StatusIgnoravelEmMassa }) =>
+      ignorarEmMassa(vars?.fonte ?? null, vars?.status ?? "erro"),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: documentosKeys.resumo });
     },
