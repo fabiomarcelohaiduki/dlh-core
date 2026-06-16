@@ -70,7 +70,10 @@ export interface ExtracaoErro {
   processoId: string | null;
   nomeAnexo: string | null;
   extensao: string | null;
+  /** Link do anexo na origem (arquivo). */
   url: string | null;
+  /** Link do aviso/processo no portal (so Effecti). */
+  avisoUrl: string | null;
   erro: string | null;
   quando: string | null;
 }
@@ -113,6 +116,7 @@ export function fetchExtracaoResumo(): Promise<ExtracaoResumo> {
       nomeAnexo: e.nomeAnexo ?? null,
       extensao: e.extensao ?? null,
       url: e.url ?? null,
+      avisoUrl: e.avisoUrl ?? null,
       erro: e.erro ?? null,
       quando: e.quando ?? null,
     })),

@@ -292,11 +292,44 @@ async function montarResumo(service: ServiceClient): Promise<unknown> {
       processoId: o.registro_origem_id ?? null,
       nomeAnexo: nome,
       extensao: extensaoDoNome(nome),
+      // Link do ANEXO (arquivo na origem), derivado de ref_obtencao.
       url: fonte ? linkDoVinculo(fonte, o.ref_obtencao) : null,
+      // Link do AVISO (pagina do processo no portal) — preenchido abaixo so
+      // para Effecti, vindo de avisos.payload_bruto.url.
+      avisoUrl: null as string | null,
       erro: typeof o.erro === "string" ? o.erro : null,
       quando: o.updated_at ?? null,
     };
   });
+
+  // Enriquece os erros Effecti com o link do AVISO (a pagina do processo no
+  // portal de origem), distinto do link do ANEXO acima. A url vive em
+  // avisos.payload_bruto.url; casa registro_origem_id (vinculo) = effecti_id.
+  const effectiIds = Array.from(
+    new Set(
+      erros
+        .filter((e) => e.fonte === "effecti" && e.processoId != null)
+        .map((e) => Number(e.processoId))
+        .filter((n) => Number.isFinite(n)),
+    ),
+  );
+  if (effectiIds.length > 0) {
+    const { data: avisos } = await service
+      .from("avisos")
+      .select("effecti_id, aviso_url:payload_bruto->>url")
+      .in("effecti_id", effectiIds);
+    const linkPorId = new Map<string, string>();
+    for (const a of avisos ?? []) {
+      const o = a as Record<string, unknown>;
+      const u = typeof o.aviso_url === "string" && o.aviso_url ? o.aviso_url : null;
+      if (u) linkPorId.set(String(o.effecti_id), u);
+    }
+    for (const e of erros) {
+      if (e.fonte === "effecti" && e.processoId != null) {
+        e.avisoUrl = linkPorId.get(String(e.processoId)) ?? null;
+      }
+    }
+  }
 
   return { contagens, erros };
 }

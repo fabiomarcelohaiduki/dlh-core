@@ -467,6 +467,7 @@ export function ExtracaoPanel({
               <tr>
                 <th>Arquivo</th>
                 <th>Fonte</th>
+                <th>Aviso</th>
                 <th>Extensão</th>
                 <th>Motivo</th>
                 <th>Quando</th>
@@ -476,7 +477,7 @@ export function ExtracaoPanel({
               {resumo.isLoading ? (
                 Array.from({ length: 3 }).map((_, r) => (
                   <tr key={r}>
-                    {Array.from({ length: 5 }).map((__, c) => (
+                    {Array.from({ length: 6 }).map((__, c) => (
                       <td key={c}>
                         <span className="skel skel-line" style={{ width: `${40 + ((r + c) % 4) * 14}%` }} />
                       </td>
@@ -485,7 +486,7 @@ export function ExtracaoPanel({
                 ))
               ) : errosFiltrados.length === 0 ? (
                 <tr>
-                  <td colSpan={5}>
+                  <td colSpan={6}>
                     <div className="empty">
                       <Check aria-hidden="true" />
                       <h4>Nenhuma falha de extração</h4>
@@ -516,6 +517,22 @@ export function ExtracaoPanel({
                       )}
                     </td>
                     <td>{e.fonte ? FONTE_LABEL[e.fonte as FontePainel] ?? e.fonte : "—"}</td>
+                    <td>
+                      {e.avisoUrl ? (
+                        <a
+                          href={e.avisoUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="link"
+                          title="Abrir o aviso no portal de origem"
+                        >
+                          <span>Abrir</span>
+                          <ExternalLink aria-hidden="true" />
+                        </a>
+                      ) : (
+                        <span className="sub">—</span>
+                      )}
+                    </td>
                     <td className="mono">{e.extensao ?? "—"}</td>
                     <td className="sub">{e.erro ?? "—"}</td>
                     <td className="sub tnum">{formatDateTime(e.quando)}</td>
