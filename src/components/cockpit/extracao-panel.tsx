@@ -126,8 +126,6 @@ export function ExtracaoPanel({
       : fonte === "gmail"
         ? "Dispara a coleta do Gmail, que descobre e enfileira os anexos."
         : "Dispara a coleta do Drive: lista as pastas ativas e enfileira os vínculos.";
-  const drenarCaption = "Processa a fila de anexos pendentes via Tika (todas as fontes).";
-  const ocrCaption = "Processa só a fila de escaneados (precisa_ocr) com OCR ligado, em lote pequeno.";
 
   async function handleAcao() {
     if (disabled) return;
@@ -231,6 +229,7 @@ export function ExtracaoPanel({
     }
   }
 
+  const pendentesCount = contagens?.pendente ?? 0;
   const errosCount = contagens?.erro ?? 0;
   const inacessiveisCount = contagens?.inobtenivel ?? 0;
   const precisaOcrCount = contagens?.precisa_ocr ?? 0;
@@ -323,47 +322,6 @@ export function ExtracaoPanel({
                 <span>{pending ? (modo === "descobrir" ? "Descobrindo…" : "Disparando…") : actionLabel}</span>
               </button>
               <span className="helper" style={capStyle}>{acaoCaption}</span>
-            </div>
-
-            {/* Drain da fila (Tika): gatilho independente da descoberta por fonte. */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={handleDrenar}
-                disabled={dispararExtracao.isPending}
-                aria-disabled={dispararExtracao.isPending}
-                title="Processa a fila de anexos pendentes via Tika (todas as fontes)"
-              >
-                {dispararExtracao.isPending ? (
-                  <Loader2 className="spin" aria-hidden="true" />
-                ) : (
-                  <FileText aria-hidden="true" />
-                )}
-                <span>{dispararExtracao.isPending ? "Disparando…" : "Extrair fila agora"}</span>
-              </button>
-              <span className="helper" style={capStyle}>{drenarCaption}</span>
-            </div>
-
-            {/* Drain da fila OCR (extrair-ocr.yml): processa SO os escaneados
-                (precisa_ocr) com OCR ligado, separado do pipeline rapido. */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={handleOcr}
-                disabled={dispararOcr.isPending}
-                aria-disabled={dispararOcr.isPending}
-                title="Processa a fila de escaneados (precisa_ocr) com OCR ligado, em lote pequeno"
-              >
-                {dispararOcr.isPending ? (
-                  <Loader2 className="spin" aria-hidden="true" />
-                ) : (
-                  <ScanLine aria-hidden="true" />
-                )}
-                <span>{dispararOcr.isPending ? "Disparando…" : "Extrair OCR agora"}</span>
-              </button>
-              <span className="helper" style={capStyle}>{ocrCaption}</span>
             </div>
           </div>
         </div>
@@ -524,6 +482,48 @@ export function ExtracaoPanel({
               </span>
             </button>
           )}
+        {/* Card "Pendentes" selecionado: o botao de acao contextual e o disparo
+            do extrair-anexos.yml (Tika), que drena a fila pendente de TODAS as
+            fontes. Mesmo lugar/design do Reprocessar. */}
+        {filtroStatus === "pendente" && pendentesCount > 0 && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            style={{ marginLeft: "auto" }}
+            onClick={handleDrenar}
+            disabled={dispararExtracao.isPending}
+            aria-disabled={dispararExtracao.isPending}
+            title="Processa a fila de anexos pendentes via Tika (todas as fontes)"
+          >
+            {dispararExtracao.isPending ? (
+              <Loader2 className="spin" aria-hidden="true" />
+            ) : (
+              <FileText aria-hidden="true" />
+            )}
+            <span>{dispararExtracao.isPending ? "Disparando…" : "Extrair pendentes agora"}</span>
+          </button>
+        )}
+        {/* Card "Aguardando OCR" selecionado: o botao de acao contextual e o
+            disparo do extrair-ocr.yml (mesmo lugar/design do Reprocessar), pois
+            precisa_ocr nao reprocessa — drena no passo OCR dedicado. */}
+        {filtroStatus === "precisa_ocr" && precisaOcrCount > 0 && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            style={{ marginLeft: "auto" }}
+            onClick={handleOcr}
+            disabled={dispararOcr.isPending}
+            aria-disabled={dispararOcr.isPending}
+            title="Processa a fila de escaneados (precisa_ocr) com OCR ligado, em lote pequeno"
+          >
+            {dispararOcr.isPending ? (
+              <Loader2 className="spin" aria-hidden="true" />
+            ) : (
+              <ScanLine aria-hidden="true" />
+            )}
+            <span>{dispararOcr.isPending ? "Disparando…" : "Extrair OCR agora"}</span>
+          </button>
+        )}
       </div>
 
       {/* Tabela de erros de extracao */}
