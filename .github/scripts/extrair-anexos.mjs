@@ -93,6 +93,7 @@ function ehInobtenivel(err) {
   }
   const m = String(err?.message ?? "");
   if (/Gmail GET .* falhou \(404\)/.test(m)) return true;       // mensagem deletada
+  if (/Gmail anexo de mensagem deletada/.test(m)) return true;  // anexo de msg 404 (500 no attachments.get)
   if (/download Effecti falhou \(4\d\d\)/.test(m)) return true; // PNCP "Arquivo excluido" etc.
   if (/nao encontrado no processo \d+/.test(m)) return true;    // anexo sumiu do processo Nomus
   return false;
@@ -365,8 +366,30 @@ async function obterBytesGmail(ref) {
 
   const attachmentId = ref?.attachment_id;
   if (!attachmentId) throw new Error("ref_obtencao.attachment_id ausente (gmail anexo)");
-  const bytes = await baixarAnexo(messageId, attachmentId);
-  return { bytes, nomeArquivo: ref?.nome ?? "anexo", extensao: ref?.extensao ?? null };
+  try {
+    const bytes = await baixarAnexo(messageId, attachmentId);
+    return { bytes, nomeArquivo: ref?.nome ?? "anexo", extensao: ref?.extensao ?? null };
+  } catch (err) {
+    // Anexo de mensagem DELETADA: o Gmail responde 500 no attachments.get (em
+    // vez de 404) quando a mensagem-pai sumiu. Confirma sondando a mensagem;
+    // se ela tambem 404, e terminal (nenhum retry recupera) -> erro
+    // reconhecido por ehInobtenivel. Caso contrario, propaga o erro original
+    // (500 transitorio de verdade segue reprocessavel).
+    if (await mensagemSumiu(messageId)) {
+      throw new Error(`Gmail anexo de mensagem deletada (mensagem ${messageId} 404)`);
+    }
+    throw err;
+  }
+}
+
+/** Sonda se a mensagem-pai do anexo ainda existe (404 => deletada). */
+async function mensagemSumiu(messageId) {
+  try {
+    await obterMensagem(messageId);
+    return false;
+  } catch (err) {
+    return /Gmail GET .* falhou \(404\)/.test(String(err?.message ?? ""));
+  }
 }
 
 const ADAPTADORES = {
