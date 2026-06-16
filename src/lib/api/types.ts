@@ -492,6 +492,17 @@ export interface DispararExtracaoResponse {
 }
 
 /**
+ * POST ocr-disparar -> aciona o workflow extrair-ocr.yml no GitHub Actions
+ * (202). Drena a fila de documentos com status precisa_ocr (escaneados/imagem)
+ * com OCR ligado, assincrono no runner. `requestId` e o id da requisicao
+ * pg_net (telemetria).
+ */
+export interface DispararOcrResponse {
+  ok: boolean;
+  requestId: number | null;
+}
+
+/**
  * POST drive-disparar -> aciona o workflow coletar-drive.yml no GitHub Actions
  * (202). Descobre as pastas Drive ativas e enfileira os vinculos na fila de
  * documentos (sem Tika), assincrono no runner. `requestId` e o id da requisicao

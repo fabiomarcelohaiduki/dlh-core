@@ -10,11 +10,12 @@ import {
   Loader2,
   Play,
   RotateCcw,
+  ScanLine,
   Search,
   TriangleAlert,
 } from "lucide-react";
 import { useDescobrir, useExtracaoResumo, useReprocessarErros } from "@/hooks/use-documentos";
-import { useDispararDrive, useDispararExtracao, useDispararGmail } from "@/hooks/use-admin";
+import { useDispararDrive, useDispararExtracao, useDispararGmail, useDispararOcr } from "@/hooks/use-admin";
 import { StatCard } from "@/components/cockpit/stat-card";
 import {
   OrigemFiltro,
@@ -76,6 +77,7 @@ export function ExtracaoPanel({
   const dispararGmail = useDispararGmail();
   const dispararDrive = useDispararDrive();
   const dispararExtracao = useDispararExtracao();
+  const dispararOcr = useDispararOcr();
   const reprocessar = useReprocessarErros();
   const [fonte, setFonte] = useState<FontePainel>("nomus");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
@@ -116,6 +118,7 @@ export function ExtracaoPanel({
         ? "Dispara a coleta do Gmail, que descobre e enfileira os anexos."
         : "Dispara a coleta do Drive: lista as pastas ativas e enfileira os vínculos.";
   const drenarCaption = "Processa a fila de anexos pendentes via Tika (todas as fontes).";
+  const ocrCaption = "Processa só a fila de escaneados (precisa_ocr) com OCR ligado, em lote pequeno.";
 
   async function handleAcao() {
     if (disabled) return;
@@ -169,6 +172,26 @@ export function ExtracaoPanel({
         message = "Já há uma extração em andamento; aguarde a conclusão.";
       } else if (err instanceof ApiError && err.status === 502) {
         message = "Não foi possível acionar a extração na nuvem. Tente novamente.";
+      }
+      setFeedback({ kind: "err", message });
+    }
+  }
+
+  // Drena a fila de OCR: dispara o extrair-ocr.yml (Tika com OCR ligado), que
+  // consome SO os vinculos 'precisa_ocr' (escaneados/imagem) em lote pequeno,
+  // separado do pipeline rapido. Gatilho manual (OCR e caro).
+  async function handleOcr() {
+    if (dispararOcr.isPending) return;
+    setFeedback(null);
+    try {
+      await dispararOcr.mutateAsync();
+      setFeedback({ kind: "ok", message: "Extração OCR disparada · processa os escaneados (precisa_ocr)." });
+    } catch (err) {
+      let message = "Não foi possível disparar a extração OCR. Tente novamente.";
+      if (err instanceof ApiError && err.status === 409) {
+        message = "Já há uma extração OCR em andamento; aguarde a conclusão.";
+      } else if (err instanceof ApiError && err.status === 502) {
+        message = "Não foi possível acionar a extração OCR na nuvem. Tente novamente.";
       }
       setFeedback({ kind: "err", message });
     }
@@ -277,6 +300,27 @@ export function ExtracaoPanel({
               </button>
               <span className="helper" style={capStyle}>{drenarCaption}</span>
             </div>
+
+            {/* Drain da fila OCR (extrair-ocr.yml): processa SO os escaneados
+                (precisa_ocr) com OCR ligado, separado do pipeline rapido. */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={handleOcr}
+                disabled={dispararOcr.isPending}
+                aria-disabled={dispararOcr.isPending}
+                title="Processa a fila de escaneados (precisa_ocr) com OCR ligado, em lote pequeno"
+              >
+                {dispararOcr.isPending ? (
+                  <Loader2 className="spin" aria-hidden="true" />
+                ) : (
+                  <ScanLine aria-hidden="true" />
+                )}
+                <span>{dispararOcr.isPending ? "Disparando…" : "Extrair OCR agora"}</span>
+              </button>
+              <span className="helper" style={capStyle}>{ocrCaption}</span>
+            </div>
           </div>
         </div>
 
@@ -307,7 +351,7 @@ export function ExtracaoPanel({
           <span className="count">{formatNumber(contagens?.total ?? 0)}</span>
         )}
       </div>
-      <div className="grid-dlh g4">
+      <div className="grid-dlh g5">
         <StatCard
           icon={<Clock aria-hidden="true" />}
           label="Pendentes"
@@ -337,6 +381,20 @@ export function ExtracaoPanel({
           loading={resumo.isLoading}
           value={<span className="tnum">{formatNumber(contagens?.herdado ?? 0)}</span>}
           meta="reaproveitados por dedup"
+        />
+        <StatCard
+          icon={<ScanLine aria-hidden="true" />}
+          label="Aguardando OCR"
+          loading={resumo.isLoading}
+          value={
+            <span
+              className="tnum"
+              style={{ color: (contagens?.precisa_ocr ?? 0) > 0 ? "var(--run)" : undefined }}
+            >
+              {formatNumber(contagens?.precisa_ocr ?? 0)}
+            </span>
+          }
+          meta="escaneados · use Extrair OCR agora"
         />
         <StatCard
           icon={<TriangleAlert aria-hidden="true" />}

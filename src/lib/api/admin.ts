@@ -5,6 +5,7 @@ import type {
   DispararExtracaoResponse,
   DispararGmailResponse,
   DispararNomusResponse,
+  DispararOcrResponse,
   FonteTipo,
   Frequencia,
   NomusModo,
@@ -159,6 +160,18 @@ export function dispararGmail(): Promise<DispararGmailResponse> {
  */
 export function dispararExtracao(): Promise<DispararExtracaoResponse> {
   return apiFetch<DispararExtracaoResponse>("extracao-disparar", {
+    method: "POST",
+  });
+}
+
+/**
+ * POST /ocr-disparar — aciona MANUALMENTE o EXTRATOR OCR pelo painel de
+ * Extracao. Drena a fila de documentos com status precisa_ocr (escaneados) com
+ * OCR ligado no workflow dedicado extrair-ocr.yml, separado do pipeline rapido.
+ * Sem corpo. Responde 202 (aceito); roda assincrona no runner do GitHub Actions.
+ */
+export function dispararOcr(): Promise<DispararOcrResponse> {
+  return apiFetch<DispararOcrResponse>("ocr-disparar", {
     method: "POST",
   });
 }

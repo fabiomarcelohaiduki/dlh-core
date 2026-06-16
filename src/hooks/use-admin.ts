@@ -7,6 +7,7 @@ import {
   dispararExtracao,
   dispararGmail,
   dispararNomus,
+  dispararOcr,
   salvarAgendamentoExtracao,
   salvarAgendamentoFonte,
   salvarConfig,
@@ -139,6 +140,23 @@ export function useDispararExtracao() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => dispararExtracao(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: monitoringKeys.healthcheck });
+    },
+  });
+}
+
+/**
+ * useDispararOcr — dispara MANUALMENTE o extrator OCR (POST ocr-disparar).
+ * Aciona o workflow dedicado extrair-ocr.yml: drena a fila de documentos com
+ * status precisa_ocr (escaneados/imagem) com OCR ligado, separado do pipeline
+ * rapido, assincrono no runner. Sem invalidacao de execucoes (o OCR nao grava
+ * linha em execucoes); o resumo de extracao reflete o progresso.
+ */
+export function useDispararOcr() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => dispararOcr(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: monitoringKeys.healthcheck });
     },
