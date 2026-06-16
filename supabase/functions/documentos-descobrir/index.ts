@@ -49,10 +49,15 @@ import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 
 const MAX_LIMITE_PROCESSOS = 100_000;
-const MAX_ERROS_RESUMO = 200;
+const MAX_ITENS_RESUMO = 200;
 const MAX_ARQUIVOS_DRIVE = 50_000;
 const STATUS_VINCULO = ["pendente", "extraido", "herdado", "erro", "precisa_ocr", "inobtenivel"] as const;
 type StatusVinculo = typeof STATUS_VINCULO[number];
+
+// Todos os status sao listaveis na tabela do cockpit (cada card e clicavel e
+// filtra a lista por status). Cada status vem capado em MAX_ITENS_RESUMO p/ um
+// volumoso (ex.: extraido) nao faminhar os demais — o card mostra o total real.
+const STATUS_LISTAVEIS: StatusVinculo[] = [...STATUS_VINCULO];
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
@@ -264,6 +269,23 @@ async function contarPorStatus(
   return count ?? 0;
 }
 
+/** Lista ate MAX_ITENS_RESUMO vinculos de um status, mais recentes primeiro. */
+async function listarPorStatus(
+  service: ServiceClient,
+  status: StatusVinculo,
+): Promise<Array<Record<string, unknown>>> {
+  const { data, error } = await service
+    .from("documento_vinculos")
+    .select("id, fonte, registro_origem_id, nome_anexo, ref_obtencao, erro, updated_at")
+    .eq("status_extracao", status)
+    .order("updated_at", { ascending: false })
+    .limit(MAX_ITENS_RESUMO);
+  if (error) {
+    throw new HttpError(500, "resumo_itens_failed", "falha ao listar anexos por status");
+  }
+  return (data ?? []) as Array<Record<string, unknown>>;
+}
+
 async function montarResumo(service: ServiceClient): Promise<unknown> {
   const contagensArr = await Promise.all(
     STATUS_VINCULO.map((s) => contarPorStatus(service, s)),
@@ -272,42 +294,41 @@ async function montarResumo(service: ServiceClient): Promise<unknown> {
   STATUS_VINCULO.forEach((s, i) => (contagens[s] = contagensArr[i]));
   contagens.total = contagensArr.reduce((a, b) => a + b, 0);
 
-  const { data, error } = await service
-    .from("documento_vinculos")
-    .select("id, fonte, registro_origem_id, nome_anexo, ref_obtencao, erro, updated_at")
-    .eq("status_extracao", "erro")
-    .order("updated_at", { ascending: false })
-    .limit(MAX_ERROS_RESUMO);
-  if (error) {
-    throw new HttpError(500, "resumo_erros_failed", "falha ao listar anexos com erro");
-  }
-
-  const erros = (data ?? []).map((r) => {
-    const o = r as Record<string, unknown>;
-    const nome = typeof o.nome_anexo === "string" ? o.nome_anexo : null;
-    const fonte = typeof o.fonte === "string" ? o.fonte : null;
-    return {
-      id: String(o.id),
-      fonte,
-      processoId: o.registro_origem_id ?? null,
-      nomeAnexo: nome,
-      extensao: extensaoDoNome(nome),
-      // Link do ANEXO (arquivo na origem), derivado de ref_obtencao.
-      url: fonte ? linkDoVinculo(fonte, o.ref_obtencao) : null,
-      // Link do AVISO (pagina do processo no portal) — preenchido abaixo so
-      // para Effecti, vindo de avisos.payload_bruto.url.
-      avisoUrl: null as string | null,
-      erro: typeof o.erro === "string" ? o.erro : null,
-      quando: o.updated_at ?? null,
-    };
+  // Lista todos os status, cada um capado em MAX_ITENS_RESUMO p/ um nao faminhar
+  // o outro. O cockpit filtra por status via card clicavel; o item carrega seu
+  // proprio 'status'.
+  const listas = await Promise.all(
+    STATUS_LISTAVEIS.map((s) => listarPorStatus(service, s)),
+  );
+  const itens = listas.flatMap((linhas, i) => {
+    const status = STATUS_LISTAVEIS[i];
+    return linhas.map((r) => {
+      const nome = typeof r.nome_anexo === "string" ? r.nome_anexo : null;
+      const fonte = typeof r.fonte === "string" ? r.fonte : null;
+      return {
+        id: String(r.id),
+        status,
+        fonte,
+        processoId: r.registro_origem_id ?? null,
+        nomeAnexo: nome,
+        extensao: extensaoDoNome(nome),
+        // Link do ANEXO (arquivo na origem), derivado de ref_obtencao.
+        url: fonte ? linkDoVinculo(fonte, r.ref_obtencao) : null,
+        // Link do AVISO (pagina do processo no portal) — preenchido abaixo so
+        // para Effecti, vindo de avisos.payload_bruto.url.
+        avisoUrl: null as string | null,
+        erro: typeof r.erro === "string" ? r.erro : null,
+        quando: r.updated_at ?? null,
+      };
+    });
   });
 
-  // Enriquece os erros Effecti com o link do AVISO (a pagina do processo no
+  // Enriquece os itens Effecti com o link do AVISO (a pagina do processo no
   // portal de origem), distinto do link do ANEXO acima. A url vive em
   // avisos.payload_bruto.url; casa registro_origem_id (vinculo) = effecti_id.
   const effectiIds = Array.from(
     new Set(
-      erros
+      itens
         .filter((e) => e.fonte === "effecti" && e.processoId != null)
         .map((e) => Number(e.processoId))
         .filter((n) => Number.isFinite(n)),
@@ -324,14 +345,14 @@ async function montarResumo(service: ServiceClient): Promise<unknown> {
       const u = typeof o.aviso_url === "string" && o.aviso_url ? o.aviso_url : null;
       if (u) linkPorId.set(String(o.effecti_id), u);
     }
-    for (const e of erros) {
+    for (const e of itens) {
       if (e.fonte === "effecti" && e.processoId != null) {
         e.avisoUrl = linkPorId.get(String(e.processoId)) ?? null;
       }
     }
   }
 
-  return { contagens, erros };
+  return { contagens, itens };
 }
 
 // ---------------------------------------------------------------------

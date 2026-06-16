@@ -1399,6 +1399,23 @@ button {
 .card.stat:hover::before {
   opacity: 0.85;
 }
+/* Card de KPI clicavel (filtra a tabela): cursor + foco acessivel. O hover ja
+   vem de .card.stat:hover; aqui so o affordance de "e botao". */
+.card.stat.stat-clickable {
+  cursor: pointer;
+}
+.card.stat.stat-clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Card selecionado: borda de accent + trilho lateral fixo (mesmo do hover). */
+.card.stat.is-active {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-card-hover), var(--hairline-top);
+}
+.card.stat.is-active::before {
+  opacity: 1;
+}
 /* O label vira eyebrow editorial: caixa-alta, tracking amplo, discreto. */
 .card.stat .k {
   text-transform: uppercase;

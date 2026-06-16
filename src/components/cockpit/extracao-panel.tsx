@@ -22,7 +22,7 @@ import {
   OrigemFiltro,
   type OrigemFiltroValue,
 } from "@/components/cockpit/origem-filtro";
-import type { FonteDescoberta } from "@/lib/api/documentos";
+import type { FonteDescoberta, StatusItemExtracao } from "@/lib/api/documentos";
 import { ApiError } from "@/lib/api/client";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -82,8 +82,11 @@ export function ExtracaoPanel({
   const reprocessar = useReprocessarErros();
   const [fonte, setFonte] = useState<FontePainel>("nomus");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
-  // Filtro de origem da tabela de erros (client-side, sobre a lista carregada).
+  // Filtro de origem da tabela (client-side, sobre a lista carregada).
   const [filtroFonte, setFiltroFonte] = useState<OrigemFiltroValue>("todas");
+  // Status acionavel exibido na tabela; alimentado pelos cards clicaveis
+  // (Erros / Inacessiveis / Aguardando OCR). Default 'erro'.
+  const [filtroStatus, setFiltroStatus] = useState<StatusItemExtracao>("erro");
 
   const modo: ModoAcao = FONTES.find((f) => f.value === fonte)?.modo ?? "descobrir";
   // Acao por fonte (descobrir/coletar): NAO inclui o drain da fila (botao proprio).
@@ -94,9 +97,14 @@ export function ExtracaoPanel({
     "Cadastre e salve a chave do Nomus (em Fontes e credenciais) antes de descobrir anexos.";
   const disabled = blocked || pending;
   const contagens = resumo.data?.contagens;
-  const erros = resumo.data?.erros ?? [];
-  const errosFiltrados =
-    filtroFonte === "todas" ? erros : erros.filter((e) => e.fonte === filtroFonte);
+  // Itens acionaveis (erro/inobtenivel/precisa_ocr) que o Edge devolve, ja
+  // recortados pelo status selecionado nos cards e pela fonte selecionada.
+  const itens = resumo.data?.itens ?? [];
+  const itensStatus = itens.filter((i) => i.status === filtroStatus);
+  const itensFiltrados =
+    filtroFonte === "todas"
+      ? itensStatus
+      : itensStatus.filter((i) => i.fonte === filtroFonte);
 
   const actionLabel =
     modo === "descobrir"
@@ -222,6 +230,33 @@ export function ExtracaoPanel({
 
   const errosCount = contagens?.erro ?? 0;
   const inacessiveisCount = contagens?.inobtenivel ?? 0;
+  const precisaOcrCount = contagens?.precisa_ocr ?? 0;
+
+  // Total real do status selecionado (a lista vem capada em 200 no Edge).
+  const STATUS_LABEL: Record<StatusItemExtracao, string> = {
+    pendente: "Pendentes",
+    extraido: "Extraídos",
+    herdado: "Herdados",
+    precisa_ocr: "Aguardando OCR",
+    erro: "Erros",
+    inobtenivel: "Inacessíveis",
+  };
+  const STATUS_COUNT: Record<StatusItemExtracao, number> = {
+    pendente: contagens?.pendente ?? 0,
+    extraido: contagens?.extraido ?? 0,
+    herdado: contagens?.herdado ?? 0,
+    precisa_ocr: precisaOcrCount,
+    erro: errosCount,
+    inobtenivel: inacessiveisCount,
+  };
+  const statusCount = STATUS_COUNT[filtroStatus];
+
+  // Clicar num card seleciona o status exibido na tabela (e zera o filtro de
+  // fonte, p/ nao esconder itens da nova selecao por engano).
+  function selecionarStatus(status: StatusItemExtracao) {
+    setFiltroStatus(status);
+    setFiltroFonte("todas");
+  }
 
   return (
     <>
@@ -364,6 +399,8 @@ export function ExtracaoPanel({
             </span>
           }
           meta="aguardando extração"
+          onClick={() => selecionarStatus("pendente")}
+          active={filtroStatus === "pendente"}
         />
         <StatCard
           icon={<Check aria-hidden="true" />}
@@ -376,6 +413,8 @@ export function ExtracaoPanel({
           }
           meta="texto disponível"
           metaTone="up"
+          onClick={() => selecionarStatus("extraido")}
+          active={filtroStatus === "extraido"}
         />
         <StatCard
           icon={<Copy aria-hidden="true" />}
@@ -383,6 +422,8 @@ export function ExtracaoPanel({
           loading={resumo.isLoading}
           value={<span className="tnum">{formatNumber(contagens?.herdado ?? 0)}</span>}
           meta="reaproveitados por dedup"
+          onClick={() => selecionarStatus("herdado")}
+          active={filtroStatus === "herdado"}
         />
         <StatCard
           icon={<ScanLine aria-hidden="true" />}
@@ -391,12 +432,14 @@ export function ExtracaoPanel({
           value={
             <span
               className="tnum"
-              style={{ color: (contagens?.precisa_ocr ?? 0) > 0 ? "var(--run)" : undefined }}
+              style={{ color: precisaOcrCount > 0 ? "var(--run)" : undefined }}
             >
-              {formatNumber(contagens?.precisa_ocr ?? 0)}
+              {formatNumber(precisaOcrCount)}
             </span>
           }
           meta="escaneados · use Extrair OCR agora"
+          onClick={() => selecionarStatus("precisa_ocr")}
+          active={filtroStatus === "precisa_ocr"}
         />
         <StatCard
           icon={<TriangleAlert aria-hidden="true" />}
@@ -410,8 +453,10 @@ export function ExtracaoPanel({
               {formatNumber(errosCount)}
             </span>
           }
-          meta={errosCount > 0 ? "verifique a lista abaixo" : "sem falhas"}
+          meta={errosCount > 0 ? "clique para ver a lista" : "sem falhas"}
           metaTone={errosCount > 0 ? "warn" : "up"}
+          onClick={() => selecionarStatus("erro")}
+          active={filtroStatus === "erro"}
         />
         <StatCard
           icon={<Ban aria-hidden="true" />}
@@ -419,27 +464,30 @@ export function ExtracaoPanel({
           loading={resumo.isLoading}
           value={<span className="tnum">{formatNumber(inacessiveisCount)}</span>}
           meta="removidos na origem · não reprocessam"
+          onClick={() => selecionarStatus("inobtenivel")}
+          active={filtroStatus === "inobtenivel"}
         />
       </div>
 
-      {/* Filtros (mesmo layout da tela Erros). */}
+      {/* Lista do status selecionado nos cards (Erros / Inacessiveis / OCR). */}
       <div className="section-title">
-        <h3>Filtros</h3>
+        <h3>{STATUS_LABEL[filtroStatus]}</h3>
         {!resumo.isLoading && (
           <span className="count">
-            {/* A lista vem capada em 200 (MAX_ERROS_RESUMO no Edge). Quando ha
-                mais erros que o teto, mostra "200 de 600" p/ nao esconder o resto. */}
-            {filtroFonte === "todas" && erros.length < errosCount
-              ? `${formatNumber(errosFiltrados.length)} de ${formatNumber(errosCount)}`
-              : formatNumber(errosFiltrados.length)}
+            {/* A lista vem capada em 200 (MAX_ITENS_RESUMO no Edge). Quando ha
+                mais itens que o teto, mostra "200 de 600" p/ nao esconder o resto. */}
+            {filtroFonte === "todas" && itensStatus.length < statusCount
+              ? `${formatNumber(itensFiltrados.length)} de ${formatNumber(statusCount)}`
+              : formatNumber(itensFiltrados.length)}
           </span>
         )}
       </div>
       <div className="filter-bar" style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <OrigemFiltro value={filtroFonte} onChange={setFiltroFonte} />
         {/* Re-enfileira os erros (status 'erro' -> 'pendente') respeitando o
-            filtro de origem. So aparece quando ha erros. */}
-        {errosCount > 0 && (
+            filtro de origem. So faz sentido para o status 'erro' (inobtenivel nao
+            reprocessa; precisa_ocr usa o botao Extrair OCR). */}
+        {filtroStatus === "erro" && errosCount > 0 && (
           <button
             type="button"
             className="btn btn-ghost btn-sm"
@@ -493,22 +541,22 @@ export function ExtracaoPanel({
                     ))}
                   </tr>
                 ))
-              ) : errosFiltrados.length === 0 ? (
+              ) : itensFiltrados.length === 0 ? (
                 <tr>
                   <td colSpan={6}>
                     <div className="empty">
                       <Check aria-hidden="true" />
-                      <h4>Nenhuma falha de extração</h4>
+                      <h4>Nenhum anexo em {STATUS_LABEL[filtroStatus].toLowerCase()}</h4>
                       <p>
                         {filtroFonte === "todas"
-                          ? "Todos os anexos descobertos foram extraídos sem erro."
-                          : "Nenhuma falha de extração para a fonte selecionada."}
+                          ? "Nada para mostrar neste status."
+                          : "Nada para mostrar neste status para a fonte selecionada."}
                       </p>
                     </div>
                   </td>
                 </tr>
               ) : (
-                errosFiltrados.map((e) => (
+                itensFiltrados.map((e) => (
                   <tr key={e.id}>
                     <td className="cell-arquivo" title={e.nomeAnexo ?? undefined}>
                       {e.url ? (

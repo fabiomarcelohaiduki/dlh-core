@@ -64,8 +64,19 @@ export function reprocessarErros(
   });
 }
 
-export interface ExtracaoErro {
+/** Status do vinculo que a tabela lista (todos os cards sao clicaveis). */
+export type StatusItemExtracao =
+  | "pendente"
+  | "extraido"
+  | "herdado"
+  | "erro"
+  | "precisa_ocr"
+  | "inobtenivel";
+
+export interface ExtracaoItem {
   id: string;
+  /** Status do vinculo (define em qual card/aba ele aparece). */
+  status: StatusItemExtracao;
   fonte: string | null;
   processoId: string | null;
   nomeAnexo: string | null;
@@ -88,15 +99,15 @@ export interface ExtracaoResumo {
     inobtenivel: number;
     total: number;
   };
-  erros: ExtracaoErro[];
+  itens: ExtracaoItem[];
 }
 
 interface ExtracaoResumoRaw {
   contagens?: Partial<ExtracaoResumo["contagens"]>;
-  erros?: Array<Partial<ExtracaoErro> & { id: string }>;
+  itens?: Array<Partial<ExtracaoItem> & { id: string; status: StatusItemExtracao }>;
 }
 
-/** POST /documentos-descobrir { action:'resumo' } — status + erros de extracao. */
+/** POST /documentos-descobrir { action:'resumo' } — status + itens acionaveis. */
 export function fetchExtracaoResumo(): Promise<ExtracaoResumo> {
   return apiFetch<ExtracaoResumoRaw>("documentos-descobrir", {
     method: "POST",
@@ -111,8 +122,9 @@ export function fetchExtracaoResumo(): Promise<ExtracaoResumo> {
       inobtenivel: raw.contagens?.inobtenivel ?? 0,
       total: raw.contagens?.total ?? 0,
     },
-    erros: (raw.erros ?? []).map((e) => ({
+    itens: (raw.itens ?? []).map((e) => ({
       id: e.id,
+      status: e.status,
       fonte: e.fonte ?? null,
       processoId: e.processoId ?? null,
       nomeAnexo: e.nomeAnexo ?? null,

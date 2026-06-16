@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 type MetaTone = "default" | "up" | "warn" | "err";
@@ -22,6 +22,8 @@ export function StatCard({
   pill = false,
   loading = false,
   index,
+  onClick,
+  active = false,
 }: {
   icon: ReactNode;
   label: string;
@@ -33,11 +35,34 @@ export function StatCard({
   loading?: boolean;
   /** Posicao no grid; alimenta a cascata de entrada `.stat-rise` via `--i`. */
   index?: number;
+  /** Quando fornecido, o card vira clicavel (ex.: filtra uma tabela). */
+  onClick?: () => void;
+  /** Realca o card como selecionado (so faz sentido com onClick). */
+  active?: boolean;
 }) {
   const style: StaggerStyle | undefined =
     index != null ? { "--i": index } : undefined;
+  const clickable = typeof onClick === "function";
+  const interactiveProps = clickable
+    ? {
+        role: "button",
+        tabIndex: 0,
+        "aria-pressed": active,
+        onClick,
+        onKeyDown: (e: KeyboardEvent) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onClick();
+          }
+        },
+      }
+    : {};
   return (
-    <div className="card stat" style={style}>
+    <div
+      className={cn("card", "stat", clickable && "stat-clickable", active && "is-active")}
+      style={style}
+      {...interactiveProps}
+    >
       <div className="k">
         {icon}
         {label}
