@@ -6,7 +6,6 @@ import {
   TriangleAlert,
   KeyRound,
   Braces,
-  FileCog,
   Sparkles,
   Layers,
   Package,
@@ -66,12 +65,6 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Administração",
     items: [
       { id: "nav-fontes", label: "Fontes e credenciais", href: "/fontes", icon: KeyRound },
-      {
-        id: "nav-extracao-config",
-        label: "Parâmetros de extração",
-        href: "/extracao-config",
-        icon: FileCog,
-      },
       { id: "nav-indexacao", label: "Indexação", href: "/indexacao", icon: Sparkles },
       { id: "nav-api", label: "API LLM-ready", href: "/api", icon: Braces },
       {
@@ -91,7 +84,6 @@ export const SCREEN_TITLES: Record<string, string> = {
   "/extracao": "Extração",
   "/erros": "Erros",
   "/fontes": "Fontes e credenciais",
-  "/extracao-config": "Parâmetros de extração",
   "/indexacao": "Indexação",
   "/api": "API LLM-ready",
   "/configuracoes-empresa": "Configurações da empresa",
