@@ -5,9 +5,9 @@ import { redirect } from "next/navigation";
 export const dynamic = "force-dynamic";
 
 /**
- * Os parametros de extracao foram movidos para dentro da tela de Extração
- * (aba "Parâmetros"). Esta rota legada redireciona para o novo lugar.
+ * A configuração de extração agora vive dentro do menu Ingestão (aba
+ * "Configuração de extração"). Esta rota legada redireciona para o novo lugar.
  */
 export default function ExtracaoConfigPage() {
-  redirect("/extracao");
+  redirect("/ingestao/configuracao");
 }

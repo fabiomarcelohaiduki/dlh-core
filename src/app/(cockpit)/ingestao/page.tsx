@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 
-// A configuracao da ingestao passou a viver DENTRO de Fontes e credenciais
-// (vinculada a fonte). Esta rota legada redireciona para /fontes para nao
-// quebrar deep-links/bookmarks antigos.
+// Entrada do menu Ingestão: cai na primeira aba (Execução).
+export const dynamic = "force-dynamic";
+
 export default function IngestaoPage() {
-  redirect("/fontes");
+  redirect("/ingestao/execucoes");
 }

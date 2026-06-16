@@ -18,9 +18,11 @@ const ESTADO_LABEL: Record<string, string> = {
 function currentTitle(pathname: string | null): string {
   if (!pathname) return "Cockpit";
   if (pathname.startsWith("/edital")) return SCREEN_TITLES["/edital"];
-  const match = Object.keys(SCREEN_TITLES).find(
-    (href) => pathname === href || pathname.startsWith(`${href}/`),
-  );
+  // Casa pelo prefixo MAIS LONGO (ex: /ingestao/extracao vence /ingestao),
+  // sem depender da ordem de insercao das chaves.
+  const match = Object.keys(SCREEN_TITLES)
+    .filter((href) => pathname === href || pathname.startsWith(`${href}/`))
+    .sort((a, b) => b.length - a.length)[0];
   return match ? SCREEN_TITLES[match] : "Cockpit";
 }
 

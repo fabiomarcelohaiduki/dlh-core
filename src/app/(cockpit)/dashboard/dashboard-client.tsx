@@ -234,7 +234,7 @@ export function DashboardClient() {
             <b>Bem-vindo ao cockpit de ingestão</b>
             <p>
               Ainda não há dados no substrato. Configure a credencial e a frequência das fontes em{" "}
-              <Link href="/fontes" className="link">
+              <Link href="/ingestao/fontes" className="link">
                 Fontes e credenciais
               </Link>{" "}
               para iniciar a primeira coleta.
@@ -309,7 +309,7 @@ export function DashboardClient() {
       <div className="section-title">
         <h3>Fontes conectadas</h3>
         <div className="right">
-          <Link href="/fontes" className="link">
+          <Link href="/ingestao/fontes" className="link">
             Gerenciar fontes
             <ChevronRight aria-hidden="true" />
           </Link>
@@ -349,7 +349,7 @@ export function DashboardClient() {
       <div className="section-title">
         <h3>Pipeline de extração</h3>
         <div className="right">
-          <Link href="/extracao" className="link">
+          <Link href="/ingestao/extracao" className="link">
             Abrir extração
             <ChevronRight aria-hidden="true" />
           </Link>

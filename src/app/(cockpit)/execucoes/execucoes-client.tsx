@@ -164,7 +164,7 @@ export function ExecucoesClient() {
   }
 
   return (
-    <section className="screen">
+    <>
       {/* Disparo de coleta por fonte (seletor segmentado + form da fonte). */}
       <div
         className="card disparo-card"
@@ -298,6 +298,6 @@ export function ExecucoesClient() {
           }
         />
       )}
-    </section>
+    </>
   );
 }

@@ -1,10 +1,8 @@
 import type { ComponentType, SVGProps } from "react";
 import {
   LayoutDashboard,
-  Activity,
-  FileText,
+  Database,
   TriangleAlert,
-  KeyRound,
   Braces,
   Sparkles,
   Layers,
@@ -40,8 +38,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Monitoramento",
     items: [
       { id: "nav-dashboard", label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-      { id: "nav-execucoes", label: "Execuções", href: "/execucoes", icon: Activity },
-      { id: "nav-extracao", label: "Extração", href: "/extracao", icon: FileText },
+      { id: "nav-ingestao", label: "Ingestão", href: "/ingestao", icon: Database },
       { id: "nav-erros", label: "Erros", href: "/erros", icon: TriangleAlert, badgeKey: "erros" },
     ],
   },
@@ -64,7 +61,6 @@ export const NAV_GROUPS: NavGroup[] = [
     id: "administracao",
     label: "Administração",
     items: [
-      { id: "nav-fontes", label: "Fontes e credenciais", href: "/fontes", icon: KeyRound },
       { id: "nav-indexacao", label: "Indexação", href: "/indexacao", icon: Sparkles },
       { id: "nav-api", label: "API LLM-ready", href: "/api", icon: Braces },
       {
@@ -80,10 +76,12 @@ export const NAV_GROUPS: NavGroup[] = [
 /** Mapa rota -> titulo para breadcrumb/metadata. */
 export const SCREEN_TITLES: Record<string, string> = {
   "/dashboard": "Dashboard",
-  "/execucoes": "Execuções",
-  "/extracao": "Extração",
+  "/ingestao/execucoes": "Execução",
+  "/ingestao/extracao": "Extração",
+  "/ingestao/configuracao": "Configuração de extração",
+  "/ingestao/fontes": "Fontes e credenciais",
+  "/ingestao": "Ingestão",
   "/erros": "Erros",
-  "/fontes": "Fontes e credenciais",
   "/indexacao": "Indexação",
   "/api": "API LLM-ready",
   "/configuracoes-empresa": "Configurações da empresa",
