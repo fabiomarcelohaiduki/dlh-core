@@ -126,12 +126,8 @@ async function fetchPendentes(limite) {
   return { pendentes: r.json?.pendentes ?? [], config: r.json?.config ?? null };
 }
 
-/**
- * Healthcheck do Tika (GET /version). Usado no modo OCR para abortar o run
- * cedo se o servico do Actions caiu/ficou preso — em vez de torrar o budget em
- * timeouts encadeados (um escaneado grande nao pode contaminar o run inteiro).
- */
-async function tikaVivo() {
+/** Uma sondagem do /version do Tika com teto de 5s. */
+async function tikaPing() {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5_000);
@@ -144,6 +140,22 @@ async function tikaVivo() {
   } catch (_) {
     return false;
   }
+}
+
+/**
+ * Healthcheck do Tika (GET /version) com tolerancia a reinicio. Usado no modo
+ * OCR para abortar o run cedo se o servico do Actions caiu/ficou preso — sem
+ * torrar o budget em timeouts encadeados. Mas o Tika `full` REINICIA o forked
+ * process em ~1-2s quando o watchdog interno mata um parse pesado; uma sondagem
+ * unica nesse instante daria falso-negativo e abortaria o run a toa. Por isso
+ * tentamos algumas vezes com pausa antes de declarar o Tika morto.
+ */
+async function tikaVivo() {
+  for (let i = 0; i < 5; i++) {
+    if (await tikaPing()) return true;
+    if (i < 4) await delay(2_000);
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------

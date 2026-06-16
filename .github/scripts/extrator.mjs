@@ -33,6 +33,11 @@ const TIKA_ENDPOINT = (process.env.TIKA_ENDPOINT?.trim() || "http://localhost:99
   "",
 );
 
+// Margem que o client (AbortController) espera ALEM do timeout do Tika, para
+// receber o erro/resultado de timeout do servidor antes de desistir. Sem ela,
+// client e servidor cortariam no mesmo instante (corrida) e mascarariam o motivo.
+const TIKA_CLIENT_MARGEM_MS = 60_000;
+
 // Extensoes que sao texto puro: decodificadas no Node, nunca vao ao Tika.
 const TEXTO_PURO = new Set([
   "txt", "csv", "tsv", "md", "markdown", "json", "log", "yaml", "yml",
@@ -204,9 +209,15 @@ async function extrairViaTika({ bytes, nomeArquivo, extension, config }) {
     : "auto";
   headers["X-Tika-PDFOcrStrategy"] = estrategia;
   if (estrategia !== "no_ocr") headers["X-Tika-OCRLanguage"] = config.ocrIdioma;
+  // Alinha o watchdog INTERNO do Tika (taskTimeoutMillis, default 300s) ao nosso
+  // teto: sem isso o Tika mata o parse aos 5min e REINICIA o forked process,
+  // derrubando o fetch (tika_net) antes do nosso timeout de client valer.
+  headers["X-Tika-Timeout-Millis"] = String(config.timeoutMs);
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+  // Client espera um pouco MAIS que o Tika para receber o erro/resultado antes
+  // de abortar (evita corrida que mascara o motivo real do estouro).
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs + TIKA_CLIENT_MARGEM_MS);
   try {
     const res = await fetch(`${TIKA_ENDPOINT}/tika`, {
       method: "PUT",
@@ -252,9 +263,15 @@ async function extrairViaTikaRecursivo({ bytes, nomeArquivo, extension, config }
     : "auto";
   headers["X-Tika-PDFOcrStrategy"] = estrategia;
   if (estrategia !== "no_ocr") headers["X-Tika-OCRLanguage"] = config.ocrIdioma;
+  // Alinha o watchdog INTERNO do Tika (taskTimeoutMillis, default 300s) ao nosso
+  // teto: sem isso o Tika mata o parse aos 5min e REINICIA o forked process,
+  // derrubando o fetch (tika_net) antes do nosso timeout de client valer.
+  headers["X-Tika-Timeout-Millis"] = String(config.timeoutMs);
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+  // Client espera um pouco MAIS que o Tika para receber o erro/resultado antes
+  // de abortar (evita corrida que mascara o motivo real do estouro).
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs + TIKA_CLIENT_MARGEM_MS);
   try {
     const res = await fetch(`${TIKA_ENDPOINT}/rmeta/text`, {
       method: "PUT",
