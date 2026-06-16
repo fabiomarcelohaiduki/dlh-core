@@ -307,7 +307,12 @@ export function chunkText(text: string, opts: ChunkOptions = {}): TextChunk[] {
     maxChars - 1,
   );
 
-  const normalized = text.replace(/\r\n/g, "\n").trim();
+  // Remove o byte NUL (\u0000) ANTES de tudo: Postgres (tipo text) e JSON nao
+  // o aceitam, e Tika/OCR as vezes o deixa no texto extraido de PDFs -> a
+  // insercao do chunk via PostgREST quebra com "invalid input syntax for type
+  // json". Sanitizar no ponto UNICO de chunking blinda aviso/documento/memoria
+  // (Effecti/Gmail/Nomus) de uma so vez, mantendo embed e verbatim coerentes.
+  const normalized = text.replace(/\u0000/g, "").replace(/\r\n/g, "\n").trim();
   if (normalized === "") return [];
   if (normalized.length <= maxChars) {
     return [{ ordem: 0, conteudo: normalized }];
