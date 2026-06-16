@@ -324,12 +324,21 @@ async function extrairCompactado({ bytes, nomeArquivo, extension, config }) {
     for (const entry of zip.getEntries()) {
       if (entry.isDirectory) continue;
       const membroBytes = new Uint8Array(entry.getData());
-      const r = await extrairTexto({
-        bytes: membroBytes,
-        nomeArquivo: entry.entryName,
-        config,
-      });
-      partes.push(`\n===== ${entry.entryName} =====\n${r.texto}`);
+      try {
+        const r = await extrairTexto({
+          bytes: membroBytes,
+          nomeArquivo: entry.entryName,
+          config,
+        });
+        partes.push(`\n===== ${entry.entryName} =====\n${r.texto}`);
+      } catch (err) {
+        // Um membro nao-extraivel NAO pode derrubar o container inteiro:
+        // pula o membro e segue com os demais. Cobre assinaturas (.p7s),
+        // partes internas de OOXML mal-detectado como zip puro (.rels) e
+        // formatos proprietarios sem allowlist (.kit etc.).
+        const motivo = err instanceof ExtracaoError ? err.code : "erro";
+        partes.push(`\n===== ${entry.entryName} (ignorado: ${motivo}) =====`);
+      }
     }
     return { texto: partes.join("\n").trim(), usouOcr: false };
   }
