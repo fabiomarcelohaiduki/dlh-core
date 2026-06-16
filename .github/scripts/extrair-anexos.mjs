@@ -73,15 +73,9 @@ function posInt(raw, fallback) {
 }
 
 // Codigos de ExtracaoError que sao TERMINAIS (reprocessar nao muda o resultado):
-// arquivo vazio, excede o limite, extensao barrada na config, link de pagina
-// (o "anexo" e na verdade uma pagina do portal, nao um arquivo). tika_net/
-// timeout/tika_rmeta/dep_faltando/compactado_* ficam de FORA (transitorios).
-const TERMINAIS_EXTRACAO = new Set([
-  "vazio",
-  "muito_grande",
-  "extensao_desabilitada",
-  "link_pagina",
-]);
+// arquivo vazio, excede o limite, extensao barrada na config. tika_net/timeout/
+// tika_rmeta/dep_faltando/compactado_* ficam de FORA (transitorios -> 'erro').
+const TERMINAIS_EXTRACAO = new Set(["vazio", "muito_grande", "extensao_desabilitada"]);
 
 /**
  * Classifica um erro como INOBTENIVEL (estado terminal, nao reprocessavel) vs
@@ -328,19 +322,25 @@ async function obterBytesEffecti(ref) {
       continue;
     }
     if (!res.ok) throw new Error(`download Effecti falhou (${res.status})`);
-    // Alguns "anexos" do Effecti (ex "Esclarecimentos/Impugnacoes") nao sao
-    // arquivos: a URL aponta para uma PAGINA dinamica do portal (ex
-    // electronicRecord.ctlx do Banrisul) que so devolve uma casca de HTML inutil
-    // sem a sessao do portal. Detecta pelo content-type text/html no download e
-    // classifica como terminal benigno (nao reprocessar; link segue clicavel).
-    const contentType = res.headers.get("content-type") ?? "";
-    if (/^text\/html\b/i.test(contentType.trim())) {
-      throw new ExtracaoError("link de pagina do portal (nao e arquivo)", "link_pagina");
-    }
     const bytes = new Uint8Array(await res.arrayBuffer());
     const nomeArquivo = ref?.nome
       ?? decodeURIComponent(String(url).split("/").pop()?.split("?")[0] || "anexo");
-    return { bytes, nomeArquivo, extensao: ref?.extensao ?? null };
+    // Alguns "anexos" do Effecti (ex "Esclarecimentos/Impugnacoes") nao tem
+    // extensao no nome e na verdade sao PAGINAS HTML do portal (ex
+    // electronicRecord.ctlx do Banrisul) com conteudo REAL e valioso (ata de
+    // esclarecimentos/impugnacoes do orgao). Sem extensao, o extrator mandaria
+    // pro Tika, que preserva todo o whitespace do HTML e gera texto ruidoso
+    // ("Imprimir\t\t[image: ]..."). Ao detectar content-type text/html, forca a
+    // extensao 'html' -> o extrator usa stripTags (decodifica + limpa tags) e
+    // entrega o texto limpo. O content-type do header so vale quando o nome nao
+    // ja trouxe extensao confiavel.
+    const contentType = (res.headers.get("content-type") ?? "").toLowerCase().trim();
+    const ehHtml = /^text\/html\b/.test(contentType);
+    return {
+      bytes,
+      nomeArquivo,
+      extensao: ref?.extensao ?? (ehHtml ? "html" : null),
+    };
   }
 }
 
