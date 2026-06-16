@@ -587,7 +587,26 @@ export function ExtracaoPanel({
                         <span className="trunc">{e.nomeAnexo ?? "—"}</span>
                       )}
                     </td>
-                    <td>{e.fonte ? FONTE_LABEL[e.fonte as FontePainel] ?? e.fonte : "—"}</td>
+                    <td>
+                      {/* Effecti com aviso conhecido: o proprio rotulo da fonte
+                          vira link para a pagina do aviso no portal de origem. */}
+                      {e.fonte === "effecti" && e.avisoUrl ? (
+                        <a
+                          href={e.avisoUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="link"
+                          title="Abrir o aviso no portal de origem"
+                        >
+                          <span>{FONTE_LABEL.effecti}</span>
+                          <ExternalLink aria-hidden="true" />
+                        </a>
+                      ) : e.fonte ? (
+                        FONTE_LABEL[e.fonte as FontePainel] ?? e.fonte
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td>
                       {e.avisoUrl ? (
                         <a
