@@ -56,6 +56,12 @@ const BACKOFF_TETO_MS = 60_000;
 // essa fila com OCR ligado. Default rapido (preco de nao perder licitacao).
 const MODO = process.env.EXTRACAO_MODO?.trim() === "ocr" ? "ocr" : "rapido";
 const OCR_TEXTO_MINIMO = posInt(process.env.OCR_TEXTO_MINIMO, 50);
+// Timeout PROPRIO do modo OCR. config_extracao.timeoutMs e calibrado para o
+// passo RAPIDO (OCR off -> timeout grande so segura o Tika a toa); no modo OCR
+// o trabalho e demorado de proposito (Tesseract pagina a pagina num escaneado),
+// entao um timeout curto so converte escaneado grande em 'erro'. Aqui o run OCR
+// usa o seu proprio teto, sobrepondo o config global; o rapido fica intocado.
+const OCR_TIMEOUT_MS = posInt(process.env.OCR_TIMEOUT_MS, 600_000);
 const TIKA_ENDPOINT = (process.env.TIKA_ENDPOINT?.trim() || "http://localhost:9998").replace(/\/+$/, "");
 // Tipos que SO produzem texto via OCR quando nao tem camada de texto: PDF
 // (nativo da texto sem OCR; escaneado nao) e imagens (sempre precisam de OCR).
@@ -450,6 +456,9 @@ while (true) {
   // O modo MANDA na estrategia de OCR, sobrepondo a config: rapido roda SEMPRE
   // com OCR off (o caro fica para a fila); ocr roda SEMPRE com OCR ligado.
   configExtrator.ocrEstrategia = MODO === "ocr" ? "sempre" : "nunca";
+  // Pelo mesmo motivo, o modo OCR usa seu proprio teto de tempo (escaneado
+  // grande estoura o timeout curto do passo rapido). Nao toca o rapido.
+  if (MODO === "ocr") configExtrator.timeoutMs = OCR_TIMEOUT_MS;
   const loteTamanho = posInt(config?.loteTamanho, pendentes.length);
   const pausaLoteMs = posInt(config?.pausaLoteMs, 0);
 

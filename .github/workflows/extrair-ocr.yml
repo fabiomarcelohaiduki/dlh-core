@@ -19,6 +19,10 @@ on:
         description: "Tamanho do fetch por iteracao (vazio = 50; OCR e caro, manter lote pequeno). O run re-busca em loop ate a fila esgotar ou o budget acabar."
         type: string
         required: false
+      ocr_timeout_ms:
+        description: "Teto de tempo do Tika POR anexo no modo OCR, em ms (vazio = 600000 = 10min). Escaneado grande precisa de mais que o timeout do passo rapido."
+        type: string
+        required: false
 
 concurrency:
   group: extrair-ocr
@@ -75,4 +79,7 @@ jobs:
           NOMUS_API_KEY: ${{ secrets.NOMUS_API_KEY }}
           # Lote pequeno por padrao (OCR caro); cockpit pode passar outro valor.
           EXTRACAO_LIMITE: ${{ github.event.inputs.limite || '50' }}
+          # Timeout proprio do OCR (default 10min): escaneado grande estoura o
+          # teto curto do passo rapido. Vazio => default do script (600000).
+          OCR_TIMEOUT_MS: ${{ github.event.inputs.ocr_timeout_ms || '600000' }}
         run: node .github/scripts/extrair-anexos.mjs
