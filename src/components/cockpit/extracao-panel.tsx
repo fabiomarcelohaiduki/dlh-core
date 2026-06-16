@@ -8,6 +8,7 @@ import {
   Copy,
   ExternalLink,
   FileText,
+  Link2,
   Loader2,
   Play,
   RotateCcw,
@@ -18,11 +19,12 @@ import {
 import { useDescobrir, useExtracaoResumo, useReprocessarErros } from "@/hooks/use-documentos";
 import { useDispararDrive, useDispararExtracao, useDispararGmail, useDispararOcr } from "@/hooks/use-admin";
 import { StatCard } from "@/components/cockpit/stat-card";
+import { SubstituirLinkModal } from "@/components/cockpit/substituir-link-modal";
 import {
   OrigemFiltro,
   type OrigemFiltroValue,
 } from "@/components/cockpit/origem-filtro";
-import type { FonteDescoberta, StatusItemExtracao } from "@/lib/api/documentos";
+import type { ExtracaoItem, FonteDescoberta, StatusItemExtracao } from "@/lib/api/documentos";
 import { ApiError } from "@/lib/api/client";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -87,6 +89,8 @@ export function ExtracaoPanel({
   // Status acionavel exibido na tabela; alimentado pelos cards clicaveis
   // (Erros / Inacessiveis / Aguardando OCR). Default 'erro'.
   const [filtroStatus, setFiltroStatus] = useState<StatusItemExtracao>("erro");
+  // Item Effecti selecionado para correcao manual de URL (abre o modal).
+  const [linkAlvo, setLinkAlvo] = useState<ExtracaoItem | null>(null);
 
   const modo: ModoAcao = FONTES.find((f) => f.value === fonte)?.modo ?? "descobrir";
   // Acao por fonte (descobrir/coletar): NAO inclui o drain da fila (botao proprio).
@@ -537,13 +541,14 @@ export function ExtracaoPanel({
                 <th>Extensão</th>
                 <th>Motivo</th>
                 <th>Quando</th>
+                <th aria-label="Ações" />
               </tr>
             </thead>
             <tbody>
               {resumo.isLoading ? (
                 Array.from({ length: 3 }).map((_, r) => (
                   <tr key={r}>
-                    {Array.from({ length: 6 }).map((__, c) => (
+                    {Array.from({ length: 7 }).map((__, c) => (
                       <td key={c}>
                         <span className="skel skel-line" style={{ width: `${40 + ((r + c) % 4) * 14}%` }} />
                       </td>
@@ -552,7 +557,7 @@ export function ExtracaoPanel({
                 ))
               ) : itensFiltrados.length === 0 ? (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <div className="empty">
                       <Check aria-hidden="true" />
                       <h4>Nenhum anexo em {STATUS_LABEL[filtroStatus].toLowerCase()}</h4>
@@ -600,14 +605,45 @@ export function ExtracaoPanel({
                       )}
                     </td>
                     <td className="mono">{e.extensao ?? "—"}</td>
-                    <td className="sub">{e.erro ?? "—"}</td>
+                    <td
+                      className="sub"
+                      title={e.erro ?? undefined}
+                      style={{
+                        maxWidth: 360,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {e.erro ?? "—"}
+                    </td>
                     <td className="sub tnum">{formatDateTime(e.quando)}</td>
+                    <td>
+                      {/* So Effecti tem link de portal trocavel: quando o orgao
+                          republica o edital, a URL capturada morre e o humano
+                          cola o link atual aqui. */}
+                      {e.fonte === "effecti" ? (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm btn-icon"
+                          onClick={() => setLinkAlvo(e)}
+                          aria-label="Substituir o link quebrado deste anexo"
+                          title="Substituir o link quebrado deste anexo"
+                        >
+                          <Link2 aria-hidden="true" />
+                        </button>
+                      ) : null}
+                    </td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
         </div>
+
+      {linkAlvo ? (
+        <SubstituirLinkModal item={linkAlvo} onClose={() => setLinkAlvo(null)} />
+      ) : null}
     </>
   );
 }

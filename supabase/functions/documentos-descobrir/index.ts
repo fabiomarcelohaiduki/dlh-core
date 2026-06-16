@@ -387,6 +387,133 @@ async function reprocessarErros(
   return Array.isArray(data) ? data.length : 0;
 }
 
+// ---------------------------------------------------------------------
+// action='substituir-link': troca a URL do anexo de UM vinculo e o re-enfileira.
+// Caso de uso: portais (ex.: Banrisul) REPUBLICAM o edital -> o link que a
+// Effecti capturou (snapshot) morre (HTTP 5xx) e nem a Effecti nem a descoberta
+// (ON CONFLICT DO NOTHING) trazem o link novo. Aqui o humano cola o link atual
+// do portal; gravamos em ref_obtencao.url, voltamos a 'pendente' e zeramos o
+// contador (novo ciclo de tentativas). So Effecti (unica fonte com URL publica
+// colavel; Gmail usa attachment_id, Nomus base64). ESCRITA -> auditada.
+// ---------------------------------------------------------------------
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Trava DETERMINISTICA anti-SSRF (SOM: regra critica no backend, nao na
+ * confianca do operador). A URL aqui e DIGITADA livremente no cockpit e depois
+ * o runner faz fetch() cega nela — diferente das URLs Effecti, que vem da API
+ * da fonte (hosts de portal conhecidos). Bloqueia destinos internos: loopback,
+ * link-local (inclui metadata 169.254.169.254), redes privadas, CGNAT e nomes
+ * locais. So host PUBLICO de portal e aceito.
+ */
+function ehHostPrivado(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/\.$/, "");
+  // Literal IPv6 (URL.hostname ja remove os colchetes): loopback / link-local
+  // (fe80::) / unique-local (fc00::/7 = fc.. ou fd..). Demais IPv6 = publico.
+  if (h.includes(":")) {
+    if (h === "::1" || h === "::") return true;
+    if (h.startsWith("fe80:") || h.startsWith("fc") || h.startsWith("fd")) return true;
+    return false;
+  }
+  // Nomes locais / internos (nunca sao portais publicos).
+  if (
+    h === "localhost" ||
+    h.endsWith(".localhost") ||
+    h.endsWith(".local") ||
+    h.endsWith(".internal")
+  ) {
+    return true;
+  }
+  // Literal IPv4: faixas reservadas/privadas.
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (m) {
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    if (a === 0 || a === 127 || a === 10) return true; // this-host / loopback / privada
+    if (a === 169 && b === 254) return true; // link-local (metadata cloud)
+    if (a === 172 && b >= 16 && b <= 31) return true; // privada
+    if (a === 192 && b === 168) return true; // privada (rede da empresa 192.168.1.x)
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+  }
+  return false;
+}
+
+function parseUrlSubstituta(raw: unknown): string {
+  if (typeof raw !== "string" || raw.trim() === "") {
+    throw new HttpError(422, "url_ausente", "informe a nova URL do anexo");
+  }
+  let u: URL;
+  try {
+    u = new URL(raw.trim());
+  } catch {
+    throw new HttpError(422, "url_invalida", "a URL informada nao e valida");
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") {
+    throw new HttpError(422, "url_invalida", "a URL deve usar http ou https");
+  }
+  if (ehHostPrivado(u.hostname)) {
+    throw new HttpError(
+      422,
+      "host_nao_permitido",
+      "a URL deve apontar para um host publico (rede interna/loopback bloqueada)",
+    );
+  }
+  return u.toString();
+}
+
+async function substituirLink(
+  service: ServiceClient,
+  idRaw: unknown,
+  urlRaw: unknown,
+): Promise<{ id: string; url: string; urlAnterior: string | null }> {
+  const id = typeof idRaw === "string" ? idRaw.trim() : "";
+  if (!UUID_RE.test(id)) {
+    throw new HttpError(422, "id_invalido", "informe o id (uuid) do vinculo");
+  }
+  const url = parseUrlSubstituta(urlRaw);
+
+  // Confere existencia + fonte ANTES de escrever (so Effecti tem URL colavel).
+  const { data: row, error: selErr } = await service
+    .from("documento_vinculos")
+    .select("fonte, ref_obtencao")
+    .eq("id", id)
+    .maybeSingle();
+  if (selErr) {
+    throw new HttpError(500, "substituir_falhou", "falha ao ler o vinculo");
+  }
+  if (!row) {
+    throw new HttpError(404, "vinculo_nao_encontrado", "vinculo de documento nao encontrado");
+  }
+  if (row.fonte !== "effecti") {
+    throw new HttpError(
+      422,
+      "fonte_sem_link",
+      "substituir link disponivel apenas para anexos da fonte Effecti",
+    );
+  }
+
+  // Mescla com o ref existente (preserva nome/extensao); so a url muda. Volta a
+  // 'pendente' e zera o contador -> novo ciclo de tentativas no proximo drain.
+  const ref = row.ref_obtencao && typeof row.ref_obtencao === "object"
+    ? (row.ref_obtencao as Record<string, unknown>)
+    : {};
+  // Guarda a url anterior (a quebrada) p/ a trilha de auditoria (de->para).
+  const urlAnterior = typeof ref.url === "string" && ref.url ? ref.url : null;
+  const { error: updErr } = await service
+    .from("documento_vinculos")
+    .update({
+      ref_obtencao: { ...ref, url },
+      status_extracao: "pendente",
+      erro: null,
+      tentativas_extracao: 0,
+    })
+    .eq("id", id);
+  if (updErr) {
+    throw new HttpError(500, "substituir_falhou", "falha ao gravar a nova URL do anexo");
+  }
+  return { id, url, urlAnterior };
+}
+
 async function handler(req: Request): Promise<Response> {
   const preflight = handleCorsPreflight(req);
   if (preflight) return preflight;
@@ -419,6 +546,21 @@ async function handler(req: Request): Promise<Response> {
         dadosNovos: { gatilho: caller.gatilho, fonte, status: statusAlvo, reprocessados },
       });
       return jsonResponse({ reprocessados, fonte, status: statusAlvo }, 200);
+    }
+
+    // ESCRITA: substitui a URL de UM anexo Effecti (link republicado pelo
+    // portal) e o re-enfileira. Cola humana do link atual do portal.
+    if (body.action === "substituir-link") {
+      const { id, url, urlAnterior } = await substituirLink(service, body.id, body.url);
+      await logSensitiveAction({
+        tabela: "documento_vinculos",
+        acao: "substituir_link_extracao",
+        registroId: id,
+        usuario: caller.usuario,
+        dadosAnteriores: { url: urlAnterior },
+        dadosNovos: { gatilho: caller.gatilho, url },
+      });
+      return jsonResponse({ ok: true, id }, 200);
     }
 
     const input = parseInput(body);

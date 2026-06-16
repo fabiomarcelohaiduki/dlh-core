@@ -71,6 +71,24 @@ export function reprocessarErros(
   });
 }
 
+export interface SubstituirLinkResultado {
+  ok: boolean;
+  id: string;
+}
+
+/**
+ * POST /documentos-descobrir { action:'substituir-link' } — troca a URL do
+ * anexo de UM vinculo Effecti e o re-enfileira (status 'pendente', contador
+ * zerado). Caso de uso: o portal republicou o edital e o link capturado pela
+ * Effecti morreu (5xx); o humano cola o link atual do portal. So Effecti.
+ */
+export function substituirLink(id: string, url: string): Promise<SubstituirLinkResultado> {
+  return apiFetch<SubstituirLinkResultado>("documentos-descobrir", {
+    method: "POST",
+    body: JSON.stringify({ action: "substituir-link", id, url }),
+  });
+}
+
 /** Status do vinculo que a tabela lista (todos os cards sao clicaveis). */
 export type StatusItemExtracao =
   | "pendente"

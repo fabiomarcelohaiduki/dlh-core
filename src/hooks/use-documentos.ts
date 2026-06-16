@@ -6,6 +6,7 @@ import {
   fetchExtracaoResumo,
   reprocessarErros,
   salvarConfigExtracao,
+  substituirLink,
   type DescobrirInput,
   type FonteReprocessavel,
   type SalvarConfigExtracaoInput,
@@ -62,6 +63,22 @@ export function useReprocessarErros() {
   return useMutation({
     mutationFn: (vars?: { fonte?: FonteReprocessavel | null; status?: StatusReprocessavel }) =>
       reprocessarErros(vars?.fonte ?? null, vars?.status ?? "erro"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: documentosKeys.resumo });
+    },
+  });
+}
+
+/**
+ * useSubstituirLink — troca a URL de um anexo Effecti com link quebrado (portal
+ * republicou o edital) e o re-enfileira via POST documentos-descobrir
+ * { action:'substituir-link' }. Em sucesso invalida o resumo: o item sai de
+ * Erros/Inacessiveis e volta para Pendentes ate o proximo drain.
+ */
+export function useSubstituirLink() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; url: string }) => substituirLink(vars.id, vars.url),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: documentosKeys.resumo });
     },
