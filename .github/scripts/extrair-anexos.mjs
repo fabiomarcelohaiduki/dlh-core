@@ -29,6 +29,12 @@
 //                          o run RE-BUSCA em loop ate a fila esgotar ou o budget acabar
 //   EXTRACAO_BUDGET_MS     teto de tempo do run em ms (default 5h; margem antes do corte de 6h)
 //   EXTRACAO_PUSH_CHUNK    resultados por push ao Edge (default 3; texto e pesado)
+//   EXTRACAO_MODO          "rapido" (default) ou "ocr". rapido roda com OCR OFF e
+//                          empurra os escaneados/imagens para a fila 'precisa_ocr';
+//                          ocr drena essa fila com OCR LIGADO e healthcheck do Tika.
+//   OCR_TEXTO_MINIMO       no modo rapido, abaixo deste nº de chars um arquivo que
+//                          so da texto via OCR (pdf escaneado/imagem) e enfileirado
+//                          como precisa_ocr (default 50)
 
 import { extrairTexto, ExtracaoError } from "./extrator.mjs";
 import { baixarArquivoDrive, getDriveAccessToken } from "./drive.mjs";
@@ -45,6 +51,15 @@ const PUSH_CHUNK = posInt(process.env.EXTRACAO_PUSH_CHUNK, 3);
 const MAX_RETRIES = posInt(process.env.NOMUS_MAX_RETRIES, 5);
 const BASE_DELAY_MS = 500;
 const BACKOFF_TETO_MS = 60_000;
+
+// rapido = OCR off + escaneados/imagens viram fila 'precisa_ocr'; ocr = drena
+// essa fila com OCR ligado. Default rapido (preco de nao perder licitacao).
+const MODO = process.env.EXTRACAO_MODO?.trim() === "ocr" ? "ocr" : "rapido";
+const OCR_TEXTO_MINIMO = posInt(process.env.OCR_TEXTO_MINIMO, 50);
+const TIKA_ENDPOINT = (process.env.TIKA_ENDPOINT?.trim() || "http://localhost:9998").replace(/\/+$/, "");
+// Tipos que SO produzem texto via OCR quando nao tem camada de texto: PDF
+// (nativo da texto sem OCR; escaneado nao) e imagens (sempre precisam de OCR).
+const EXT_OCR = new Set(["pdf", "png", "jpg", "jpeg", "tif", "tiff", "gif", "bmp", "webp"]);
 
 function posInt(raw, fallback) {
   const n = Number(raw);
@@ -98,11 +113,31 @@ async function postEdge(body) {
   return { status: res.status, ok: res.ok, json, text };
 }
 
-/** Pede vinculos pendentes + config_extracao ao Edge. */
+/** Pede vinculos pendentes + config_extracao ao Edge (fila conforme o modo). */
 async function fetchPendentes(limite) {
-  const r = await postEdge({ action: "pendentes", ...(limite ? { limite } : {}) });
+  const r = await postEdge({ action: "pendentes", modo: MODO, ...(limite ? { limite } : {}) });
   if (!r.ok) fail(`falha ao listar pendentes (${r.status}): ${r.text.slice(0, 300)}`, 1);
   return { pendentes: r.json?.pendentes ?? [], config: r.json?.config ?? null };
+}
+
+/**
+ * Healthcheck do Tika (GET /version). Usado no modo OCR para abortar o run
+ * cedo se o servico do Actions caiu/ficou preso — em vez de torrar o budget em
+ * timeouts encadeados (um escaneado grande nao pode contaminar o run inteiro).
+ */
+async function tikaVivo() {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5_000);
+    try {
+      const res = await fetch(`${TIKA_ENDPOINT}/version`, { signal: controller.signal });
+      return res.ok;
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (_) {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -201,12 +236,35 @@ async function obterBytesNomus(ref) {
 async function obterBytesEffecti(ref) {
   const url = ref?.url;
   if (!url) throw new Error("ref_obtencao.url ausente (effecti)");
-  const res = await fetch(url, { method: "GET" });
-  if (!res.ok) throw new Error(`download Effecti falhou (${res.status})`);
-  const bytes = new Uint8Array(await res.arrayBuffer());
-  const nomeArquivo = ref?.nome
-    ?? decodeURIComponent(String(url).split("/").pop()?.split("?")[0] || "anexo");
-  return { bytes, nomeArquivo, extensao: ref?.extensao ?? null };
+  // Retry/backoff (mesmo padrao do adaptador nomus): a URL do CDN/middleware
+  // pode recusar em rajada numa janela de rede ruim do runner. Sem retry, uma
+  // janela curta derrubava dezenas de downloads em serie como "fetch failed".
+  let attempt = 0;
+  while (true) {
+    let res;
+    try {
+      res = await fetch(url, { method: "GET" });
+    } catch (err) {
+      if (attempt >= MAX_RETRIES) {
+        throw new Error(`download Effecti falhou (rede): ${err?.message ?? err}`);
+      }
+      await delay(backoff(attempt));
+      attempt += 1;
+      continue;
+    }
+    if (res.status === 429 || res.status >= 500) {
+      if (attempt >= MAX_RETRIES) throw new Error(`download Effecti indisponivel (${res.status})`);
+      const retryAfter = Number(res.headers.get("Retry-After"));
+      await delay(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : backoff(attempt));
+      attempt += 1;
+      continue;
+    }
+    if (!res.ok) throw new Error(`download Effecti falhou (${res.status})`);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const nomeArquivo = ref?.nome
+      ?? decodeURIComponent(String(url).split("/").pop()?.split("?")[0] || "anexo");
+    return { bytes, nomeArquivo, extensao: ref?.extensao ?? null };
+  }
 }
 
 /**
@@ -276,6 +334,23 @@ async function processarVinculo(vinculo, configExtrator) {
       extension: extensao,
       config: configExtrator,
     });
+    // Modo rapido (OCR off): um arquivo que so daria texto via OCR (PDF
+    // escaneado/imagem) volta quase vazio. Em vez de gravar lixo, sinaliza
+    // precisa_ocr -> o Edge enfileira e o passo OCR dedicado extrai depois.
+    // Nativo (PDF com camada de texto) passa direto. No modo ocr nao se aplica.
+    if (
+      MODO === "rapido" && r.via === "tika" &&
+      EXT_OCR.has(r.ext) && (r.texto?.length ?? 0) < OCR_TEXTO_MINIMO
+    ) {
+      return {
+        vinculo_id: vinculo.id,
+        ok: true,
+        precisa_ocr: true,
+        nome_arquivo: vinculo?.nome_anexo ?? nomeArquivo,
+        extensao: extensao,
+        tamanho_bytes: bytes.byteLength,
+      };
+    }
     return {
       vinculo_id: vinculo.id,
       ok: true,
@@ -314,7 +389,7 @@ function montarConfigExtrator(config) {
 // nem reextrai no proximo run (a fila so guarda os vinculos que faltam).
 // ---------------------------------------------------------------------
 
-const resumo = { recebidos: 0, novos: 0, herdados: 0, erros: 0 };
+const resumo = { recebidos: 0, novos: 0, herdados: 0, erros: 0, precisa_ocr: 0 };
 let pushSeq = 0;
 
 /** Empurra o buffer enquanto tiver >= `minimo` itens (drena removendo do buffer). */
@@ -327,10 +402,11 @@ async function drenarBuffer(buffer, minimo) {
     resumo.novos += r.json?.novos ?? 0;
     resumo.herdados += r.json?.herdados ?? 0;
     resumo.erros += r.json?.erros ?? 0;
+    resumo.precisa_ocr += r.json?.precisa_ocr ?? 0;
     pushSeq += 1;
     console.error(
       `[push ${pushSeq}] enviados ${lote.length} | ` +
-        `acum novos=${resumo.novos} herdados=${resumo.herdados} erros=${resumo.erros}`,
+        `acum novos=${resumo.novos} herdados=${resumo.herdados} erros=${resumo.erros} precisa_ocr=${resumo.precisa_ocr}`,
     );
   }
 }
@@ -371,21 +447,37 @@ while (true) {
   iter += 1;
   // Releitura da config a cada lote e barata e pega mudancas do cockpit em runs longos.
   const configExtrator = montarConfigExtrator(config);
+  // O modo MANDA na estrategia de OCR, sobrepondo a config: rapido roda SEMPRE
+  // com OCR off (o caro fica para a fila); ocr roda SEMPRE com OCR ligado.
+  configExtrator.ocrEstrategia = MODO === "ocr" ? "sempre" : "nunca";
   const loteTamanho = posInt(config?.loteTamanho, pendentes.length);
   const pausaLoteMs = posInt(config?.pausaLoteMs, 0);
 
   console.log(
-    `[lote ${iter}] extraindo ${pendentes.length} anexo(s) pendentes ` +
-      `(OCR=${configExtrator.ocrEstrategia ?? "padrao"}, lote=${loteTamanho}).`,
+    `[lote ${iter}] modo=${MODO} extraindo ${pendentes.length} anexo(s) ` +
+      `(OCR=${configExtrator.ocrEstrategia}, lote=${loteTamanho}).`,
   );
 
   const buffer = [];
   let processados = 0;
   for (const vinculo of pendentes) {
+    // No modo OCR, se o Tika morreu/travou, aborta o run antes de queimar o
+    // budget em timeouts encadeados. O que ja foi empurrado fica persistido; a
+    // fila precisa_ocr guarda o resto para o proximo run.
+    if (MODO === "ocr" && !(await tikaVivo())) {
+      console.error("[ocr] Tika indisponivel (healthcheck falhou); abortando o run.");
+      await drenarBuffer(buffer, 1);
+      console.log(`Concluido em ${Date.now() - startedAt}ms. Lotes=${iter}, processados=${totalProcessados + processados}.`);
+      console.log("Resumo da extracao:");
+      console.log(JSON.stringify(resumo, null, 2));
+      process.exit(0);
+    }
     const out = await processarVinculo(vinculo, configExtrator);
     buffer.push(out);
     processados += 1;
-    const tag = out.ok ? `ok (${out.texto?.length ?? 0} chars, via=${out.via})` : `ERRO ${out.erro}`;
+    const tag = out.ok
+      ? (out.precisa_ocr ? "precisa_ocr (enfileirado)" : `ok (${out.texto?.length ?? 0} chars, via=${out.via})`)
+      : `ERRO ${out.erro}`;
     console.error(`[extrair ${processados}/${pendentes.length}] vinculo ${vinculo.id}: ${tag}`);
     // Persiste e libera memoria assim que junta um chunk cheio.
     await drenarBuffer(buffer, PUSH_CHUNK);

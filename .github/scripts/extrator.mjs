@@ -331,8 +331,10 @@ async function extrairCompactado({ bytes, nomeArquivo, extension, config }) {
 }
 
 /**
- * Ponto de entrada agnostico. bytes + nome -> { texto, usouOcr, hashes, via }.
+ * Ponto de entrada agnostico. bytes + nome -> { texto, usouOcr, hashes, via, ext }.
  * `via` indica o caminho usado: "texto" | "tika" | "compactado".
+ * `ext` e a extensao efetiva ja resolvida (nome ou magic bytes), usada a jusante
+ * para classificar escaneados/imagens que so dao texto via OCR.
  */
 export async function extrairTexto({ bytes, nomeArquivo = null, extension = null, config = {} }) {
   const cfg = { ...CONFIG_PADRAO, ...config };
@@ -391,6 +393,7 @@ export async function extrairTexto({ bytes, nomeArquivo = null, extension = null
     sha256Bytes: sha,
     hashTextoNormalizado: texto ? hashTextoNormalizado(texto) : null,
     via,
+    ext,
   };
 }
 

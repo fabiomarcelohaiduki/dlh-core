@@ -51,6 +51,13 @@ interface ResultadoExtracao {
   texto?: string | null;
   usou_ocr?: boolean;
   via?: string | null;
+  /**
+   * Sinalizado pelo passo RAPIDO (OCR off) quando o anexo so daria texto via
+   * OCR (PDF escaneado/imagem sem camada de texto). Em vez de extrair caro
+   * inline, o vinculo vai para a fila 'precisa_ocr' que o passo OCR dedicado
+   * drena. Ignorado no modo ocr (que ja roda com OCR ligado).
+   */
+  precisa_ocr?: boolean;
   /** Classificacao do tipo (gancho camada 2); opcional nesta fase. */
   tipo_documento?: string | null;
 }
@@ -58,12 +65,14 @@ interface ResultadoExtracao {
 interface IngerirInput {
   action?: string;
   limite?: number;
+  /** "rapido" (default): drena status='pendente'. "ocr": drena 'precisa_ocr'. */
+  modo?: "rapido" | "ocr";
   documentos: ResultadoExtracao[];
 }
 
 interface ItemResultado {
   vinculo_id: string;
-  estado: "novo" | "herdado" | "erro";
+  estado: "novo" | "herdado" | "erro" | "precisa_ocr";
   documento_id?: string;
   indexado?: boolean;
 }
@@ -99,6 +108,7 @@ async function parseInput(req: Request): Promise<IngerirInput> {
   const o = body as Record<string, unknown>;
   const action = typeof o.action === "string" ? o.action : undefined;
   const limiteRaw = typeof o.limite === "number" ? o.limite : NaN;
+  const modo = o.modo === "ocr" ? "ocr" : "rapido";
 
   if (!action && !Array.isArray(o.documentos)) {
     throw new HttpError(422, "documentos_ausentes", "campo 'documentos' (array) e obrigatorio");
@@ -113,6 +123,7 @@ async function parseInput(req: Request): Promise<IngerirInput> {
 
   return {
     action,
+    modo,
     limite: Number.isFinite(limiteRaw) && limiteRaw > 0
       ? Math.min(Math.floor(limiteRaw), MAX_PENDENTES_LIMITE)
       : undefined,
@@ -137,6 +148,7 @@ function normalizeResultado(o: Record<string, unknown>): ResultadoExtracao | nul
     texto: typeof o.texto === "string" ? o.texto : null,
     usou_ocr: o.usou_ocr === true,
     via: str(o.via),
+    precisa_ocr: o.precisa_ocr === true,
     tipo_documento: str(o.tipo_documento),
   };
 }
@@ -155,11 +167,15 @@ async function listarPendentes(
   service: ServiceClient,
   limite: number,
   fontes: string[] | null,
+  modo: "rapido" | "ocr",
 ): Promise<unknown[]> {
+  // rapido drena a fila normal; ocr drena so o que o passo rapido marcou como
+  // 'precisa_ocr' (PDF escaneado/imagem), isolando o OCR caro num run dedicado.
+  const statusFila = modo === "ocr" ? "precisa_ocr" : "pendente";
   let query = service
     .from("documento_vinculos")
     .select("id, fonte, registro_origem_id, nome_anexo, ref_obtencao")
-    .eq("status_extracao", "pendente");
+    .eq("status_extracao", statusFila);
   if (fontes && fontes.length > 0) {
     query = query.in("fonte", fontes);
   }
@@ -272,6 +288,16 @@ async function processarResultado(
     return { vinculo_id: r.vinculo_id, estado: "erro" };
   }
 
+  // Passo rapido detectou que o anexo so daria texto via OCR: enfileira para o
+  // passo OCR dedicado em vez de extrair caro inline. Nao grava documento.
+  if (r.precisa_ocr) {
+    await service
+      .from("documento_vinculos")
+      .update({ status_extracao: "precisa_ocr", erro: null })
+      .eq("id", r.vinculo_id);
+    return { vinculo_id: r.vinculo_id, estado: "precisa_ocr" };
+  }
+
   // Dedup: se ja existe o documento, so LINKA (herdado), nao reextrai/reindexar.
   const existenteId = await acharDocumentoExistente(service, r);
   if (existenteId) {
@@ -379,8 +405,9 @@ async function handler(req: Request): Promise<Response> {
       const fontes = Array.isArray(config?.fontesHabilitadas)
         ? (config.fontesHabilitadas as string[])
         : null;
-      const pendentes = await listarPendentes(service, limite, fontes);
-      return jsonResponse({ pendentes, config, total: pendentes.length }, 200);
+      const modo = input.modo ?? "rapido";
+      const pendentes = await listarPendentes(service, limite, fontes, modo);
+      return jsonResponse({ pendentes, config, modo, total: pendentes.length }, 200);
     }
 
     // Gating da indexacao continua pela config administravel (master switch +
@@ -394,6 +421,7 @@ async function handler(req: Request): Promise<Response> {
     let novos = 0;
     let herdados = 0;
     let erros = 0;
+    let precisaOcr = 0;
 
     for (const r of input.documentos) {
       try {
@@ -401,6 +429,7 @@ async function handler(req: Request): Promise<Response> {
         resultados.push(out);
         if (out.estado === "novo") novos += 1;
         else if (out.estado === "herdado") herdados += 1;
+        else if (out.estado === "precisa_ocr") precisaOcr += 1;
         else erros += 1;
       } catch (err) {
         erros += 1;
@@ -417,7 +446,7 @@ async function handler(req: Request): Promise<Response> {
     }
 
     return jsonResponse(
-      { recebidos: input.documentos.length, novos, herdados, erros, resultados },
+      { recebidos: input.documentos.length, novos, herdados, erros, precisa_ocr: precisaOcr, resultados },
       200,
     );
   } catch (err) {

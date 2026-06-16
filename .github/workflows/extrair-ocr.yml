@@ -1,0 +1,78 @@
+name: Extrator OCR (passo caro isolado)
+
+# Passo OCR DEDICADO da camada 1 (decisao Fabio 2026-06-15). Separa o pipeline
+# RAPIDO (PDF nativo/docx/xlsx, OCR off) do OCR caro (escaneado/imagem):
+#
+#   - O passo rapido (extrair-anexos.yml, EXTRACAO_MODO=rapido) roda com OCR OFF
+#     e marca os anexos que so dariam texto via OCR como status 'precisa_ocr'.
+#   - Este workflow drena ESSA fila (EXTRACAO_MODO=ocr) com OCR LIGADO, em LOTE
+#     PEQUENO + healthcheck do Tika, para que um escaneado grande/travado nao
+#     contamine o pipeline rapido nem queime o budget em timeouts encadeados.
+#
+# Mesmo motor (Apache Tika `full` efemero) e mesmo orquestrador
+# (.github/scripts/extrair-anexos.mjs); muda so o modo e o tamanho do lote.
+on:
+  # Disparo MANUAL apenas (cockpit ou `gh workflow run extrair-ocr.yml`).
+  workflow_dispatch:
+    inputs:
+      limite:
+        description: "Tamanho do fetch por iteracao (vazio = 50; OCR e caro, manter lote pequeno). O run re-busca em loop ate a fila esgotar ou o budget acabar."
+        type: string
+        required: false
+
+concurrency:
+  group: extrair-ocr
+  cancel-in-progress: false
+
+jobs:
+  extrair-ocr:
+    runs-on: ubuntu-latest
+
+    # Servico Tika efemero: morre com o job. `full` traz Tesseract para OCR.
+    # TODO(prod): fixar a tag em uma versao especifica em vez de latest.
+    services:
+      tika:
+        image: apache/tika:latest-full
+        ports:
+          - 9998:9998
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Instalar deps do runner
+        working-directory: .github/scripts
+        run: npm install --no-audit --no-fund
+
+      - name: Aguardar Tika ficar pronto
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:9998/version >/dev/null; then
+              echo "Tika pronto: $(curl -s http://localhost:9998/version)"
+              exit 0
+            fi
+            echo "aguardando Tika... ($i)"
+            sleep 2
+          done
+          echo "Tika nao respondeu a tempo" >&2
+          exit 1
+
+      # Drena SO a fila 'precisa_ocr' (EXTRACAO_MODO=ocr) com OCR ligado. Lote
+      # pequeno por padrao (50) porque OCR e caro; o healthcheck do Tika no
+      # orquestrador aborta o run cedo se o servico cair.
+      - name: Extrair OCR (orquestrador camada 1, modo ocr)
+        env:
+          TIKA_ENDPOINT: http://localhost:9998
+          EXTRACAO_MODO: ocr
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
+          NOMUS_API_KEY: ${{ secrets.NOMUS_API_KEY }}
+          # Lote pequeno por padrao (OCR caro); cockpit pode passar outro valor.
+          EXTRACAO_LIMITE: ${{ github.event.inputs.limite || '50' }}
+        run: node .github/scripts/extrair-anexos.mjs
