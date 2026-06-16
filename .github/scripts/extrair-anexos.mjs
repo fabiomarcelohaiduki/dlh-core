@@ -51,6 +51,14 @@ const PUSH_CHUNK = posInt(process.env.EXTRACAO_PUSH_CHUNK, 3);
 const MAX_RETRIES = posInt(process.env.NOMUS_MAX_RETRIES, 5);
 const BASE_DELAY_MS = 500;
 const BACKOFF_TETO_MS = 60_000;
+// Timeout proprio do adaptador Effecti. fetch/undici do Node 20 NAO tem timeout
+// default de resposta (so connectTimeout ~10s do TCP) -> URL de portal gov.br
+// que serve servlet dinamico lento (ex electronicRecord.ctlx do Compras RS)
+// trava no TLS/corpo e devolve "TypeError: fetch failed" CRU, sem status HTTP,
+// queimando as 3 tentativas de auto-retry e mandando o vinculo p/ inobtenivel.
+// AbortController fecha o socket cedo e o retry encurta a janela. 60s cobre
+// pagina dinamica grande sem expor a outros gargalos.
+const EFFECTI_FETCH_TIMEOUT_MS = posInt(process.env.EFFECTI_FETCH_TIMEOUT_MS, 60_000);
 
 // rapido = OCR off + escaneados/imagens viram fila 'precisa_ocr'; ocr = drena
 // essa fila com OCR ligado. Default rapido (preco de nao perder licitacao).
@@ -301,45 +309,63 @@ async function obterBytesEffecti(ref) {
   // Retry/backoff (mesmo padrao do adaptador nomus): a URL do CDN/middleware
   // pode recusar em rajada numa janela de rede ruim do runner. Sem retry, uma
   // janela curta derrubava dezenas de downloads em serie como "fetch failed".
+  // AbortController + UA de browser: ver comentario de EFFECTI_FETCH_TIMEOUT_MS.
+  // UA 'node' default do undici e frequentemente filtrado por WAF de portal
+  // governamental (curl passa pq curl manda UA proprio); damos um UA padrao.
   let attempt = 0;
   while (true) {
     let res;
+    const controller = new AbortController();
+    // finally garante clearTimeout em todos os caminhos (catch/continue/throw/return),
+    // senao o timer fica pendurado mesmo apos sucesso e segura o event loop.
+    const timer = setTimeout(() => controller.abort(), EFFECTI_FETCH_TIMEOUT_MS);
     try {
-      res = await fetch(url, { method: "GET" });
-    } catch (err) {
-      if (attempt >= MAX_RETRIES) {
-        throw new Error(`download Effecti falhou (rede): ${err?.message ?? err}`);
+      try {
+        res = await fetch(url, {
+          method: "GET",
+          headers: {
+            "User-Agent": "Mozilla/5.0 (compatible; dlh-core/1.0; +https://github.com/fabiomarcelohaiduki/dlh-core)",
+            Accept: "*/*",
+          },
+          signal: controller.signal,
+        });
+      } catch (err) {
+        if (attempt >= MAX_RETRIES) {
+          throw new Error(`download Effecti falhou (rede): ${err?.message ?? err}`);
+        }
+        await delay(backoff(attempt));
+        attempt += 1;
+        continue;
       }
-      await delay(backoff(attempt));
-      attempt += 1;
-      continue;
+      if (res.status === 429 || res.status >= 500) {
+        if (attempt >= MAX_RETRIES) throw new Error(`download Effecti indisponivel (${res.status})`);
+        const retryAfter = Number(res.headers.get("Retry-After"));
+        await delay(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : backoff(attempt));
+        attempt += 1;
+        continue;
+      }
+      if (!res.ok) throw new Error(`download Effecti falhou (${res.status})`);
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      const nomeArquivo = ref?.nome
+        ?? decodeURIComponent(String(url).split("/").pop()?.split("?")[0] || "anexo");
+      // Alguns "anexos" do Effecti (ex "Esclarecimentos/Impugnacoes") nao sao
+      // arquivos com extensao e sim PAGINAS HTML do portal (ex electronicRecord.ctlx
+      // do Banrisul) com conteudo REAL e valioso (ata de esclarecimentos/impugnacoes
+      // do orgao). Pior: a descoberta gravou ref.extensao com o NOME-TITULO inteiro
+      // ("esclarecimentos/impugnacoes"), que a allowlist barra (extensao_desabilitada).
+      // O content-type text/html do HTTP e a verdade do que foi baixado, entao ele
+      // TEM PRECEDENCIA sobre o ref.extensao lixo: forca 'html' -> o extrator usa
+      // stripTags (decodifica + limpa tags, sem Tika) e entrega o texto limpo.
+      const contentType = (res.headers.get("content-type") ?? "").toLowerCase().trim();
+      const ehHtml = /^text\/html\b/.test(contentType);
+      return {
+        bytes,
+        nomeArquivo,
+        extensao: ehHtml ? "html" : (ref?.extensao ?? null),
+      };
+    } finally {
+      clearTimeout(timer);
     }
-    if (res.status === 429 || res.status >= 500) {
-      if (attempt >= MAX_RETRIES) throw new Error(`download Effecti indisponivel (${res.status})`);
-      const retryAfter = Number(res.headers.get("Retry-After"));
-      await delay(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : backoff(attempt));
-      attempt += 1;
-      continue;
-    }
-    if (!res.ok) throw new Error(`download Effecti falhou (${res.status})`);
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    const nomeArquivo = ref?.nome
-      ?? decodeURIComponent(String(url).split("/").pop()?.split("?")[0] || "anexo");
-    // Alguns "anexos" do Effecti (ex "Esclarecimentos/Impugnacoes") nao sao
-    // arquivos com extensao e sim PAGINAS HTML do portal (ex electronicRecord.ctlx
-    // do Banrisul) com conteudo REAL e valioso (ata de esclarecimentos/impugnacoes
-    // do orgao). Pior: a descoberta gravou ref.extensao com o NOME-TITULO inteiro
-    // ("esclarecimentos/impugnacoes"), que a allowlist barra (extensao_desabilitada).
-    // O content-type text/html do HTTP e a verdade do que foi baixado, entao ele
-    // TEM PRECEDENCIA sobre o ref.extensao lixo: forca 'html' -> o extrator usa
-    // stripTags (decodifica + limpa tags, sem Tika) e entrega o texto limpo.
-    const contentType = (res.headers.get("content-type") ?? "").toLowerCase().trim();
-    const ehHtml = /^text\/html\b/.test(contentType);
-    return {
-      bytes,
-      nomeArquivo,
-      extensao: ehHtml ? "html" : (ref?.extensao ?? null),
-    };
   }
 }
 
