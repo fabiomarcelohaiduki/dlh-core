@@ -325,21 +325,20 @@ async function obterBytesEffecti(ref) {
     const bytes = new Uint8Array(await res.arrayBuffer());
     const nomeArquivo = ref?.nome
       ?? decodeURIComponent(String(url).split("/").pop()?.split("?")[0] || "anexo");
-    // Alguns "anexos" do Effecti (ex "Esclarecimentos/Impugnacoes") nao tem
-    // extensao no nome e na verdade sao PAGINAS HTML do portal (ex
-    // electronicRecord.ctlx do Banrisul) com conteudo REAL e valioso (ata de
-    // esclarecimentos/impugnacoes do orgao). Sem extensao, o extrator mandaria
-    // pro Tika, que preserva todo o whitespace do HTML e gera texto ruidoso
-    // ("Imprimir\t\t[image: ]..."). Ao detectar content-type text/html, forca a
-    // extensao 'html' -> o extrator usa stripTags (decodifica + limpa tags) e
-    // entrega o texto limpo. O content-type do header so vale quando o nome nao
-    // ja trouxe extensao confiavel.
+    // Alguns "anexos" do Effecti (ex "Esclarecimentos/Impugnacoes") nao sao
+    // arquivos com extensao e sim PAGINAS HTML do portal (ex electronicRecord.ctlx
+    // do Banrisul) com conteudo REAL e valioso (ata de esclarecimentos/impugnacoes
+    // do orgao). Pior: a descoberta gravou ref.extensao com o NOME-TITULO inteiro
+    // ("esclarecimentos/impugnacoes"), que a allowlist barra (extensao_desabilitada).
+    // O content-type text/html do HTTP e a verdade do que foi baixado, entao ele
+    // TEM PRECEDENCIA sobre o ref.extensao lixo: forca 'html' -> o extrator usa
+    // stripTags (decodifica + limpa tags, sem Tika) e entrega o texto limpo.
     const contentType = (res.headers.get("content-type") ?? "").toLowerCase().trim();
     const ehHtml = /^text\/html\b/.test(contentType);
     return {
       bytes,
       nomeArquivo,
-      extensao: ref?.extensao ?? (ehHtml ? "html" : null),
+      extensao: ehHtml ? "html" : (ref?.extensao ?? null),
     };
   }
 }
