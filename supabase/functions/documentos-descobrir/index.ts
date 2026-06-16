@@ -51,7 +51,7 @@ import { logSensitiveAction } from "../_shared/audit.ts";
 const MAX_LIMITE_PROCESSOS = 100_000;
 const MAX_ITENS_RESUMO = 200;
 const MAX_ARQUIVOS_DRIVE = 50_000;
-const STATUS_VINCULO = ["pendente", "extraido", "herdado", "erro", "precisa_ocr", "inobtenivel"] as const;
+const STATUS_VINCULO = ["pendente", "extraido", "herdado", "erro", "precisa_ocr", "inobtenivel", "ignorado"] as const;
 type StatusVinculo = typeof STATUS_VINCULO[number];
 
 // Todos os status sao listaveis na tabela do cockpit (cada card e clicavel e
@@ -351,7 +351,7 @@ async function montarResumo(service: ServiceClient): Promise<unknown> {
 async function reprocessarErros(
   service: ServiceClient,
   fonte: FonteDescobrivel | null,
-  statusAlvo: "erro" | "inobtenivel",
+  statusAlvo: "erro" | "inobtenivel" | "ignorado",
 ): Promise<number> {
   // Zera tentativas_extracao: o reprocesso manual e um RECOMECO, da um novo
   // ciclo de 3 tentativas ("faço manual, o sistema tenta 3x") em vez de cair
@@ -495,6 +495,59 @@ async function substituirLink(
   return { id, url, urlAnterior };
 }
 
+// ---------------------------------------------------------------------
+// action='ignorar-anexo': marca UM vinculo como 'ignorado' (status TERMINAL
+// aplicado MANUALMENTE pelo humano). Caso de uso: ao avaliar um anexo em
+// Erros/Inacessiveis, o humano decide que ele e dispensavel (ex.: arquivo
+// morto na origem que nao vale recuperar) -> sai das listas e nao volta a ser
+// processado. Inerte por construcao: o runner so consome 'pendente', a
+// descoberta e ON CONFLICT DO NOTHING (nao ressuscita) e o reprocesso so toca
+// o status alvo. Reversivel pelo card "Ignorados" (ignorado -> pendente).
+// Vale para QUALQUER fonte. Preserva 'erro' (motivo) p/ contexto na lista.
+// So ignora a partir de estados nao-bem-sucedidos (nunca extraido/herdado).
+// ESCRITA -> auditada.
+// ---------------------------------------------------------------------
+async function ignorarAnexo(
+  service: ServiceClient,
+  idRaw: unknown,
+): Promise<{ id: string; statusAnterior: string }> {
+  const id = typeof idRaw === "string" ? idRaw.trim() : "";
+  if (!UUID_RE.test(id)) {
+    throw new HttpError(422, "id_invalido", "informe o id (uuid) do vinculo");
+  }
+
+  const { data: row, error: selErr } = await service
+    .from("documento_vinculos")
+    .select("status_extracao")
+    .eq("id", id)
+    .maybeSingle();
+  if (selErr) {
+    throw new HttpError(500, "ignorar_falhou", "falha ao ler o vinculo");
+  }
+  if (!row) {
+    throw new HttpError(404, "vinculo_nao_encontrado", "vinculo de documento nao encontrado");
+  }
+  const statusAnterior = String(row.status_extracao);
+  // Nao deixa ignorar um anexo ja extraido/herdado (sucesso): ignorar e uma
+  // saida para anexos problematicos, nao para descartar conteudo bom.
+  if (statusAnterior === "extraido" || statusAnterior === "herdado") {
+    throw new HttpError(
+      422,
+      "status_nao_ignoravel",
+      "apenas anexos pendentes ou com falha podem ser ignorados",
+    );
+  }
+
+  const { error: updErr } = await service
+    .from("documento_vinculos")
+    .update({ status_extracao: "ignorado" })
+    .eq("id", id);
+  if (updErr) {
+    throw new HttpError(500, "ignorar_falhou", "falha ao marcar o anexo como ignorado");
+  }
+  return { id, statusAnterior };
+}
+
 async function handler(req: Request): Promise<Response> {
   const preflight = handleCorsPreflight(req);
   if (preflight) return preflight;
@@ -518,7 +571,11 @@ async function handler(req: Request): Promise<Response> {
       const fonte = fonteRaw && FONTES_DESCOBRIVEIS.includes(fonteRaw as FonteDescobrivel)
         ? (fonteRaw as FonteDescobrivel)
         : null;
-      const statusAlvo = body.status === "inobtenivel" ? "inobtenivel" : "erro";
+      const statusAlvo = body.status === "inobtenivel"
+        ? "inobtenivel"
+        : body.status === "ignorado"
+        ? "ignorado"
+        : "erro";
       const reprocessados = await reprocessarErros(service, fonte, statusAlvo);
       await logSensitiveAction({
         tabela: "documento_vinculos",
@@ -540,6 +597,22 @@ async function handler(req: Request): Promise<Response> {
         usuario: caller.usuario,
         dadosAnteriores: { url: urlAnterior },
         dadosNovos: { gatilho: caller.gatilho, url },
+      });
+      return jsonResponse({ ok: true, id }, 200);
+    }
+
+    // ESCRITA: marca UM anexo como 'ignorado' (terminal manual). O humano
+    // avaliou e decidiu que o anexo e dispensavel. Sai das listas; reversivel
+    // pelo card Ignorados. Qualquer fonte.
+    if (body.action === "ignorar-anexo") {
+      const { id, statusAnterior } = await ignorarAnexo(service, body.id);
+      await logSensitiveAction({
+        tabela: "documento_vinculos",
+        acao: "ignorar_anexo_extracao",
+        registroId: id,
+        usuario: caller.usuario,
+        dadosAnteriores: { status: statusAnterior },
+        dadosNovos: { gatilho: caller.gatilho, status: "ignorado" },
       });
       return jsonResponse({ ok: true, id }, 200);
     }

@@ -7,6 +7,7 @@ import {
   Clock,
   Copy,
   ExternalLink,
+  EyeOff,
   FileText,
   Link2,
   Loader2,
@@ -15,8 +16,14 @@ import {
   ScanLine,
   Search,
   TriangleAlert,
+  X,
 } from "lucide-react";
-import { useDescobrir, useExtracaoResumo, useReprocessarErros } from "@/hooks/use-documentos";
+import {
+  useDescobrir,
+  useExtracaoResumo,
+  useIgnorarAnexo,
+  useReprocessarErros,
+} from "@/hooks/use-documentos";
 import { useDispararDrive, useDispararExtracao, useDispararGmail, useDispararOcr } from "@/hooks/use-admin";
 import { StatCard } from "@/components/cockpit/stat-card";
 import { SubstituirLinkModal } from "@/components/cockpit/substituir-link-modal";
@@ -82,6 +89,7 @@ export function ExtracaoPanel({
   const dispararExtracao = useDispararExtracao();
   const dispararOcr = useDispararOcr();
   const reprocessar = useReprocessarErros();
+  const ignorar = useIgnorarAnexo();
   const [fonte, setFonte] = useState<FontePainel>("nomus");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   // Filtro de origem da tabela (client-side, sobre a lista carregada).
@@ -91,6 +99,9 @@ export function ExtracaoPanel({
   const [filtroStatus, setFiltroStatus] = useState<StatusItemExtracao>("erro");
   // Item Effecti selecionado para correcao manual de URL (abre o modal).
   const [linkAlvo, setLinkAlvo] = useState<ExtracaoItem | null>(null);
+  // Id do anexo aguardando confirmacao inline do "ignorar" (2 cliques: o 1o
+  // arma a confirmacao na propria linha, o 2o efetiva). Evita ignorar por engano.
+  const [confirmIgnorarId, setConfirmIgnorarId] = useState<string | null>(null);
 
   const modo: ModoAcao = FONTES.find((f) => f.value === fonte)?.modo ?? "descobrir";
   // Acao por fonte (descobrir/coletar): NAO inclui o drain da fila (botao proprio).
@@ -215,10 +226,21 @@ export function ExtracaoPanel({
   // proximo drain. Em sucesso, o resumo invalida e os itens caem para Pendentes.
   async function handleReprocessar() {
     if (reprocessar.isPending) return;
-    if (filtroStatus !== "erro" && filtroStatus !== "inobtenivel") return;
+    if (
+      filtroStatus !== "erro" &&
+      filtroStatus !== "inobtenivel" &&
+      filtroStatus !== "ignorado"
+    ) {
+      return;
+    }
     setFeedback(null);
     const alvoFonte = filtroFonte === "todas" ? undefined : filtroFonte;
-    const rotulo = filtroStatus === "inobtenivel" ? "inacessível(is)" : "com erro";
+    const rotulo =
+      filtroStatus === "inobtenivel"
+        ? "inacessível(is)"
+        : filtroStatus === "ignorado"
+          ? "ignorado(s)"
+          : "com erro";
     try {
       const r = await reprocessar.mutateAsync({ fonte: alvoFonte, status: filtroStatus });
       setFeedback({
@@ -233,10 +255,27 @@ export function ExtracaoPanel({
     }
   }
 
+  // Marca UM anexo como 'ignorado' (terminal manual). Confirmacao inline em 2
+  // cliques (confirmIgnorarId). O humano avaliou e decidiu que o anexo e
+  // dispensavel: sai das listas e nao volta a ser processado (reversivel pelo
+  // card Ignorados). Em sucesso o resumo invalida e o item desaparece daqui.
+  async function handleIgnorar(item: ExtracaoItem) {
+    if (ignorar.isPending) return;
+    setFeedback(null);
+    try {
+      await ignorar.mutateAsync(item.id);
+      setConfirmIgnorarId(null);
+      setFeedback({ kind: "ok", message: "Anexo ignorado · disponível no card Ignorados para reverter." });
+    } catch {
+      setFeedback({ kind: "err", message: "Não foi possível ignorar o anexo. Tente novamente." });
+    }
+  }
+
   const pendentesCount = contagens?.pendente ?? 0;
   const errosCount = contagens?.erro ?? 0;
   const inacessiveisCount = contagens?.inobtenivel ?? 0;
   const precisaOcrCount = contagens?.precisa_ocr ?? 0;
+  const ignoradosCount = contagens?.ignorado ?? 0;
 
   // Total real do status selecionado (a lista vem capada em 200 no Edge).
   const STATUS_LABEL: Record<StatusItemExtracao, string> = {
@@ -246,6 +285,7 @@ export function ExtracaoPanel({
     precisa_ocr: "Aguardando OCR",
     erro: "Erros",
     inobtenivel: "Inacessíveis",
+    ignorado: "Ignorados",
   };
   const STATUS_COUNT: Record<StatusItemExtracao, number> = {
     pendente: contagens?.pendente ?? 0,
@@ -254,18 +294,31 @@ export function ExtracaoPanel({
     precisa_ocr: precisaOcrCount,
     erro: errosCount,
     inobtenivel: inacessiveisCount,
+    ignorado: ignoradosCount,
   };
   const statusCount = STATUS_COUNT[filtroStatus];
 
-  // Rotulos do botao de reprocesso contextual ao card (erro vs inacessivel).
-  const reprocessarLabel = filtroStatus === "inobtenivel" ? "Reprocessar inacessíveis" : "Reprocessar erros";
-  const reprocessarRotulo = filtroStatus === "inobtenivel" ? "inacessíveis" : "com erro";
+  // Rotulos do botao de reprocesso contextual ao card. Ignorados "restaura"
+  // (ignorado -> pendente); erro/inacessivel "reprocessa".
+  const reprocessarLabel =
+    filtroStatus === "inobtenivel"
+      ? "Reprocessar inacessíveis"
+      : filtroStatus === "ignorado"
+        ? "Restaurar ignorados"
+        : "Reprocessar erros";
+  const reprocessarRotulo =
+    filtroStatus === "inobtenivel"
+      ? "inacessíveis"
+      : filtroStatus === "ignorado"
+        ? "ignorados"
+        : "com erro";
 
   // Clicar num card seleciona o status exibido na tabela (e zera o filtro de
   // fonte, p/ nao esconder itens da nova selecao por engano).
   function selecionarStatus(status: StatusItemExtracao) {
     setFiltroStatus(status);
     setFiltroFonte("todas");
+    setConfirmIgnorarId(null);
   }
 
   return (
@@ -357,7 +410,7 @@ export function ExtracaoPanel({
           <span className="count">{formatNumber(contagens?.total ?? 0)}</span>
         )}
       </div>
-      <div className="grid-dlh g6">
+      <div className="grid-dlh g7">
         <StatCard
           icon={<Clock aria-hidden="true" />}
           label="Pendentes"
@@ -436,6 +489,15 @@ export function ExtracaoPanel({
           onClick={() => selecionarStatus("inobtenivel")}
           active={filtroStatus === "inobtenivel"}
         />
+        <StatCard
+          icon={<EyeOff aria-hidden="true" />}
+          label="Ignorados"
+          loading={resumo.isLoading}
+          value={<span className="tnum">{formatNumber(ignoradosCount)}</span>}
+          meta="dispensados pelo humano · reversível"
+          onClick={() => selecionarStatus("ignorado")}
+          active={filtroStatus === "ignorado"}
+        />
       </div>
 
       {/* Lista do status selecionado nos cards (Erros / Inacessiveis / OCR). */}
@@ -457,8 +519,12 @@ export function ExtracaoPanel({
             ou 'inobtenivel' (inacessiveis). So o manual ressuscita inacessivel; zera
             o contador -> novo ciclo de 3x. Respeita o filtro de origem. precisa_ocr
             usa o botao Extrair OCR (acima); demais status nao reprocessam. */}
-        {(filtroStatus === "erro" || filtroStatus === "inobtenivel") &&
-          (filtroStatus === "erro" ? errosCount : inacessiveisCount) > 0 && (
+        {(filtroStatus === "erro" || filtroStatus === "inobtenivel" || filtroStatus === "ignorado") &&
+          (filtroStatus === "erro"
+            ? errosCount
+            : filtroStatus === "inobtenivel"
+              ? inacessiveisCount
+              : ignoradosCount) > 0 && (
             <button
               type="button"
               className="btn btn-ghost btn-sm"
@@ -621,20 +687,68 @@ export function ExtracaoPanel({
                     </td>
                     <td className="sub tnum">{formatDateTime(e.quando)}</td>
                     <td>
-                      {/* So Effecti tem link de portal trocavel: quando o orgao
-                          republica o edital, a URL capturada morre e o humano
-                          cola o link atual aqui. */}
-                      {e.fonte === "effecti" ? (
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm btn-icon"
-                          onClick={() => setLinkAlvo(e)}
-                          aria-label="Substituir o link quebrado deste anexo"
-                          title="Substituir o link quebrado deste anexo"
-                        >
-                          <Link2 aria-hidden="true" />
-                        </button>
-                      ) : null}
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
+                        {/* So Effecti tem link de portal trocavel: quando o orgao
+                            republica o edital, a URL capturada morre e o humano
+                            cola o link atual aqui. */}
+                        {e.fonte === "effecti" ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm btn-icon"
+                            onClick={() => setLinkAlvo(e)}
+                            aria-label="Substituir o link quebrado deste anexo"
+                            title="Substituir o link quebrado deste anexo"
+                          >
+                            <Link2 aria-hidden="true" />
+                          </button>
+                        ) : null}
+                        {/* Ignorar: o humano avaliou e decidiu que este anexo e
+                            dispensavel. So nas listas acionaveis (Erros /
+                            Inacessiveis), qualquer fonte. Confirmacao inline em
+                            2 cliques p/ nao ignorar por engano. Reversivel no
+                            card Ignorados. */}
+                        {(filtroStatus === "erro" || filtroStatus === "inobtenivel") ? (
+                          confirmIgnorarId === e.id ? (
+                            <>
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-sm btn-icon"
+                                onClick={() => handleIgnorar(e)}
+                                disabled={ignorar.isPending}
+                                aria-disabled={ignorar.isPending}
+                                aria-label="Confirmar ignorar este anexo"
+                                title="Confirmar: ignorar este anexo"
+                              >
+                                {ignorar.isPending ? (
+                                  <Loader2 className="spin" aria-hidden="true" />
+                                ) : (
+                                  <Check aria-hidden="true" style={{ color: "var(--err)" }} />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-sm btn-icon"
+                                onClick={() => setConfirmIgnorarId(null)}
+                                disabled={ignorar.isPending}
+                                aria-label="Cancelar"
+                                title="Cancelar"
+                              >
+                                <X aria-hidden="true" />
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm btn-icon"
+                              onClick={() => setConfirmIgnorarId(e.id)}
+                              aria-label="Ignorar este anexo (remove da fila)"
+                              title="Ignorar: marca como dispensável e remove da lista"
+                            >
+                              <EyeOff aria-hidden="true" />
+                            </button>
+                          )
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))

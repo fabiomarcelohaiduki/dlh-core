@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/
 import {
   descobrirAnexos,
   fetchExtracaoResumo,
+  ignorarAnexo,
   reprocessarErros,
   salvarConfigExtracao,
   substituirLink,
@@ -79,6 +80,22 @@ export function useSubstituirLink() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (vars: { id: string; url: string }) => substituirLink(vars.id, vars.url),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: documentosKeys.resumo });
+    },
+  });
+}
+
+/**
+ * useIgnorarAnexo — marca um anexo como 'ignorado' (terminal manual) via POST
+ * documentos-descobrir { action:'ignorar-anexo' }. O humano avaliou e decidiu
+ * que o anexo e dispensavel. Em sucesso invalida o resumo: o item sai de
+ * Erros/Inacessiveis e passa a contar no card Ignorados (reversivel).
+ */
+export function useIgnorarAnexo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => ignorarAnexo(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: documentosKeys.resumo });
     },

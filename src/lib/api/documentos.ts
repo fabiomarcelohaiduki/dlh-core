@@ -44,7 +44,7 @@ export function descobrirAnexos(input: DescobrirInput = {}): Promise<DescobrirRe
 export type FonteReprocessavel = "nomus" | "effecti" | "gmail" | "drive";
 
 /** Status terminal que o reprocesso manual ressuscita (contextual ao card). */
-export type StatusReprocessavel = "erro" | "inobtenivel";
+export type StatusReprocessavel = "erro" | "inobtenivel" | "ignorado";
 
 export interface ReprocessarErrosResultado {
   reprocessados: number;
@@ -76,6 +76,25 @@ export interface SubstituirLinkResultado {
   id: string;
 }
 
+export interface IgnorarAnexoResultado {
+  ok: boolean;
+  id: string;
+}
+
+/**
+ * POST /documentos-descobrir { action:'ignorar-anexo' } — marca UM vinculo como
+ * 'ignorado' (status terminal aplicado manualmente pelo humano). Caso de uso: ao
+ * avaliar um anexo em Erros/Inacessiveis, o humano decide que ele e dispensavel;
+ * o anexo sai das listas e nao volta a ser processado. Vale para qualquer fonte.
+ * Reversivel pelo card "Ignorados" (reprocessa 'ignorado' -> 'pendente').
+ */
+export function ignorarAnexo(id: string): Promise<IgnorarAnexoResultado> {
+  return apiFetch<IgnorarAnexoResultado>("documentos-descobrir", {
+    method: "POST",
+    body: JSON.stringify({ action: "ignorar-anexo", id }),
+  });
+}
+
 /**
  * POST /documentos-descobrir { action:'substituir-link' } — troca a URL do
  * anexo de UM vinculo Effecti e o re-enfileira (status 'pendente', contador
@@ -96,7 +115,8 @@ export type StatusItemExtracao =
   | "herdado"
   | "erro"
   | "precisa_ocr"
-  | "inobtenivel";
+  | "inobtenivel"
+  | "ignorado";
 
 export interface ExtracaoItem {
   id: string;
@@ -122,6 +142,7 @@ export interface ExtracaoResumo {
     erro: number;
     precisa_ocr: number;
     inobtenivel: number;
+    ignorado: number;
     total: number;
   };
   itens: ExtracaoItem[];
@@ -145,6 +166,7 @@ export function fetchExtracaoResumo(): Promise<ExtracaoResumo> {
       erro: raw.contagens?.erro ?? 0,
       precisa_ocr: raw.contagens?.precisa_ocr ?? 0,
       inobtenivel: raw.contagens?.inobtenivel ?? 0,
+      ignorado: raw.contagens?.ignorado ?? 0,
       total: raw.contagens?.total ?? 0,
     },
     itens: (raw.itens ?? []).map((e) => ({
