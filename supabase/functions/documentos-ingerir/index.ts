@@ -58,6 +58,12 @@ interface ResultadoExtracao {
    * drena. Ignorado no modo ocr (que ja roda com OCR ligado).
    */
   precisa_ocr?: boolean;
+  /**
+   * Sinalizado pelo runner quando a falha e TERMINAL (a fonte removeu o arquivo
+   * ou o conteudo e permanentemente nao-processavel). Marca status='inobtenivel'
+   * em vez de 'erro' -> sai da fila e NAO reprocessa (decisao Fabio 2026-06-16).
+   */
+  inobtenivel?: boolean;
   /** Classificacao do tipo (gancho camada 2); opcional nesta fase. */
   tipo_documento?: string | null;
 }
@@ -72,7 +78,7 @@ interface IngerirInput {
 
 interface ItemResultado {
   vinculo_id: string;
-  estado: "novo" | "herdado" | "erro" | "precisa_ocr";
+  estado: "novo" | "herdado" | "erro" | "precisa_ocr" | "inobtenivel";
   documento_id?: string;
   indexado?: boolean;
 }
@@ -149,6 +155,7 @@ function normalizeResultado(o: Record<string, unknown>): ResultadoExtracao | nul
     usou_ocr: o.usou_ocr === true,
     via: str(o.via),
     precisa_ocr: o.precisa_ocr === true,
+    inobtenivel: o.inobtenivel === true,
     tipo_documento: str(o.tipo_documento),
   };
 }
@@ -279,13 +286,16 @@ async function processarResultado(
   fontesIndex: string[] | null,
   r: ResultadoExtracao,
 ): Promise<ItemResultado> {
-  // Extracao falhou no runner: marca o vinculo e segue.
+  // Extracao falhou no runner: marca o vinculo e segue. 'inobtenivel' (terminal:
+  // fonte removeu / nao-processavel) sai da fila e nao reprocessa; 'erro'
+  // (transitorio) volta para a fila no proximo drain ou pelo botao Reprocessar.
   if (!r.ok) {
+    const estado = r.inobtenivel ? "inobtenivel" : "erro";
     await service
       .from("documento_vinculos")
-      .update({ status_extracao: "erro", erro: r.erro ?? "falha de extracao no runner" })
+      .update({ status_extracao: estado, erro: r.erro ?? "falha de extracao no runner" })
       .eq("id", r.vinculo_id);
-    return { vinculo_id: r.vinculo_id, estado: "erro" };
+    return { vinculo_id: r.vinculo_id, estado };
   }
 
   // Passo rapido detectou que o anexo so daria texto via OCR: enfileira para o
@@ -422,6 +432,7 @@ async function handler(req: Request): Promise<Response> {
     let herdados = 0;
     let erros = 0;
     let precisaOcr = 0;
+    let inobtenivel = 0;
 
     for (const r of input.documentos) {
       try {
@@ -430,6 +441,7 @@ async function handler(req: Request): Promise<Response> {
         if (out.estado === "novo") novos += 1;
         else if (out.estado === "herdado") herdados += 1;
         else if (out.estado === "precisa_ocr") precisaOcr += 1;
+        else if (out.estado === "inobtenivel") inobtenivel += 1;
         else erros += 1;
       } catch (err) {
         erros += 1;
@@ -446,7 +458,7 @@ async function handler(req: Request): Promise<Response> {
     }
 
     return jsonResponse(
-      { recebidos: input.documentos.length, novos, herdados, erros, precisa_ocr: precisaOcr, resultados },
+      { recebidos: input.documentos.length, novos, herdados, erros, precisa_ocr: precisaOcr, inobtenivel, resultados },
       200,
     );
   } catch (err) {

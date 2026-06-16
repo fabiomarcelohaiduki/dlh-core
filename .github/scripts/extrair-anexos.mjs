@@ -72,6 +72,32 @@ function posInt(raw, fallback) {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
+// Codigos de ExtracaoError que sao TERMINAIS (reprocessar nao muda o resultado):
+// arquivo vazio, excede o limite, extensao barrada na config. tika_net/timeout/
+// tika_rmeta/dep_faltando/compactado_* ficam de FORA (transitorios -> 'erro').
+const TERMINAIS_EXTRACAO = new Set(["vazio", "muito_grande", "extensao_desabilitada"]);
+
+/**
+ * Classifica um erro como INOBTENIVEL (estado terminal, nao reprocessavel) vs
+ * transitorio (fica 'erro' e volta para a fila). Terminal = a FONTE removeu o
+ * arquivo ou o conteudo e permanentemente nao-processavel; nenhum retry muda.
+ * Decisao Fabio 2026-06-16 (ver migration 20260616110000).
+ */
+function ehInobtenivel(err) {
+  if (err instanceof ExtracaoError) {
+    if (TERMINAIS_EXTRACAO.has(err.code)) return true;
+    // Tika respondeu 4xx: conteudo nao-processavel (corrompido/cifrado/formato).
+    // 5xx/erro de rede sao tika_net (transitorio), nao chegam aqui como tika_http.
+    if (err.code === "tika_http" && /respondeu 4\d\d /.test(err.message ?? "")) return true;
+    return false;
+  }
+  const m = String(err?.message ?? "");
+  if (/Gmail GET .* falhou \(404\)/.test(m)) return true;       // mensagem deletada
+  if (/download Effecti falhou \(4\d\d\)/.test(m)) return true; // PNCP "Arquivo excluido" etc.
+  if (/nao encontrado no processo \d+/.test(m)) return true;    // anexo sumiu do processo Nomus
+  return false;
+}
+
 function fail(msg, code = 2) {
   console.error(`ERRO: ${msg}`);
   process.exit(code);
@@ -383,7 +409,14 @@ async function processarVinculo(vinculo, configExtrator) {
     };
   } catch (err) {
     const code = err instanceof ExtracaoError ? `[${err.code}] ` : "";
-    return { vinculo_id: vinculo.id, ok: false, erro: `${code}${err?.message ?? err}` };
+    // inobtenivel = terminal (fonte removeu / nao-processavel): o Edge marca
+    // status='inobtenivel' em vez de 'erro' -> sai da fila e nao reprocessa.
+    return {
+      vinculo_id: vinculo.id,
+      ok: false,
+      erro: `${code}${err?.message ?? err}`,
+      inobtenivel: ehInobtenivel(err),
+    };
   }
 }
 
@@ -407,7 +440,7 @@ function montarConfigExtrator(config) {
 // nem reextrai no proximo run (a fila so guarda os vinculos que faltam).
 // ---------------------------------------------------------------------
 
-const resumo = { recebidos: 0, novos: 0, herdados: 0, erros: 0, precisa_ocr: 0 };
+const resumo = { recebidos: 0, novos: 0, herdados: 0, erros: 0, precisa_ocr: 0, inobtenivel: 0 };
 let pushSeq = 0;
 
 /** Empurra o buffer enquanto tiver >= `minimo` itens (drena removendo do buffer). */
@@ -421,10 +454,12 @@ async function drenarBuffer(buffer, minimo) {
     resumo.herdados += r.json?.herdados ?? 0;
     resumo.erros += r.json?.erros ?? 0;
     resumo.precisa_ocr += r.json?.precisa_ocr ?? 0;
+    resumo.inobtenivel += r.json?.inobtenivel ?? 0;
     pushSeq += 1;
     console.error(
       `[push ${pushSeq}] enviados ${lote.length} | ` +
-        `acum novos=${resumo.novos} herdados=${resumo.herdados} erros=${resumo.erros} precisa_ocr=${resumo.precisa_ocr}`,
+        `acum novos=${resumo.novos} herdados=${resumo.herdados} erros=${resumo.erros} ` +
+        `precisa_ocr=${resumo.precisa_ocr} inobtenivel=${resumo.inobtenivel}`,
     );
   }
 }

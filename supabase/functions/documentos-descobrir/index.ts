@@ -51,7 +51,7 @@ import { logSensitiveAction } from "../_shared/audit.ts";
 const MAX_LIMITE_PROCESSOS = 100_000;
 const MAX_ERROS_RESUMO = 200;
 const MAX_ARQUIVOS_DRIVE = 50_000;
-const STATUS_VINCULO = ["pendente", "extraido", "herdado", "erro", "precisa_ocr"] as const;
+const STATUS_VINCULO = ["pendente", "extraido", "herdado", "erro", "precisa_ocr", "inobtenivel"] as const;
 type StatusVinculo = typeof STATUS_VINCULO[number];
 
 type ServiceClient = ReturnType<typeof createServiceClient>;

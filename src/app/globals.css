@@ -948,6 +948,9 @@ button {
   display: grid;
   gap: 14px;
 }
+.g6 {
+  grid-template-columns: repeat(6, 1fr);
+}
 .g5 {
   grid-template-columns: repeat(5, 1fr);
 }
@@ -1724,6 +1727,7 @@ button {
   .menu-btn {
     display: grid !important;
   }
+  .g6,
   .g5,
   .g4 {
     grid-template-columns: 1fr 1fr;
@@ -1795,6 +1799,7 @@ button {
   z-index: 25;
 }
 @media (max-width: 640px) {
+  .g6,
   .g5,
   .g4 {
     grid-template-columns: 1fr;

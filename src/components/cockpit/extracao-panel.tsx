@@ -2,6 +2,7 @@
 
 import { type CSSProperties, useState } from "react";
 import {
+  Ban,
   Check,
   Clock,
   Copy,
@@ -220,6 +221,7 @@ export function ExtracaoPanel({
   }
 
   const errosCount = contagens?.erro ?? 0;
+  const inacessiveisCount = contagens?.inobtenivel ?? 0;
 
   return (
     <>
@@ -351,7 +353,7 @@ export function ExtracaoPanel({
           <span className="count">{formatNumber(contagens?.total ?? 0)}</span>
         )}
       </div>
-      <div className="grid-dlh g5">
+      <div className="grid-dlh g6">
         <StatCard
           icon={<Clock aria-hidden="true" />}
           label="Pendentes"
@@ -410,6 +412,13 @@ export function ExtracaoPanel({
           }
           meta={errosCount > 0 ? "verifique a lista abaixo" : "sem falhas"}
           metaTone={errosCount > 0 ? "warn" : "up"}
+        />
+        <StatCard
+          icon={<Ban aria-hidden="true" />}
+          label="Inacessíveis"
+          loading={resumo.isLoading}
+          value={<span className="tnum">{formatNumber(inacessiveisCount)}</span>}
+          meta="removidos na origem · não reprocessam"
         />
       </div>
 

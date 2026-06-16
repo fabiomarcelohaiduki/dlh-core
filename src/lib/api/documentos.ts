@@ -85,6 +85,7 @@ export interface ExtracaoResumo {
     herdado: number;
     erro: number;
     precisa_ocr: number;
+    inobtenivel: number;
     total: number;
   };
   erros: ExtracaoErro[];
@@ -107,6 +108,7 @@ export function fetchExtracaoResumo(): Promise<ExtracaoResumo> {
       herdado: raw.contagens?.herdado ?? 0,
       erro: raw.contagens?.erro ?? 0,
       precisa_ocr: raw.contagens?.precisa_ocr ?? 0,
+      inobtenivel: raw.contagens?.inobtenivel ?? 0,
       total: raw.contagens?.total ?? 0,
     },
     erros: (raw.erros ?? []).map((e) => ({
