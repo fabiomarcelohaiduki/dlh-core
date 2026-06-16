@@ -49,17 +49,34 @@ jobs:
         working-directory: .github/scripts
         run: npm install --no-audit --no-fund
 
-      # Tika efemero via `docker run` (NAO service container) para passar
-      # -taskTimeoutMillis ao TikaServerCli: o watchdog interno default e 300s e
-      # NAO pode ser sobreposto pelo header X-Tika-Timeout-Millis (o header so
-      # REDUZ por requisicao). Sem isso o OCR de escaneado grande (>5min) era
-      # morto aos 300s e o Tika rejeitava qualquer timeout maior com HTTP 500.
-      # Os args apos a imagem viram `$0 $@` do entrypoint =>
-      #   TikaServerCli -h 0.0.0.0 -taskTimeoutMillis <ms>
+      # Tika efemero via `docker run` (NAO service container) para ampliar o
+      # watchdog INTERNO (taskTimeoutMillis, default 300s): NAO pode ser
+      # sobreposto pelo header X-Tika-Timeout-Millis (o header so REDUZ por
+      # requisicao). Sem isso o OCR de escaneado grande (>5min) era morto aos
+      # 300s e o Tika rejeitava qualquer timeout maior com HTTP 500.
+      #
+      # O Tika 3.x NAO aceita -taskTimeoutMillis como flag de CLI (Unrecognized
+      # Option -> exit 255). So da para configurar via tika-config XML passado
+      # com -c. Os args apos a imagem viram `$0 $@` do entrypoint =>
+      #   TikaServerCli -h 0.0.0.0 -c /tika-config.xml
+      # Config so com <server><params>: os parsers default (inclui Tesseract no
+      # `full`) continuam carregados por auto-deteccao, OCR segue funcionando.
       - name: Subir Tika (full, OCR) com taskTimeoutMillis ampliado
         run: |
-          docker run -d --name tika -p 9998:9998 apache/tika:latest-full \
-            -taskTimeoutMillis "${{ github.event.inputs.tika_task_timeout_ms || '900000' }}"
+          cat > "$RUNNER_TEMP/tika-config.xml" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <properties>
+            <server>
+              <params>
+                <taskTimeoutMillis>${{ github.event.inputs.tika_task_timeout_ms || '900000' }}</taskTimeoutMillis>
+              </params>
+            </server>
+          </properties>
+          EOF
+          cat "$RUNNER_TEMP/tika-config.xml"
+          docker run -d --name tika -p 9998:9998 \
+            -v "$RUNNER_TEMP/tika-config.xml:/tika-config.xml:ro" \
+            apache/tika:latest-full -c /tika-config.xml
 
       - name: Aguardar Tika ficar pronto
         run: |
