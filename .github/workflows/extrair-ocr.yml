@@ -83,3 +83,25 @@ jobs:
           # teto curto do passo rapido. Vazio => default do script (600000).
           OCR_TIMEOUT_MS: ${{ github.event.inputs.ocr_timeout_ms || '600000' }}
         run: node .github/scripts/extrair-anexos.mjs
+
+      # Diagnostico (decisao Fabio 2026-06-16): os logs do service container
+      # Tika NAO aparecem no `gh run view`. Este passo (sempre, mesmo apos falha)
+      # inspeciona o container Tika e imprime o flag OOMKilled + exit code (137 =
+      # morto por OOM) e as ultimas linhas do log -> confirma se o Tika caiu por
+      # falta de memoria durante o OCR de um anexo pesado (ex.: zip de escaneados).
+      - name: Diagnostico Tika (OOM / exit code / log)
+        if: always()
+        run: |
+          echo "=== containers ==="
+          docker ps -a --no-trunc || true
+          for id in $(docker ps -aq); do
+            img=$(docker inspect --format '{{.Config.Image}}' "$id" 2>/dev/null || echo '?')
+            case "$img" in
+              *tika*)
+                echo "===== Tika container $id ($img) ====="
+                docker inspect --format 'ExitCode={{.State.ExitCode}} OOMKilled={{.State.OOMKilled}} Status={{.State.Status}}' "$id" || true
+                echo "----- ultimas 150 linhas do log do Tika -----"
+                docker logs "$id" 2>&1 | tail -150 || true
+                ;;
+            esac
+          done
