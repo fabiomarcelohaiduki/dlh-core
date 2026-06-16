@@ -296,6 +296,21 @@ const DEFAULT_MAX_CHARS = 2_000;
 const DEFAULT_OVERLAP_CHARS = 200;
 
 /**
+ * Remove surrogates "soltos" (sem par) de um trecho ja fatiado. O fatiamento
+ * por slice opera em unidades UTF-16 e pode cortar NO MEIO de um par surrogate
+ * de um caractere astral (simbolos matematicos U+1D400+, emoji etc.), deixando
+ * um high/low surrogate orfao na borda do chunk. JSON.stringify emite o orfao
+ * como \udXXX e o parser JSON do Postgres rejeita o insert do chunk com
+ * "invalid input syntax for type json: Unicode ... surrogate ...". O texto de
+ * origem tem pares validos; so os trechos cortados precisam desta limpeza.
+ */
+function removerSurrogatesSoltos(s: string): string {
+  return s
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "")
+    .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
+}
+
+/**
  * Segmenta um texto em chunks ordenados com sobreposicao. Quebra
  * preferencialmente em fronteiras de paragrafo/sentenca para nao cortar
  * palavras. O texto de origem (verbatim) nunca e alterado.
@@ -334,7 +349,7 @@ export function chunkText(text: string, opts: ChunkOptions = {}): TextChunk[] {
       }
     }
 
-    const conteudo = normalized.slice(start, end).trim();
+    const conteudo = removerSurrogatesSoltos(normalized.slice(start, end)).trim();
     if (conteudo !== "") {
       chunks.push({ ordem, conteudo });
       ordem += 1;
