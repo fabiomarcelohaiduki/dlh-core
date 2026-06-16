@@ -9,6 +9,7 @@ import {
   dispararNomus,
   dispararOcr,
   salvarAgendamentoExtracao,
+  salvarAgendamentoOcr,
   salvarAgendamentoFonte,
   salvarConfig,
   salvarCredencial,
@@ -86,6 +87,18 @@ export function useSalvarAgendamentoFonte() {
 export function useSalvarAgendamentoExtracao() {
   return useMutation({
     mutationFn: (input: SalvarAgendamentoExtracaoInput) => salvarAgendamentoExtracao(input),
+  });
+}
+
+/**
+ * useSalvarAgendamentoOcr — persiste o agendamento do OCR (PUT ocr-agendamento).
+ * Reescreve o pg_cron 'extrair-ocr' via aplicar_agendamento_ocr(); vale na
+ * proxima janela. Sem invalidacao: o agendamento nao altera o resumo na hora.
+ * Reusa o payload da extracao (forma identica).
+ */
+export function useSalvarAgendamentoOcr() {
+  return useMutation({
+    mutationFn: (input: SalvarAgendamentoExtracaoInput) => salvarAgendamentoOcr(input),
   });
 }
 

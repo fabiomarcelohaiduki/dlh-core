@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { ExtracaoConfigForm } from "@/components/cockpit/extracao-config-form";
 import { AgendamentoExtracaoForm } from "@/components/cockpit/agendamento-extracao-form";
+import { AgendamentoOcrForm } from "@/components/cockpit/agendamento-ocr-form";
 import { ExtracaoDisparoForm } from "@/components/cockpit/extracao-disparo-form";
 import type {
   AgendamentoExtracaoState,
@@ -40,6 +41,15 @@ interface AgendamentoExtracaoRow {
   horario_referencia: string | null;
   dia_semana: number | null;
   dia_mes: number | null;
+}
+
+/** Colunas de agendamento do OCR (mesmo singleton, prefixo ocr_*). */
+interface AgendamentoOcrRow {
+  ocr_agendamento_ativo: boolean | null;
+  ocr_frequencia: string | null;
+  ocr_horario_referencia: string | null;
+  ocr_dia_semana: number | null;
+  ocr_dia_mes: number | null;
 }
 
 /**
@@ -103,10 +113,40 @@ async function loadAgendamentoExtracao(): Promise<AgendamentoExtracaoState> {
   };
 }
 
+/**
+ * Hidratacao server-side (RLS) do agendamento do OCR (colunas ocr_* do mesmo
+ * singleton config_extracao). Sem linha cai nos defaults do produto (desligado,
+ * diaria 01:00). `frequencia` invalida -> 'manual' (desligado). Reusa
+ * AgendamentoExtracaoState (forma identica).
+ */
+async function loadAgendamentoOcr(): Promise<AgendamentoExtracaoState> {
+  const supabase = await createClient();
+  const { data: raw } = await supabase
+    .from("config_extracao")
+    .select(
+      "ocr_agendamento_ativo, ocr_frequencia, ocr_horario_referencia, ocr_dia_semana, ocr_dia_mes",
+    )
+    .limit(1)
+    .maybeSingle();
+
+  const data = (raw ?? null) as AgendamentoOcrRow | null;
+  const freq = data?.ocr_frequencia;
+
+  return {
+    ativo: data?.ocr_agendamento_ativo ?? false,
+    frequencia:
+      freq && FREQUENCIAS_VALIDAS.has(freq) ? (freq as Frequencia) : "manual",
+    horarioReferencia: data?.ocr_horario_referencia ?? null,
+    diaSemana: data?.ocr_dia_semana ?? null,
+    diaMes: data?.ocr_dia_mes ?? null,
+  };
+}
+
 export default async function ExtracaoConfigPage() {
-  const [configExtracao, agendamentoExtracao] = await Promise.all([
+  const [configExtracao, agendamentoExtracao, agendamentoOcr] = await Promise.all([
     loadConfigExtracao(),
     loadAgendamentoExtracao(),
+    loadAgendamentoOcr(),
   ]);
 
   return (
@@ -120,6 +160,7 @@ export default async function ExtracaoConfigPage() {
 
       <div className="extracao-acoes-row">
         <AgendamentoExtracaoForm initial={agendamentoExtracao} />
+        <AgendamentoOcrForm initial={agendamentoOcr} />
         <ExtracaoDisparoForm />
       </div>
 

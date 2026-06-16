@@ -123,6 +123,22 @@ export function salvarAgendamentoExtracao(
 }
 
 /**
+ * PUT /ocr-agendamento — persiste o agendamento do EXTRATOR OCR (passo
+ * dedicado) nas colunas ocr_* do singleton config_extracao e reescreve o
+ * pg_cron 'extrair-ocr' via aplicar_agendamento_ocr(). O payload e identico ao
+ * da extracao (reusa SalvarAgendamentoExtracaoInput). A resposta traz o texto
+ * do agendamento aplicado.
+ */
+export function salvarAgendamentoOcr(
+  input: SalvarAgendamentoExtracaoInput,
+): Promise<SalvarAgendamentoResponse> {
+  return apiFetch<SalvarAgendamentoResponse>("ocr-agendamento", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+/**
  * POST /nomus-disparar — aciona MANUALMENTE a coleta do Nomus pelo card da
  * fonte. O Nomus coleta no runner do GitHub Actions (TLS legado); este disparo
  * roda o workflow_dispatch no modo escolhido (incremental|full). Responde 202
