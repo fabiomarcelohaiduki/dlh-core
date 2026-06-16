@@ -356,25 +356,33 @@ async function montarResumo(service: ServiceClient): Promise<unknown> {
 }
 
 // ---------------------------------------------------------------------
-// action='reprocessar-erros': re-enfileira os vinculos que falharam
-// (status_extracao='erro' -> 'pendente', limpa a msg de erro), opcionalmente
-// filtrando por fonte. ESCRITA -> auditada. O runner do Actions so consome
-// 'pendente', entao isto e o que faz um erro "sair do estado" pela tela: o
-// proximo drain da fila tenta de novo (ex.: apos um fix no extrator). O erro
-// e regerado se falhar de novo. Idempotente (so toca quem esta em 'erro').
+// action='reprocessar-erros': re-enfileira os vinculos terminais
+// (status_extracao -> 'pendente', limpa a msg de erro), opcionalmente
+// filtrando por fonte. O status alvo e contextual ao card selecionado no
+// cockpit: 'erro' (transitorios) ou 'inobtenivel' (inacessiveis). ESCRITA ->
+// auditada. O runner do Actions so consome 'pendente', entao isto e o que faz
+// um terminal "sair do estado" pela tela: o proximo drain tenta de novo.
+// IMPORTANTE — assimetria intencional manual vs automatico: SO o reprocesso
+// MANUAL (este botao) ressuscita 'inobtenivel'; o agendado/automatico nunca o
+// faz sozinho (so drena 'pendente'), preservando o card como terminal.
+// Idempotente (so toca quem esta no status alvo).
 // ---------------------------------------------------------------------
 async function reprocessarErros(
   service: ServiceClient,
   fonte: FonteDescobrivel | null,
+  statusAlvo: "erro" | "inobtenivel",
 ): Promise<number> {
+  // Zera tentativas_extracao: o reprocesso manual e um RECOMECO, da um novo
+  // ciclo de 3 tentativas ("faço manual, o sistema tenta 3x") em vez de cair
+  // de cara no terminal porque ja estava no teto.
   let q = service
     .from("documento_vinculos")
-    .update({ status_extracao: "pendente", erro: null })
-    .eq("status_extracao", "erro");
+    .update({ status_extracao: "pendente", erro: null, tentativas_extracao: 0 })
+    .eq("status_extracao", statusAlvo);
   if (fonte) q = q.eq("fonte", fonte);
   const { data, error } = await q.select("id");
   if (error) {
-    throw new HttpError(500, "reprocessar_falhou", "falha ao re-enfileirar anexos com erro");
+    throw new HttpError(500, "reprocessar_falhou", "falha ao re-enfileirar anexos");
   }
   return Array.isArray(data) ? data.length : 0;
 }
@@ -394,20 +402,23 @@ async function handler(req: Request): Promise<Response> {
       return jsonResponse(await montarResumo(service), 200);
     }
 
-    // ESCRITA: re-enfileira os vinculos com erro (cockpit). Fonte opcional.
+    // ESCRITA: re-enfileira os vinculos terminais (cockpit). Fonte opcional.
+    // status alvo contextual ao card: 'inobtenivel' (inacessiveis) ou 'erro'
+    // (default, transitorios). So o manual ressuscita 'inobtenivel'.
     if (body.action === "reprocessar-erros") {
       const fonteRaw = typeof body.fonte === "string" ? body.fonte : null;
       const fonte = fonteRaw && FONTES_DESCOBRIVEIS.includes(fonteRaw as FonteDescobrivel)
         ? (fonteRaw as FonteDescobrivel)
         : null;
-      const reprocessados = await reprocessarErros(service, fonte);
+      const statusAlvo = body.status === "inobtenivel" ? "inobtenivel" : "erro";
+      const reprocessados = await reprocessarErros(service, fonte, statusAlvo);
       await logSensitiveAction({
         tabela: "documento_vinculos",
         acao: "reprocessar_erros_extracao",
         usuario: caller.usuario,
-        dadosNovos: { gatilho: caller.gatilho, fonte, reprocessados },
+        dadosNovos: { gatilho: caller.gatilho, fonte, status: statusAlvo, reprocessados },
       });
-      return jsonResponse({ reprocessados, fonte }, 200);
+      return jsonResponse({ reprocessados, fonte, status: statusAlvo }, 200);
     }
 
     const input = parseInput(body);

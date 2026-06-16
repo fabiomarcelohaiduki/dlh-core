@@ -78,7 +78,9 @@ interface IngerirInput {
 
 interface ItemResultado {
   vinculo_id: string;
-  estado: "novo" | "herdado" | "erro" | "precisa_ocr" | "inobtenivel";
+  // 'pendente' = falhou mas ainda abaixo do teto de tentativas: re-enfileirado
+  // para o proprio run reprocessar (auto-retry), nao caiu em card terminal.
+  estado: "novo" | "herdado" | "erro" | "precisa_ocr" | "inobtenivel" | "pendente";
   documento_id?: string;
   indexado?: boolean;
 }
@@ -186,7 +188,10 @@ async function listarPendentes(
   if (fontes && fontes.length > 0) {
     query = query.in("fonte", fontes);
   }
+  // Fairness do auto-retry: quem ja falhou (tentativas maior) vai pro FIM da
+  // fila, p/ um anexo problematico nao monopolizar o run e travar os bons.
   const { data, error } = await query
+    .order("tentativas_extracao", { ascending: true })
     .order("created_at", { ascending: true })
     .limit(limite);
   if (error) {
@@ -222,6 +227,22 @@ async function loadConfigExtracao(service: ServiceClient): Promise<Record<string
     loteTamanho: c.lote_tamanho,
     pausaLoteMs: c.pausa_lote_ms,
   };
+}
+
+/**
+ * Le o teto de tentativas (config_extracao.tentativas_max, default 3) que
+ * governa o auto-retry da extracao: abaixo dele a falha volta 'pendente' e o
+ * proprio run reprocessa; ao atinge-lo o vinculo cai em card terminal.
+ */
+async function loadTetoExtracao(service: ServiceClient): Promise<number> {
+  const { data, error } = await service
+    .from("config_extracao")
+    .select("tentativas_max")
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return 3;
+  const teto = (data as { tentativas_max?: number }).tentativas_max;
+  return typeof teto === "number" && teto >= 1 ? teto : 3;
 }
 
 // ---------------------------------------------------------------------
@@ -284,17 +305,32 @@ async function processarResultado(
   service: ServiceClient,
   provider: EmbeddingProvider | undefined,
   fontesIndex: string[] | null,
+  teto: number,
   r: ResultadoExtracao,
 ): Promise<ItemResultado> {
-  // Extracao falhou no runner: marca o vinculo e segue. 'inobtenivel' (terminal:
-  // fonte removeu / nao-processavel) sai da fila e nao reprocessa; 'erro'
-  // (transitorio) volta para a fila no proximo drain ou pelo botao Reprocessar.
+  // Extracao falhou no runner: AUTO-RETRY ate o teto. A RPC incrementa
+  // tentativas_extracao e decide o destino: abaixo do teto volta 'pendente'
+  // (o proprio run re-busca a fila e reprocessa); ao atingir o teto cai em
+  // card terminal — 'inobtenivel' (fonte removeu / nao-processavel) ou 'erro'
+  // (transitorio que esgotou). NAO grava direto: a RPC concentra a regra.
   if (!r.ok) {
-    const estado = r.inobtenivel ? "inobtenivel" : "erro";
-    await service
-      .from("documento_vinculos")
-      .update({ status_extracao: estado, erro: r.erro ?? "falha de extracao no runner" })
-      .eq("id", r.vinculo_id);
+    const { data, error } = await service.rpc("marcar_falha_extracao", {
+      p_id: r.vinculo_id,
+      p_teto: teto,
+      p_terminal: r.inobtenivel === true,
+      p_erro: r.erro ?? "falha de extracao no runner",
+    });
+    // Fallback defensivo: se a RPC falhar, marca o destino terminal direto p/
+    // o vinculo nao ficar preso fora da fila sem registro de erro.
+    if (error) {
+      const estado = r.inobtenivel ? "inobtenivel" : "erro";
+      await service
+        .from("documento_vinculos")
+        .update({ status_extracao: estado, erro: r.erro ?? "falha de extracao no runner" })
+        .eq("id", r.vinculo_id);
+      return { vinculo_id: r.vinculo_id, estado };
+    }
+    const estado = (data as ItemResultado["estado"]) ?? "erro";
     return { vinculo_id: r.vinculo_id, estado };
   }
 
@@ -303,7 +339,7 @@ async function processarResultado(
   if (r.precisa_ocr) {
     await service
       .from("documento_vinculos")
-      .update({ status_extracao: "precisa_ocr", erro: null })
+      .update({ status_extracao: "precisa_ocr", erro: null, tentativas_extracao: 0 })
       .eq("id", r.vinculo_id);
     return { vinculo_id: r.vinculo_id, estado: "precisa_ocr" };
   }
@@ -313,7 +349,7 @@ async function processarResultado(
   if (existenteId) {
     await service
       .from("documento_vinculos")
-      .update({ documento_id: existenteId, status_extracao: "herdado", erro: null })
+      .update({ documento_id: existenteId, status_extracao: "herdado", erro: null, tentativas_extracao: 0 })
       .eq("id", r.vinculo_id);
     return { vinculo_id: r.vinculo_id, estado: "herdado", documento_id: existenteId };
   }
@@ -345,7 +381,7 @@ async function processarResultado(
       if (reId) {
         await service
           .from("documento_vinculos")
-          .update({ documento_id: reId, status_extracao: "herdado", erro: null })
+          .update({ documento_id: reId, status_extracao: "herdado", erro: null, tentativas_extracao: 0 })
           .eq("id", r.vinculo_id);
         return { vinculo_id: r.vinculo_id, estado: "herdado", documento_id: reId };
       }
@@ -357,7 +393,7 @@ async function processarResultado(
   // Liga o vinculo ao documento recem-criado (este extraiu).
   await service
     .from("documento_vinculos")
-    .update({ documento_id: documentoId, status_extracao: "extraido", erro: null })
+    .update({ documento_id: documentoId, status_extracao: "extraido", erro: null, tentativas_extracao: 0 })
     .eq("id", r.vinculo_id);
 
   // Indexacao (chunks/embeddings) reusa o motor agnostico. NAO bloqueia: se a
@@ -426,6 +462,9 @@ async function handler(req: Request): Promise<Response> {
     const config = await loadConfigIndexacao(service);
     const provider = config?.ativo ? await resolveEmbeddingProvider() : undefined;
     const fontesIndex = config?.fontesHabilitadas ?? null;
+    // Teto do auto-retry: falha re-tenta ate o teto no proprio run antes de
+    // virar card terminal (administravel via config_extracao.tentativas_max).
+    const teto = await loadTetoExtracao(service);
 
     const resultados: ItemResultado[] = [];
     let novos = 0;
@@ -433,32 +472,46 @@ async function handler(req: Request): Promise<Response> {
     let erros = 0;
     let precisaOcr = 0;
     let inobtenivel = 0;
+    let reenfileirados = 0;
 
     for (const r of input.documentos) {
       try {
-        const out = await processarResultado(service, provider, fontesIndex, r);
+        const out = await processarResultado(service, provider, fontesIndex, teto, r);
         resultados.push(out);
         if (out.estado === "novo") novos += 1;
         else if (out.estado === "herdado") herdados += 1;
         else if (out.estado === "precisa_ocr") precisaOcr += 1;
         else if (out.estado === "inobtenivel") inobtenivel += 1;
+        else if (out.estado === "pendente") reenfileirados += 1;
         else erros += 1;
       } catch (err) {
-        erros += 1;
-        // Falha isolada nao derruba o lote: marca o vinculo e continua.
-        await service
-          .from("documento_vinculos")
-          .update({
-            status_extracao: "erro",
-            erro: err instanceof Error ? err.message : "falha ao persistir documento",
-          })
-          .eq("id", r.vinculo_id);
-        resultados.push({ vinculo_id: r.vinculo_id, estado: "erro" });
+        // Falha ao persistir = transitorio: passa pelo MESMO auto-retry (volta
+        // 'pendente' abaixo do teto, 'erro' ao esgotar) p/ nao queimar o anexo
+        // numa falha isolada de gravacao. terminal=false (nunca inobtenivel).
+        const out = await processarResultado(service, provider, fontesIndex, teto, {
+          ...r,
+          ok: false,
+          inobtenivel: false,
+          erro: err instanceof Error ? err.message : "falha ao persistir documento",
+        });
+        resultados.push(out);
+        if (out.estado === "pendente") reenfileirados += 1;
+        else if (out.estado === "inobtenivel") inobtenivel += 1;
+        else erros += 1;
       }
     }
 
     return jsonResponse(
-      { recebidos: input.documentos.length, novos, herdados, erros, precisa_ocr: precisaOcr, inobtenivel, resultados },
+      {
+        recebidos: input.documentos.length,
+        novos,
+        herdados,
+        erros,
+        precisa_ocr: precisaOcr,
+        inobtenivel,
+        reenfileirados,
+        resultados,
+      },
       200,
     );
   } catch (err) {

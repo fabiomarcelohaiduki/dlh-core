@@ -43,20 +43,27 @@ export function descobrirAnexos(input: DescobrirInput = {}): Promise<DescobrirRe
 /** Fontes que podem ter vinculos com erro (mais ampla que as descobriveis). */
 export type FonteReprocessavel = "nomus" | "effecti" | "gmail" | "drive";
 
+/** Status terminal que o reprocesso manual ressuscita (contextual ao card). */
+export type StatusReprocessavel = "erro" | "inobtenivel";
+
 export interface ReprocessarErrosResultado {
   reprocessados: number;
   fonte: FonteReprocessavel | null;
+  status: StatusReprocessavel;
 }
 
 /**
  * POST /documentos-descobrir { action:'reprocessar-erros' } — re-enfileira os
- * vinculos com erro (status 'erro' -> 'pendente'). Fonte opcional (ausente =
- * todas). O proximo drain da fila tenta de novo (ex.: apos fix no extrator).
+ * vinculos terminais (status alvo -> 'pendente'). 'status' = contextual ao card
+ * selecionado: 'erro' (transitorios, default) ou 'inobtenivel' (inacessiveis;
+ * so o manual os ressuscita). Fonte opcional (ausente = todas). O proximo drain
+ * da fila tenta de novo, com novo ciclo de tentativas (contador zerado).
  */
 export function reprocessarErros(
   fonte?: FonteReprocessavel | null,
+  status: StatusReprocessavel = "erro",
 ): Promise<ReprocessarErrosResultado> {
-  const body: Record<string, unknown> = { action: "reprocessar-erros" };
+  const body: Record<string, unknown> = { action: "reprocessar-erros", status };
   if (fonte) body.fonte = fonte;
   return apiFetch<ReprocessarErrosResultado>("documentos-descobrir", {
     method: "POST",

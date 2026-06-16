@@ -9,6 +9,7 @@ import {
   type DescobrirInput,
   type FonteReprocessavel,
   type SalvarConfigExtracaoInput,
+  type StatusReprocessavel,
 } from "@/lib/api/documentos";
 
 /** Chaves de cache do pipeline de documentos (camada 1). */
@@ -50,15 +51,17 @@ export function useDescobrir() {
 }
 
 /**
- * useReprocessarErros — re-enfileira os vinculos com erro (status 'erro' ->
+ * useReprocessarErros — re-enfileira os vinculos terminais (status alvo ->
  * 'pendente') via POST documentos-descobrir { action:'reprocessar-erros' }.
- * Fonte opcional (ausente = todas). Em sucesso invalida o resumo para refletir
- * os erros que voltaram para a fila. O drain do Actions consome depois.
+ * O status alvo ('erro' ou 'inobtenivel') e contextual ao card selecionado;
+ * fonte opcional (ausente = todas). Em sucesso invalida o resumo para refletir
+ * o que voltou para a fila. O drain do Actions consome depois.
  */
 export function useReprocessarErros() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (fonte?: FonteReprocessavel | null) => reprocessarErros(fonte),
+    mutationFn: (vars?: { fonte?: FonteReprocessavel | null; status?: StatusReprocessavel }) =>
+      reprocessarErros(vars?.fonte ?? null, vars?.status ?? "erro"),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: documentosKeys.resumo });
     },

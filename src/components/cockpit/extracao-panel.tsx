@@ -206,25 +206,28 @@ export function ExtracaoPanel({
     }
   }
 
-  // Re-enfileira os vinculos com erro (status 'erro' -> 'pendente'), respeitando
-  // o filtro de origem da tabela: "todas" reprocessa tudo; senao so a fonte
-  // selecionada. O proximo drain da fila tenta de novo (ex.: apos um fix no
-  // extrator). Em sucesso, o resumo invalida e os erros caem para Pendentes.
+  // Re-enfileira os vinculos terminais (status alvo -> 'pendente') CONTEXTUAL
+  // ao card selecionado: card Erros reprocessa 'erro', card Inacessíveis
+  // reprocessa 'inobtenivel'. Respeita o filtro de origem da tabela ("todas"
+  // reprocessa tudo; senao so a fonte). Zera o contador -> novo ciclo de 3x no
+  // proximo drain. Em sucesso, o resumo invalida e os itens caem para Pendentes.
   async function handleReprocessar() {
     if (reprocessar.isPending) return;
+    if (filtroStatus !== "erro" && filtroStatus !== "inobtenivel") return;
     setFeedback(null);
     const alvoFonte = filtroFonte === "todas" ? undefined : filtroFonte;
+    const rotulo = filtroStatus === "inobtenivel" ? "inacessível(is)" : "com erro";
     try {
-      const r = await reprocessar.mutateAsync(alvoFonte);
+      const r = await reprocessar.mutateAsync({ fonte: alvoFonte, status: filtroStatus });
       setFeedback({
         kind: "ok",
         message:
           r.reprocessados > 0
-            ? `${formatNumber(r.reprocessados)} anexo(s) com erro voltaram para a fila. Use "Extrair fila agora".`
-            : "Nenhum anexo com erro para reprocessar.",
+            ? `${formatNumber(r.reprocessados)} anexo(s) ${rotulo} voltaram para a fila. Use "Extrair fila agora".`
+            : `Nenhum anexo ${rotulo} para reprocessar.`,
       });
     } catch {
-      setFeedback({ kind: "err", message: "Não foi possível reprocessar os erros. Tente novamente." });
+      setFeedback({ kind: "err", message: "Não foi possível reprocessar. Tente novamente." });
     }
   }
 
@@ -250,6 +253,10 @@ export function ExtracaoPanel({
     inobtenivel: inacessiveisCount,
   };
   const statusCount = STATUS_COUNT[filtroStatus];
+
+  // Rotulos do botao de reprocesso contextual ao card (erro vs inacessivel).
+  const reprocessarLabel = filtroStatus === "inobtenivel" ? "Reprocessar inacessíveis" : "Reprocessar erros";
+  const reprocessarRotulo = filtroStatus === "inobtenivel" ? "inacessíveis" : "com erro";
 
   // Clicar num card seleciona o status exibido na tabela (e zera o filtro de
   // fonte, p/ nao esconder itens da nova selecao por engano).
@@ -484,37 +491,39 @@ export function ExtracaoPanel({
       </div>
       <div className="filter-bar" style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <OrigemFiltro value={filtroFonte} onChange={setFiltroFonte} />
-        {/* Re-enfileira os erros (status 'erro' -> 'pendente') respeitando o
-            filtro de origem. So faz sentido para o status 'erro' (inobtenivel nao
-            reprocessa; precisa_ocr usa o botao Extrair OCR). */}
-        {filtroStatus === "erro" && errosCount > 0 && (
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            style={{ marginLeft: "auto" }}
-            onClick={handleReprocessar}
-            disabled={reprocessar.isPending}
-            aria-disabled={reprocessar.isPending}
-            title={
-              filtroFonte === "todas"
-                ? "Volta todos os anexos com erro para a fila de extração"
-                : `Volta os anexos com erro do ${FONTE_LABEL[filtroFonte as FontePainel] ?? filtroFonte} para a fila`
-            }
-          >
-            {reprocessar.isPending ? (
-              <Loader2 className="spin" aria-hidden="true" />
-            ) : (
-              <RotateCcw aria-hidden="true" />
-            )}
-            <span>
-              {reprocessar.isPending
-                ? "Reprocessando…"
-                : filtroFonte === "todas"
-                  ? "Reprocessar erros"
-                  : `Reprocessar erros · ${FONTE_LABEL[filtroFonte as FontePainel] ?? filtroFonte}`}
-            </span>
-          </button>
-        )}
+        {/* Botao de reprocesso CONTEXTUAL ao card selecionado: 'erro' (transitorios)
+            ou 'inobtenivel' (inacessiveis). So o manual ressuscita inacessivel; zera
+            o contador -> novo ciclo de 3x. Respeita o filtro de origem. precisa_ocr
+            usa o botao Extrair OCR (acima); demais status nao reprocessam. */}
+        {(filtroStatus === "erro" || filtroStatus === "inobtenivel") &&
+          (filtroStatus === "erro" ? errosCount : inacessiveisCount) > 0 && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              style={{ marginLeft: "auto" }}
+              onClick={handleReprocessar}
+              disabled={reprocessar.isPending}
+              aria-disabled={reprocessar.isPending}
+              title={
+                filtroFonte === "todas"
+                  ? `Volta todos os anexos ${reprocessarRotulo} para a fila de extração`
+                  : `Volta os anexos ${reprocessarRotulo} do ${FONTE_LABEL[filtroFonte as FontePainel] ?? filtroFonte} para a fila`
+              }
+            >
+              {reprocessar.isPending ? (
+                <Loader2 className="spin" aria-hidden="true" />
+              ) : (
+                <RotateCcw aria-hidden="true" />
+              )}
+              <span>
+                {reprocessar.isPending
+                  ? "Reprocessando…"
+                  : filtroFonte === "todas"
+                    ? reprocessarLabel
+                    : `${reprocessarLabel} · ${FONTE_LABEL[filtroFonte as FontePainel] ?? filtroFonte}`}
+              </span>
+            </button>
+          )}
       </div>
 
       {/* Tabela de erros de extracao */}
