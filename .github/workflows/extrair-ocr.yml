@@ -23,6 +23,10 @@ on:
         description: "Teto de tempo do Tika POR anexo no modo OCR, em ms (vazio = 600000 = 10min). Escaneado grande precisa de mais que o timeout do passo rapido."
         type: string
         required: false
+      tika_task_timeout_ms:
+        description: "Teto do watchdog INTERNO do Tika (taskTimeoutMillis) na inicializacao do servidor, em ms (vazio = 900000 = 15min). DEVE ser >= ocr_timeout_ms, senao o Tika rejeita o X-Tika-Timeout-Millis com HTTP 500."
+        type: string
+        required: false
 
 concurrency:
   group: extrair-ocr
@@ -31,14 +35,6 @@ concurrency:
 jobs:
   extrair-ocr:
     runs-on: ubuntu-latest
-
-    # Servico Tika efemero: morre com o job. `full` traz Tesseract para OCR.
-    # TODO(prod): fixar a tag em uma versao especifica em vez de latest.
-    services:
-      tika:
-        image: apache/tika:latest-full
-        ports:
-          - 9998:9998
 
     steps:
       - name: Checkout
@@ -52,6 +48,18 @@ jobs:
       - name: Instalar deps do runner
         working-directory: .github/scripts
         run: npm install --no-audit --no-fund
+
+      # Tika efemero via `docker run` (NAO service container) para passar
+      # -taskTimeoutMillis ao TikaServerCli: o watchdog interno default e 300s e
+      # NAO pode ser sobreposto pelo header X-Tika-Timeout-Millis (o header so
+      # REDUZ por requisicao). Sem isso o OCR de escaneado grande (>5min) era
+      # morto aos 300s e o Tika rejeitava qualquer timeout maior com HTTP 500.
+      # Os args apos a imagem viram `$0 $@` do entrypoint =>
+      #   TikaServerCli -h 0.0.0.0 -taskTimeoutMillis <ms>
+      - name: Subir Tika (full, OCR) com taskTimeoutMillis ampliado
+        run: |
+          docker run -d --name tika -p 9998:9998 apache/tika:latest-full \
+            -taskTimeoutMillis "${{ github.event.inputs.tika_task_timeout_ms || '900000' }}"
 
       - name: Aguardar Tika ficar pronto
         run: |
