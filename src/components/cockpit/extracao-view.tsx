@@ -75,20 +75,16 @@ export function ExtracaoView({
             zIndex: 60,
             background: "rgba(0,0,0,0.55)",
             display: "flex",
-            justifyContent: "flex-end",
+            alignItems: "flex-start",
+            justifyContent: "center",
+            padding: "8vh 16px 16px",
+            overflowY: "auto",
           }}
         >
           <div
             className="card"
             onClick={(e) => e.stopPropagation()}
-            style={{
-              width: "min(560px, 100%)",
-              maxWidth: 560,
-              height: "100%",
-              margin: 0,
-              borderRadius: 0,
-              overflowY: "auto",
-            }}
+            style={{ width: "min(560px, 100%)", maxWidth: 560 }}
           >
             <div className="section-title" style={{ margin: "0 0 16px" }}>
               <h3>Parâmetros de extração</h3>
