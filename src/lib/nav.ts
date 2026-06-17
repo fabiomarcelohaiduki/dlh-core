@@ -2,7 +2,6 @@ import type { ComponentType, SVGProps } from "react";
 import {
   LayoutDashboard,
   Database,
-  TriangleAlert,
   Braces,
   Sparkles,
   Layers,
@@ -39,7 +38,6 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "nav-dashboard", label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
       { id: "nav-ingestao", label: "Ingestão", href: "/ingestao", icon: Database },
-      { id: "nav-erros", label: "Erros", href: "/erros", icon: TriangleAlert, badgeKey: "erros" },
     ],
   },
   {
