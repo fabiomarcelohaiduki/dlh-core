@@ -77,7 +77,7 @@ export function InsumosClient() {
           className={cn("btn", "btn-sm", aba === "custo" && "btn-primary")}
           onClick={() => setAba("custo")}
         >
-          Custo dos SKUs
+          Composição & custo
         </button>
       </div>
 
