@@ -179,6 +179,16 @@ function intervalMs(frequencia: string): number | null {
   }
 }
 
+// Tolerancia anti-drift do DUE. O pg_cron coleta-<tipo> e o relogio mestre (um
+// disparo por periodo). Comparar com o intervalo EXATO fazia o agendado PULAR o
+// dia quando o inicio da ultima execucao caia poucos segundos abaixo de 24h
+// (drift cron->Edge->insert acumula a cada dia) ou quando uma coleta MANUAL
+// rodava mais tarde no dia anterior (deslocava a "ultima execucao"). Liberar com
+// metade do intervalo absorve o drift e a manual sem reabrir risco de
+// duplicacao: o single-flight em_andamento ja barra o mesmo ciclo e o cron
+// dispara so uma vez por periodo.
+const DUE_TOLERANCIA = 0.5;
+
 /** DUE: a fonte deve iniciar um novo ciclo? (baseado na ultima execucao). */
 async function isFonteDue(
   service: ReturnType<typeof createServiceClient>,
@@ -198,7 +208,7 @@ async function isFonteDue(
   if (!last?.inicio) return true;
   const lastMs = Date.parse(last.inicio);
   if (!Number.isFinite(lastMs)) return true;
-  return Date.now() - lastMs >= interval;
+  return Date.now() - lastMs >= interval * DUE_TOLERANCIA;
 }
 
 // ---------------------------------------------------------------------
