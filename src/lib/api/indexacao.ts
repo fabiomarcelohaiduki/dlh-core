@@ -28,6 +28,7 @@ export function salvarConfigIndexacao(
     method: "PUT",
     body: JSON.stringify({
       ativo: input.ativo,
+      processosAtivo: input.processosAtivo,
       fontesHabilitadas: input.fontesHabilitadas,
       loteChunks: input.loteChunks,
       pausaMs: input.pausaMs,

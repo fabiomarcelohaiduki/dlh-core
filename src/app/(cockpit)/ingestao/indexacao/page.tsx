@@ -16,6 +16,7 @@ const FONTES_INDEXACAO_VALIDAS: ReadonlySet<string> = new Set([
 /** Linha lida de public.config_indexacao (singleton da camada de embeddings). */
 interface ConfigIndexacaoRow {
   ativo: boolean | null;
+  processos_ativo: boolean | null;
   fontes_habilitadas: string[] | null;
   lote_chunks: number | null;
   pausa_ms: number | null;
@@ -32,7 +33,7 @@ async function loadConfigIndexacao(): Promise<ConfigIndexacaoState> {
   const supabase = await createClient();
   const { data: raw } = await supabase
     .from("config_indexacao")
-    .select("ativo, fontes_habilitadas, lote_chunks, pausa_ms, tpm_alvo, tentativas_max")
+    .select("ativo, processos_ativo, fontes_habilitadas, lote_chunks, pausa_ms, tpm_alvo, tentativas_max")
     .limit(1)
     .maybeSingle();
 
@@ -41,6 +42,7 @@ async function loadConfigIndexacao(): Promise<ConfigIndexacaoState> {
 
   return {
     ativo: data?.ativo ?? false,
+    processosAtivo: data?.processos_ativo ?? false,
     fontesHabilitadas:
       Array.isArray(fontes) && fontes.length > 0
         ? (fontes.filter((f) => FONTES_INDEXACAO_VALIDAS.has(f)) as FonteIndexacao[])

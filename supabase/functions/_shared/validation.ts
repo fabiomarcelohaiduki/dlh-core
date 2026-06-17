@@ -794,6 +794,8 @@ const MAX_TENTATIVAS = 10;
 export const indexacaoConfigSchema = z
   .object({
     ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }),
+    // Master switch da perna de processos (independente de `ativo`).
+    processosAtivo: z.boolean({ invalid_type_error: "processosAtivo deve ser booleano" }),
     // Allowlist de fontes: null/ausente = todas; array = subconjunto.
     fontesHabilitadas: z
       .array(

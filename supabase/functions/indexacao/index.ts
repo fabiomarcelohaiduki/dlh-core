@@ -55,6 +55,7 @@ async function handlePut(req: Request): Promise<Response> {
 
   const payload = {
     ativo: input.ativo,
+    processos_ativo: input.processosAtivo,
     fontes_habilitadas:
       input.fontesHabilitadas && input.fontesHabilitadas.length > 0
         ? input.fontesHabilitadas
@@ -97,6 +98,7 @@ async function handlePut(req: Request): Promise<Response> {
     usuario: email,
     dadosNovos: {
       ativo: input.ativo,
+      processosAtivo: input.processosAtivo,
       fontesHabilitadas: payload.fontes_habilitadas,
       loteChunks: input.loteChunks,
       pausaMs: input.pausaMs,

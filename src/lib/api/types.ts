@@ -245,6 +245,11 @@ export type FonteIndexacao = FonteExtracao;
  */
 export interface ConfigIndexacaoState {
   ativo: boolean;
+  /**
+   * Master switch da perna de PROCESSOS (nomus_processos.descricao -> RAG).
+   * Independente de `ativo` (que governa os documentos); ON gasta na OpenAI.
+   */
+  processosAtivo: boolean;
   fontesHabilitadas: FonteIndexacao[] | null;
   loteChunks: number;
   pausaMs: number;
