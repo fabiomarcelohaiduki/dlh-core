@@ -348,6 +348,31 @@ async function startNomus(
   };
 }
 
+/**
+ * Descoberta automatica da camada 1 apos um bloco Effecti: enfileira os
+ * vinculos pendentes dos avisos recem-persistidos (descobrir_vinculos_effecti,
+ * SQL puro + idempotente). Sem isso, a coleta AGENDADA traz avisos novos mas
+ * nao gera os "arquivos para extracao" (ao contrario da manual, que ja descobre
+ * pos-bloco). Best-effort: a falha aqui nao reverte a coleta nem derruba a
+ * resposta (a descoberta manual segue no painel de Extracao). Idempotente, logo
+ * roda por bloco sem risco de duplicar.
+ */
+async function descobrirVinculosEffectiPosBloco(
+  service: ReturnType<typeof createServiceClient>,
+  execucaoId: string,
+): Promise<void> {
+  const { error } = await service.rpc("descobrir_vinculos_effecti", {
+    p_extensoes: null,
+    p_limite_avisos: null,
+  });
+  if (error) {
+    console.error("[orquestrar] descoberta effecti pos-bloco falhou", {
+      execucaoId,
+      err: error.message,
+    });
+  }
+}
+
 async function startEffecti(
   service: ReturnType<typeof createServiceClient>,
   fonte: FonteRow,
@@ -398,6 +423,10 @@ async function startEffecti(
     { execucaoId, checkpoint, modalidades, portais },
   );
 
+  // Enfileira os anexos dos avisos recem-coletados para extracao (paridade com
+  // a coleta manual; idempotente, best-effort).
+  await descobrirVinculosEffectiPosBloco(service, execucaoId);
+
   return {
     acao: outcome.concluido ? "concluiu" : "iniciou",
     execucao_id: execucaoId,
@@ -434,6 +463,10 @@ async function advanceEffecti(
       portais: config?.portais ?? undefined,
     },
   );
+
+  // Enfileira os anexos dos avisos recem-coletados para extracao (paridade com
+  // a coleta manual; idempotente, best-effort).
+  await descobrirVinculosEffectiPosBloco(service, exec.id);
 
   return {
     acao: outcome.concluido ? "concluiu" : "avancou",
