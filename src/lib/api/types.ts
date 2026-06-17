@@ -984,6 +984,26 @@ export interface ConfigLlmInput {
   apiKey?: string;
 }
 
+/**
+ * config_busca — configuracao do RERANKING da busca semantica do acervo
+ * (singleton). A chave da Cohere NUNCA trafega no contrato; key_configurada
+ * apenas sinaliza se ha segredo gravado no Vault.
+ */
+export interface ConfigBusca {
+  rerankAtivo: boolean;
+  rerankModelo: string;
+  rerankCandidatos: number;
+  key_configurada: boolean;
+}
+
+/** Payload de gravacao da config de busca. apiKey opcional (so ao trocar). */
+export interface ConfigBuscaInput {
+  rerankAtivo: boolean;
+  rerankModelo: string;
+  rerankCandidatos: number;
+  apiKey?: string;
+}
+
 // ---------------------------------------------------------------------
 // Dominio E — Diretrizes/regras de cotacao e politica de participacao
 // ---------------------------------------------------------------------

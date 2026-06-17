@@ -1585,6 +1585,44 @@ export const configLlmSchema = z
 
 export type ConfigLlmInput = z.infer<typeof configLlmSchema>;
 
+// ---------------------------------------------------------------------
+// config_busca — configuracao do RERANKING da busca semantica (singleton).
+//   rerankAtivo:       master switch (OFF => Edge usa vetorial puro).
+//   rerankModelo:      modelo Cohere (ex.: 'rerank-v3.5').
+//   rerankCandidatos:  quantos chunks o vetorial traz antes do rerank [1,50].
+//   apiKey:            OPCIONAL — quando presente, vai CIFRADA p/ o Vault e
+//                      nunca volta ao cliente; ausente preserva a ja gravada.
+// ---------------------------------------------------------------------
+export const configBuscaSchema = z
+  .object({
+    rerankAtivo: z.boolean({ invalid_type_error: "rerankAtivo deve ser booleano" }),
+    rerankModelo: z
+      .string({
+        required_error: "rerankModelo e obrigatorio",
+        invalid_type_error: "rerankModelo deve ser string",
+      })
+      .trim()
+      .min(1, "rerankModelo nao pode ser vazio")
+      .max(80, "rerankModelo muito longo"),
+    rerankCandidatos: z
+      .number({
+        required_error: "rerankCandidatos e obrigatorio",
+        invalid_type_error: "rerankCandidatos deve ser numero",
+      })
+      .int("rerankCandidatos deve ser inteiro")
+      .min(1, "rerankCandidatos deve ser >= 1")
+      .max(50, "rerankCandidatos excede o teto (50)"),
+    apiKey: z
+      .string({ invalid_type_error: "apiKey deve ser string" })
+      .trim()
+      .min(1, "apiKey nao pode ser vazia")
+      .max(400, "apiKey muito longa")
+      .optional(),
+  })
+  .strict();
+
+export type ConfigBuscaInput = z.infer<typeof configBuscaSchema>;
+
 /**
  * Valida dados ja desserializados (ex.: metadados de multipart/form-data) com
  * um schema zod. Espelha a semantica do parseJsonBody (400 validation_error

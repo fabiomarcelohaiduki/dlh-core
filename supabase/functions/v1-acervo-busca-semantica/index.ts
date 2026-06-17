@@ -30,6 +30,7 @@ import { logSensitiveAction } from "../_shared/audit.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { resolveEmbeddingProvider } from "../_shared/indexacao.ts";
 import { EmbeddingError } from "../_shared/embeddings.ts";
+import { loadConfigBusca, resolveRerankProvider } from "../_shared/rerank.ts";
 import { buscaSemanticaSchema, normalizeLimite, parseJsonBody } from "../_shared/validation.ts";
 
 /** Linha retornada pela RPC public.busca_semantica_documentos. */
@@ -52,6 +53,8 @@ interface AcervoResultado {
   nome_arquivo: string | null;
   tipo_documento: string | null;
   fontes: string[];
+  /** Score de relevancia do reranker (Cohere); null quando rerank nao aplicado. */
+  relevancia: number | null;
 }
 
 async function handler(req: Request): Promise<Response> {
@@ -93,18 +96,29 @@ async function handler(req: Request): Promise<Response> {
       throw err;
     }
 
-    // Busca HNSW (cosine) via RPC SECURITY DEFINER, executada server-side.
+    // Config do rerank (singleton config_busca, administravel pelo cockpit).
+    // Quando ativo, o vetorial traz MAIS candidatos (rerank_candidatos) para o
+    // reranker reordenar; senao traz apenas o limite pedido.
     const service = createServiceClient();
+    const configBusca = await loadConfigBusca(service);
+    const usarRerank = configBusca?.rerankAtivo === true;
+    // Candidatos buscados no vetorial: ao menos o que a query pediu; a RPC
+    // ja clampa em [1,50] (defense in depth).
+    const candidatos = usarRerank
+      ? Math.max(configBusca!.rerankCandidatos, normalizedLimite)
+      : normalizedLimite;
+
+    // Busca HNSW (cosine) via RPC SECURITY DEFINER, executada server-side.
     const { data, error } = await service.rpc("busca_semantica_documentos", {
       p_embedding: queryVector,
-      p_limite: normalizedLimite,
+      p_limite: candidatos,
     });
     if (error) {
       throw new HttpError(500, "busca_semantica_failed", "falha ao executar a busca semantica");
     }
 
     const rows = (data ?? []) as AcervoRow[];
-    const resultados: AcervoResultado[] = rows.map((row) => ({
+    let resultados: AcervoResultado[] = rows.map((row) => ({
       documento_id: row.documento_id ?? null,
       chunk_index: typeof row.chunk_index === "number" ? row.chunk_index : null,
       verbatim: row.verbatim ?? "",
@@ -112,7 +126,33 @@ async function handler(req: Request): Promise<Response> {
       nome_arquivo: row.nome_arquivo ?? null,
       tipo_documento: row.tipo_documento ?? null,
       fontes: Array.isArray(row.fontes) ? row.fontes : [],
+      relevancia: null,
     }));
+
+    // RERANK (fail-open): reordena os candidatos por relevancia real e corta no
+    // limite pedido. Se a Cohere falhar (chave ausente, fora do ar, timeout), a
+    // busca devolve o top-N VETORIAL — o rerank melhora a ordem, nunca derruba.
+    let rerankAplicado = false;
+    if (usarRerank && resultados.length > 1) {
+      try {
+        const provider = await resolveRerankProvider(configBusca!.rerankModelo);
+        const ranked = await provider.rerank(
+          query,
+          resultados.map((r) => r.verbatim),
+          normalizedLimite,
+        );
+        resultados = ranked.map((r) => ({
+          ...resultados[r.index],
+          relevancia: r.relevanceScore,
+        }));
+        rerankAplicado = true;
+      } catch (_err) {
+        // Fail-open: mantem a ordem vetorial, apenas corta no limite pedido.
+        resultados = resultados.slice(0, normalizedLimite);
+      }
+    } else {
+      resultados = resultados.slice(0, normalizedLimite);
+    }
 
     // Auditoria: registra a consulta SEM o conteudo da query.
     await logSensitiveAction({
@@ -122,6 +162,8 @@ async function handler(req: Request): Promise<Response> {
       dadosNovos: {
         via: principal.kind,
         limite: normalizedLimite,
+        candidatos,
+        rerank: rerankAplicado,
         resultados: resultados.length,
       },
     });

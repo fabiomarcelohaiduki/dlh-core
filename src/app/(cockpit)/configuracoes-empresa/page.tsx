@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { ConfiguracoesEmpresaForm } from "@/components/cockpit/configuracoes-empresa-form";
 import { ConfiguracoesIaForm } from "@/components/cockpit/configuracoes-ia-form";
+import { ConfiguracoesRerankForm } from "@/components/cockpit/configuracoes-rerank-form";
 import type { ConfigEmpresa } from "@/lib/api/types";
 
 export const metadata: Metadata = { title: "Configurações da empresa" };
@@ -71,6 +72,8 @@ export default async function ConfiguracoesEmpresaPage() {
       <ConfiguracoesEmpresaForm initial={config} />
 
       <ConfiguracoesIaForm />
+
+      <ConfiguracoesRerankForm />
     </section>
   );
 }
