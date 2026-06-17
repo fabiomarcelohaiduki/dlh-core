@@ -5,15 +5,16 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 /**
- * cmp-ingestao-tabs-nav — Abas (por rota) do menu Ingestão: Coleta, Extração
- * e Fontes e credenciais. Os parâmetros da extração vivem dentro da aba
- * Extração (botão "Parâmetros"). Cada aba e um Link real (sub-rota propria,
+ * cmp-ingestao-tabs-nav — Abas (por rota) do menu Ingestão: Coleta, Extração,
+ * Indexação e Fontes e credenciais. Os parâmetros da extração vivem dentro da
+ * aba Extração (botão "Parâmetros"). Cada aba e um Link real (sub-rota propria,
  * carrega so os seus dados); o estado ativo deriva do pathname. Mesmo padrao
  * visual segmented/role=tablist do detalhe de produto.
  */
 const TABS: { href: string; label: string }[] = [
   { href: "/ingestao/execucoes", label: "Coleta" },
   { href: "/ingestao/extracao", label: "Extração" },
+  { href: "/ingestao/indexacao", label: "Indexação" },
   { href: "/ingestao/fontes", label: "Fontes e credenciais" },
 ];
 

@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   Database,
   Braces,
-  Sparkles,
   Layers,
   Package,
   SlidersHorizontal,
@@ -59,7 +58,6 @@ export const NAV_GROUPS: NavGroup[] = [
     id: "administracao",
     label: "Administração",
     items: [
-      { id: "nav-indexacao", label: "Indexação", href: "/indexacao", icon: Sparkles },
       { id: "nav-api", label: "API LLM-ready", href: "/api", icon: Braces },
       {
         id: "nav-configuracoes-empresa",
@@ -76,10 +74,10 @@ export const SCREEN_TITLES: Record<string, string> = {
   "/dashboard": "Dashboard",
   "/ingestao/execucoes": "Coleta",
   "/ingestao/extracao": "Extração",
+  "/ingestao/indexacao": "Indexação",
   "/ingestao/fontes": "Fontes e credenciais",
   "/ingestao": "Ingestão",
   "/erros": "Erros",
-  "/indexacao": "Indexação",
   "/api": "API LLM-ready",
   "/configuracoes-empresa": "Configurações da empresa",
   "/produtos": "Linha de produtos",
