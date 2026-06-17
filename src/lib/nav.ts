@@ -5,7 +5,6 @@ import {
   Braces,
   Layers,
   Package,
-  SlidersHorizontal,
   Store,
   Building2,
 } from "lucide-react";
@@ -26,31 +25,25 @@ export type NavGroup = {
 
 /**
  * Navegacao persistente travada pelo Design Lock (design-contract.json).
- * Itens primarios em 3 grupos (Monitoramento, Produtos, Administracao). A
+ * Itens primarios em 3 grupos (Cerebro, Engenharia, Administracao). A
  * config de ingestao vive dentro de Fontes (vinculada a fonte). "Detalhe do
  * edital" NAO aparece no menu. 1 item de menu = 1 tela.
  */
 export const NAV_GROUPS: NavGroup[] = [
   {
-    id: "monitoramento",
-    label: "Monitoramento",
+    id: "cerebro",
+    label: "Cérebro",
     items: [
       { id: "nav-dashboard", label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
       { id: "nav-ingestao", label: "Ingestão", href: "/ingestao", icon: Database },
     ],
   },
   {
-    id: "produtos",
-    label: "Produtos",
+    id: "engenharia",
+    label: "Engenharia",
     items: [
-      { id: "nav-produtos", label: "Linha de produtos", href: "/produtos", icon: Layers },
+      { id: "nav-produtos", label: "Produtos", href: "/produtos", icon: Layers },
       { id: "nav-insumos", label: "Lista de Materiais", href: "/insumos", icon: Package },
-      {
-        id: "nav-parametros-custo",
-        label: "Parâmetros de custo",
-        href: "/parametros-custo",
-        icon: SlidersHorizontal,
-      },
       { id: "nav-revenda", label: "Revenda", href: "/revenda", icon: Store },
     ],
   },
@@ -80,9 +73,8 @@ export const SCREEN_TITLES: Record<string, string> = {
   "/erros": "Erros",
   "/api": "API LLM-ready",
   "/configuracoes-empresa": "Configurações da empresa",
-  "/produtos": "Linha de produtos",
+  "/produtos": "Produtos",
   "/insumos": "Materiais",
-  "/parametros-custo": "Parâmetros de custo",
   "/revenda": "Revenda",
   "/edital": "Detalhe do edital",
 };

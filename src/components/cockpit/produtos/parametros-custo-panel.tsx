@@ -15,12 +15,12 @@ const NIVEIS: { value: ParametroNivel; label: string; hint: string }[] = [
 ];
 
 /**
- * Tela /parametros-custo: edita os parâmetros de custo em 3 níveis (GLOBAL ->
- * LINHA -> PRODUTO) com vetor regional e badges de origem efetiva/herdada
- * (no nível Produto, via use-parametros-resolvidos). Inclui o bloco de SKUs
- * pendentes de recálculo com atalho de recálculo manual.
+ * Corpo dos parâmetros de custo (3 níveis GLOBAL -> LINHA -> PRODUTO com vetor
+ * regional e badges de origem efetiva/herdada), mais o bloco de SKUs pendentes
+ * de recálculo. Fragmento sem wrapper .screen para poder viver dentro do drawer
+ * de Produtos (ProdutosClient).
  */
-export function ParametrosCustoClient() {
+export function ParametrosCustoPanel() {
   const [nivel, setNivel] = useState<ParametroNivel>("global");
   const [linhaId, setLinhaId] = useState("");
   const [produtoId, setProdutoId] = useState("");
@@ -47,7 +47,7 @@ export function ParametrosCustoClient() {
     (nivel === "produto" && Boolean(produtoId));
 
   return (
-    <section className="screen">
+    <>
       <div className="card">
         <div className="section-title" style={{ margin: "0 0 13px" }}>
           <h3>Nível / escopo</h3>
@@ -136,6 +136,6 @@ export function ParametrosCustoClient() {
         <h3>Recálculo</h3>
       </div>
       <PrecosPendentesList />
-    </section>
+    </>
   );
 }

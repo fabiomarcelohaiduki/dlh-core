@@ -1,8 +1,7 @@
-import type { Metadata } from "next";
-import { ParametrosCustoClient } from "./parametros-custo-client";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = { title: "Parâmetros de custo" };
+export const dynamic = "force-dynamic";
 
 export default function ParametrosCustoPage() {
-  return <ParametrosCustoClient />;
+  redirect("/produtos");
 }
