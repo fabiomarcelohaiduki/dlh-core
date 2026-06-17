@@ -27,6 +27,7 @@
 
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { Agent, fetch as undiciFetch } from "undici";
 
 const TIKA_ENDPOINT = (process.env.TIKA_ENDPOINT?.trim() || "http://localhost:9998").replace(
   /\/+$/,
@@ -37,6 +38,19 @@ const TIKA_ENDPOINT = (process.env.TIKA_ENDPOINT?.trim() || "http://localhost:99
 // receber o erro/resultado de timeout do servidor antes de desistir. Sem ela,
 // client e servidor cortariam no mesmo instante (corrida) e mascarariam o motivo.
 const TIKA_CLIENT_MARGEM_MS = 60_000;
+
+// O fetch nativo do Node 20 (undici) tem headersTimeout/bodyTimeout default de
+// 300s. O Tika NAO faz streaming: so devolve os headers DEPOIS de processar o
+// documento inteiro, entao um OCR de escaneado grande (>5min) estoura esse teto
+// do undici ANTES do nosso AbortController (timeoutMs + margem) e do
+// taskTimeoutMillis do Tika -> o erro chegava como "fetch failed" cru (tika_net)
+// sem nunca acionar os tetos que ja ampliamos. Dispatcher DEDICADO so para o
+// Tika com os timeouts internos do undici desligados (0): o AbortController
+// volta a ser o unico teto de client, alinhado logo acima do taskTimeoutMillis.
+// Usamos o fetch do PROPRIO pacote undici (nao o global) para o Dispatcher
+// casar com o cliente; os downloads de fonte (Effecti/Gmail/Drive/Nomus) seguem
+// no fetch global com os defaults intactos.
+const tikaDispatcher = new Agent({ headersTimeout: 0, bodyTimeout: 0 });
 
 // Extensoes que sao texto puro: decodificadas no Node, nunca vao ao Tika.
 const TEXTO_PURO = new Set([
@@ -219,11 +233,12 @@ async function extrairViaTika({ bytes, nomeArquivo, extension, config }) {
   // de abortar (evita corrida que mascara o motivo real do estouro).
   const timer = setTimeout(() => controller.abort(), config.timeoutMs + TIKA_CLIENT_MARGEM_MS);
   try {
-    const res = await fetch(`${TIKA_ENDPOINT}/tika`, {
+    const res = await undiciFetch(`${TIKA_ENDPOINT}/tika`, {
       method: "PUT",
       headers,
       body: bytes,
       signal: controller.signal,
+      dispatcher: tikaDispatcher,
     });
     if (!res.ok) {
       throw new ExtracaoError(`Tika respondeu ${res.status} para ${nomeArquivo ?? extension}`, "tika_http");
@@ -242,9 +257,11 @@ async function extrairViaTika({ bytes, nomeArquivo, extension, config }) {
 }
 
 /**
- * Descompacta+extrai via Tika RECURSIVO (/rmeta/text). O Tika `full` ja traz
- * commons-compress (7z/tar) e junrar (RAR4) e roda Tesseract nos membros, entao
- * NAO precisamos de binario externo (o 7za do 7zip-bin nao decodifica RAR).
+ * Descompacta+extrai via Tika RECURSIVO (/rmeta/text). Usado para 7z/tar, que o
+ * Tika `full` ja desempacota via commons-compress, rodando Tesseract nos membros
+ * (sem binario externo). RAR NAO passa mais por aqui: o junrar embutido no Tika
+ * so le RAR4, e RAR5 (padrao do WinRAR atual) voltava com zero membros -> texto
+ * vazio. RAR vai por extrairRar (node-unrar-js, WASM, le RAR5).
  * A resposta e um JSON array: [0] e o container (sem texto util) e [1..] os
  * arquivos embutidos, cada um com "X-TIKA:content". Concatenamos os membros.
  */
@@ -273,11 +290,12 @@ async function extrairViaTikaRecursivo({ bytes, nomeArquivo, extension, config }
   // de abortar (evita corrida que mascara o motivo real do estouro).
   const timer = setTimeout(() => controller.abort(), config.timeoutMs + TIKA_CLIENT_MARGEM_MS);
   try {
-    const res = await fetch(`${TIKA_ENDPOINT}/rmeta/text`, {
+    const res = await undiciFetch(`${TIKA_ENDPOINT}/rmeta/text`, {
       method: "PUT",
       headers,
       body: bytes,
       signal: controller.signal,
+      dispatcher: tikaDispatcher,
     });
     if (!res.ok) {
       throw new ExtracaoError(`Tika respondeu ${res.status} para ${nomeArquivo ?? extension}`, "tika_http");
@@ -307,9 +325,56 @@ async function extrairViaTikaRecursivo({ bytes, nomeArquivo, extension, config }
 }
 
 /**
- * Desempacota um container e extrai cada membro. ZIP via adm-zip (controle por
- * membro do OCR). RAR/7Z via Tika recursivo (/rmeta/text), que ja desempacota e
- * extrai sem dependencia nova. Deps carregadas sob demanda (so o job precisa).
+ * Descompacta RAR (incl. RAR5) via node-unrar-js (WASM, sem binario externo) e
+ * re-extrai cada membro com extrairTexto (recursao), igual ao ZIP. Necessario
+ * porque o junrar embutido no Tika so le RAR4: RAR5 voltava com zero membros ->
+ * texto vazio. Um membro nao-extraivel NAO derruba o container (pula e segue).
+ * Dep carregada sob demanda (so o job precisa). usouOcr = OR dos membros.
+ */
+async function extrairRar({ bytes, config }) {
+  let createExtractorFromData;
+  try {
+    ({ createExtractorFromData } = await import("node-unrar-js"));
+  } catch {
+    throw new ExtracaoError("dependencia 'node-unrar-js' ausente (npm i node-unrar-js)", "dep_faltando");
+  }
+  // node-unrar-js espera um ArrayBuffer proprio: fatia a janela exata do Uint8Array.
+  const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  let extractor;
+  try {
+    extractor = await createExtractorFromData({ data });
+  } catch (err) {
+    throw new ExtracaoError(`falha ao abrir RAR: ${err?.message ?? err}`, "compactado_nao_suportado");
+  }
+  const headers = [...extractor.getFileList().fileHeaders];
+  const alvos = headers.filter((h) => !h.flags.directory).map((h) => h.name);
+  const partes = [];
+  let usouOcr = false;
+  const extraido = extractor.extract({ files: alvos });
+  for (const membro of extraido.files) {
+    if (membro.fileHeader.flags.directory) continue;
+    const membroBytes = membro.extraction;
+    const nome = membro.fileHeader.name;
+    if (!membroBytes || membroBytes.byteLength === 0) {
+      partes.push(`\n===== ${nome} (ignorado: vazio) =====`);
+      continue;
+    }
+    try {
+      const r = await extrairTexto({ bytes: membroBytes, nomeArquivo: nome, config });
+      if (r.usouOcr) usouOcr = true;
+      partes.push(`\n===== ${nome} =====\n${r.texto}`);
+    } catch (err) {
+      const motivo = err instanceof ExtracaoError ? err.code : "erro";
+      partes.push(`\n===== ${nome} (ignorado: ${motivo}) =====`);
+    }
+  }
+  return { texto: partes.join("\n").trim(), usouOcr };
+}
+
+/**
+ * Desempacota um container e extrai cada membro. ZIP via adm-zip e RAR via
+ * node-unrar-js (controle por membro do OCR e suporte a RAR5). 7Z via Tika
+ * recursivo (/rmeta/text). Deps carregadas sob demanda (so o job precisa).
  */
 async function extrairCompactado({ bytes, nomeArquivo, extension, config }) {
   if (extension === "zip") {
@@ -342,10 +407,13 @@ async function extrairCompactado({ bytes, nomeArquivo, extension, config }) {
     }
     return { texto: partes.join("\n").trim(), usouOcr: false };
   }
-  if (extension === "rar" || extension === "7z") {
+  if (extension === "rar") {
+    return await extrairRar({ bytes, config });
+  }
+  if (extension === "7z") {
     return await extrairViaTikaRecursivo({
       bytes,
-      nomeArquivo: nomeArquivo ?? `arquivo.${extension}`,
+      nomeArquivo: nomeArquivo ?? "arquivo.7z",
       extension,
       config,
     });

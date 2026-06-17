@@ -4,6 +4,8 @@
   "description": "Dependencias dos runners de NUVEM (GitHub Actions): coletar-nomus, extrair-anexos. Isolado do app Next.js do repo raiz para o job instalar so o necessario (ex: adm-zip para descompactar ZIP na camada 1).",
   "type": "module",
   "dependencies": {
-    "adm-zip": "^0.5.16"
+    "adm-zip": "^0.5.16",
+    "node-unrar-js": "^2.0.2",
+    "undici": "^6.21.1"
   }
 }

@@ -458,13 +458,18 @@ async function processarVinculo(vinculo, configExtrator) {
       extension: extensao,
       config: configExtrator,
     });
-    // Modo rapido (OCR off): um arquivo que so daria texto via OCR (PDF
-    // escaneado/imagem) volta quase vazio. Em vez de gravar lixo, sinaliza
-    // precisa_ocr -> o Edge enfileira e o passo OCR dedicado extrai depois.
-    // Nativo (PDF com camada de texto) passa direto. No modo ocr nao se aplica.
+    // Modo rapido (OCR off): um arquivo que so daria texto via OCR volta quase
+    // vazio. Em vez de gravar lixo, sinaliza precisa_ocr -> o Edge enfileira e o
+    // passo OCR dedicado re-extrai com OCR ligado. Cobre PDF/imagem direto
+    // (via=tika, ext OCR-elegivel) E containers (via=compactado: um RAR/ZIP cujos
+    // membros sao escaneados sai vazio com OCR off; o passo OCR re-extrai o
+    // container inteiro com OCR ligado). Nativo (PDF com camada de texto,
+    // container com membro de texto) passa direto. No modo ocr nao se aplica.
+    const ocrElegivel =
+      (r.via === "tika" && EXT_OCR.has(r.ext)) || r.via === "compactado";
     if (
-      MODO === "rapido" && r.via === "tika" &&
-      EXT_OCR.has(r.ext) && (r.texto?.length ?? 0) < OCR_TEXTO_MINIMO
+      MODO === "rapido" && ocrElegivel &&
+      (r.texto?.length ?? 0) < OCR_TEXTO_MINIMO
     ) {
       return {
         vinculo_id: vinculo.id,
