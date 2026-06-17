@@ -60,3 +60,19 @@ verify_jwt = false
 # deploy sem --no-verify-jwt reabre o bug e a Lia nao consegue chamar a tool.
 [functions.v1-substrato-sql]
 verify_jwt = false
+
+# Backfill da indexacao dos PROCESSOS (perna processos do RAG). Mesma
+# autenticacao interna do documentos-indexar (X-Cron-Secret do Vault OU
+# service_role bearer; o pg_net/cron manda so X-Cron-Secret, sem Authorization).
+# Sem este pin, deploy sem --no-verify-jwt reabre o bug do gateway (401 antes
+# do codigo) e a cadeia agendada morre em silencio.
+[functions.processos-indexar]
+verify_jwt = false
+
+# Busca semantica dos PROCESSOS /v1: mesma autenticacao das outras tools (API
+# key da Lia lia_sk_ no Vault OU sessao do cockpit via authenticateV1). A API
+# key NAO e JWT -> sem este pin o gateway barra o Bearer lia_sk_ com
+# {UNAUTHORIZED_INVALID_JWT_FORMAT} antes do codigo. Sem o pin, deploy sem
+# --no-verify-jwt reabre o bug e a Lia nao consegue chamar a tool.
+[functions.v1-acervo-busca-processos]
+verify_jwt = false

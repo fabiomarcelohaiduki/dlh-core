@@ -28,6 +28,8 @@ export const CHARS_POR_CHUNK = 2_000;
 export interface ConfigIndexacao {
   /** Master switch: OFF => nao indexa (texto fica status_indexacao='pendente'). */
   ativo: boolean;
+  /** Master switch da indexacao de PROCESSOS (nomus_processos.descricao). Independente de `ativo`. */
+  processosAtivo: boolean;
   /** null = todas as fontes; array = somente estas (gating por documento_vinculos.fonte). */
   fontesHabilitadas: string[] | null;
   /** Orcamento de chunks por invocacao do backfill (proxy via CHARS_POR_CHUNK). */
@@ -51,7 +53,7 @@ export async function loadConfigIndexacao(
 ): Promise<ConfigIndexacao | null> {
   const { data, error } = await service
     .from("config_indexacao")
-    .select("ativo, fontes_habilitadas, lote_chunks, pausa_ms, tentativas_max, tpm_alvo")
+    .select("ativo, processos_ativo, fontes_habilitadas, lote_chunks, pausa_ms, tentativas_max, tpm_alvo")
     .limit(1)
     .maybeSingle();
   if (error) {
@@ -65,6 +67,7 @@ export async function loadConfigIndexacao(
   const c = data as Record<string, unknown>;
   return {
     ativo: c.ativo === true,
+    processosAtivo: c.processos_ativo === true,
     fontesHabilitadas: Array.isArray(c.fontes_habilitadas)
       ? (c.fontes_habilitadas as string[])
       : null,
