@@ -14,6 +14,12 @@ import { cn } from "@/lib/utils";
 import type { ConfigBuscaInput } from "@/lib/api/types";
 
 const MODELO_DEFAULT = "rerank-v3.5";
+// Allowlist de modelos Cohere suportados (espelha RERANK_MODELOS no backend).
+const MODELOS = [
+  { value: "rerank-v3.5", label: "rerank-v3.5 (multilíngue)" },
+  { value: "rerank-multilingual-v3.0", label: "rerank-multilingual-v3.0" },
+  { value: "rerank-english-v3.0", label: "rerank-english-v3.0" },
+] as const;
 const CANDIDATOS_DEFAULT = 50;
 const CANDIDATOS_MIN = 1;
 const CANDIDATOS_MAX = 50;
@@ -156,14 +162,18 @@ export function ConfiguracoesRerankForm() {
 
         <div className="field">
           <label htmlFor="rerank-modelo">Modelo</label>
-          <input
-            type="text"
+          <select
             id="rerank-modelo"
-            placeholder={MODELO_DEFAULT}
             value={modelo}
             onChange={(e) => setModelo(e.target.value)}
-          />
-          <div className="helper">Ex.: rerank-v3.5.</div>
+          >
+            {MODELOS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+          <div className="helper">Modelo de rerank da Cohere.</div>
         </div>
 
         <div className="field">
@@ -237,7 +247,11 @@ export function ConfiguracoesRerankForm() {
       </div>
 
       <div className="form-foot" style={{ marginTop: 22 }}>
-        <button className="btn btn-primary" type="submit" disabled={salvar.isPending}>
+        <button
+          className="btn btn-primary"
+          type="submit"
+          disabled={salvar.isPending || faltaChave}
+        >
           {salvar.isPending ? (
             <Loader2 className="spin" aria-hidden="true" />
           ) : (

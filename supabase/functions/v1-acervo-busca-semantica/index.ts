@@ -132,8 +132,14 @@ async function handler(req: Request): Promise<Response> {
     // RERANK (fail-open): reordena os candidatos por relevancia real e corta no
     // limite pedido. Se a Cohere falhar (chave ausente, fora do ar, timeout), a
     // busca devolve o top-N VETORIAL — o rerank melhora a ordem, nunca derruba.
-    let rerankAplicado = false;
-    if (usarRerank && resultados.length > 1) {
+    let rerankStatus: "aplicado" | "desligado" | "fail_open" | "poucos_candidatos";
+    if (!usarRerank) {
+      rerankStatus = "desligado";
+      resultados = resultados.slice(0, normalizedLimite);
+    } else if (resultados.length <= 1) {
+      rerankStatus = "poucos_candidatos";
+      resultados = resultados.slice(0, normalizedLimite);
+    } else {
       try {
         const provider = await resolveRerankProvider(configBusca!.rerankModelo);
         const ranked = await provider.rerank(
@@ -141,17 +147,26 @@ async function handler(req: Request): Promise<Response> {
           resultados.map((r) => r.verbatim),
           normalizedLimite,
         );
-        resultados = ranked.map((r) => ({
-          ...resultados[r.index],
-          relevancia: r.relevanceScore,
-        }));
-        rerankAplicado = true;
-      } catch (_err) {
+        // Dedup defensivo: ignora indices repetidos que a Cohere possa devolver e
+        // corta no limite pedido (parseRerankResponse valida range, nao unicidade).
+        const vistos = new Set<number>();
+        const reordenados: AcervoResultado[] = [];
+        for (const r of ranked) {
+          if (vistos.has(r.index)) continue;
+          vistos.add(r.index);
+          reordenados.push({ ...resultados[r.index], relevancia: r.relevanceScore });
+          if (reordenados.length >= normalizedLimite) break;
+        }
+        resultados = reordenados;
+        rerankStatus = "aplicado";
+      } catch (err) {
         // Fail-open: mantem a ordem vetorial, apenas corta no limite pedido.
+        console.warn(
+          `[rerank] fail-open: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        rerankStatus = "fail_open";
         resultados = resultados.slice(0, normalizedLimite);
       }
-    } else {
-      resultados = resultados.slice(0, normalizedLimite);
     }
 
     // Auditoria: registra a consulta SEM o conteudo da query.
@@ -163,7 +178,7 @@ async function handler(req: Request): Promise<Response> {
         via: principal.kind,
         limite: normalizedLimite,
         candidatos,
-        rerank: rerankAplicado,
+        rerank_status: rerankStatus,
         resultados: resultados.length,
       },
     });

@@ -57,7 +57,7 @@ async function handleGet(): Promise<Response> {
 
   return jsonResponse(
     {
-      rerankAtivo: row?.rerank_ativo ?? true,
+      rerankAtivo: row?.rerank_ativo ?? false,
       rerankModelo: row?.rerank_modelo ?? RERANK_MODELO_DEFAULT,
       rerankCandidatos: row?.rerank_candidatos ?? RERANK_CANDIDATOS_DEFAULT,
       key_configurada: segredo != null,

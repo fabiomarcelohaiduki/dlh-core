@@ -35,6 +35,11 @@ create table if not exists public.config_busca (
   updated_at        timestamptz
 );
 
+-- Singleton GLOBAL de verdade: indice unico sobre constante garante 1 unica
+-- linha (segundo insert colide). Espelha o padrao das demais configs.
+create unique index if not exists config_busca_singleton
+  on public.config_busca ((true));
+
 -- ---------------------------------------------------------------------
 -- RLS: mesmo gate das demais configs (conta autorizada).
 -- ---------------------------------------------------------------------

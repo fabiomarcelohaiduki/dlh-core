@@ -1593,17 +1593,21 @@ export type ConfigLlmInput = z.infer<typeof configLlmSchema>;
 //   apiKey:            OPCIONAL — quando presente, vai CIFRADA p/ o Vault e
 //                      nunca volta ao cliente; ausente preserva a ja gravada.
 // ---------------------------------------------------------------------
+// Allowlist de modelos Cohere de rerank suportados. Restringe a entrada a
+// modelos validos (defesa em profundidade; o cockpit ja oferece um select).
+export const RERANK_MODELOS = [
+  "rerank-v3.5",
+  "rerank-multilingual-v3.0",
+  "rerank-english-v3.0",
+] as const;
+
 export const configBuscaSchema = z
   .object({
     rerankAtivo: z.boolean({ invalid_type_error: "rerankAtivo deve ser booleano" }),
-    rerankModelo: z
-      .string({
-        required_error: "rerankModelo e obrigatorio",
-        invalid_type_error: "rerankModelo deve ser string",
-      })
-      .trim()
-      .min(1, "rerankModelo nao pode ser vazio")
-      .max(80, "rerankModelo muito longo"),
+    rerankModelo: z.enum(RERANK_MODELOS, {
+      required_error: "rerankModelo e obrigatorio",
+      invalid_type_error: "rerankModelo invalido",
+    }),
     rerankCandidatos: z
       .number({
         required_error: "rerankCandidatos e obrigatorio",
