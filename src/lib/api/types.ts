@@ -993,6 +993,8 @@ export interface ConfigBusca {
   rerankAtivo: boolean;
   rerankModelo: string;
   rerankCandidatos: number;
+  hibridaAtiva: boolean;
+  hibridaCandidatosLexical: number;
   key_configurada: boolean;
 }
 
@@ -1001,6 +1003,8 @@ export interface ConfigBuscaInput {
   rerankAtivo: boolean;
   rerankModelo: string;
   rerankCandidatos: number;
+  hibridaAtiva: boolean;
+  hibridaCandidatosLexical: number;
   apiKey?: string;
 }
 

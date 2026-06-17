@@ -32,13 +32,17 @@ interface ConfigBuscaRow {
   rerank_ativo: boolean;
   rerank_modelo: string;
   rerank_candidatos: number;
+  hibrida_ativa: boolean;
+  hibrida_candidatos_lexical: number;
 }
 
-const SELECT_COLS = "id, rerank_ativo, rerank_modelo, rerank_candidatos";
+const SELECT_COLS =
+  "id, rerank_ativo, rerank_modelo, rerank_candidatos, hibrida_ativa, hibrida_candidatos_lexical";
 
 /** Defaults quando a config ainda nao foi salva (espelha o seed). */
 const RERANK_MODELO_DEFAULT = "rerank-v3.5";
 const RERANK_CANDIDATOS_DEFAULT = 50;
+const HIBRIDA_CANDIDATOS_LEXICAL_DEFAULT = 50;
 
 async function handleGet(): Promise<Response> {
   const service = createServiceClient();
@@ -60,6 +64,9 @@ async function handleGet(): Promise<Response> {
       rerankAtivo: row?.rerank_ativo ?? false,
       rerankModelo: row?.rerank_modelo ?? RERANK_MODELO_DEFAULT,
       rerankCandidatos: row?.rerank_candidatos ?? RERANK_CANDIDATOS_DEFAULT,
+      hibridaAtiva: row?.hibrida_ativa ?? false,
+      hibridaCandidatosLexical: row?.hibrida_candidatos_lexical ??
+        HIBRIDA_CANDIDATOS_LEXICAL_DEFAULT,
       key_configurada: segredo != null,
     },
     200,
@@ -95,6 +102,8 @@ async function handlePut(req: Request): Promise<Response> {
     rerank_ativo: input.rerankAtivo,
     rerank_modelo: input.rerankModelo,
     rerank_candidatos: input.rerankCandidatos,
+    hibrida_ativa: input.hibridaAtiva,
+    hibrida_candidatos_lexical: input.hibridaCandidatosLexical,
     updated_at: new Date().toISOString(),
   };
 
@@ -136,6 +145,8 @@ async function handlePut(req: Request): Promise<Response> {
       rerankAtivo: payload.rerank_ativo,
       rerankModelo: payload.rerank_modelo,
       rerankCandidatos: payload.rerank_candidatos,
+      hibridaAtiva: payload.hibrida_ativa,
+      hibridaCandidatosLexical: payload.hibrida_candidatos_lexical,
       chaveAtualizada: keyAtualizada,
     },
   });

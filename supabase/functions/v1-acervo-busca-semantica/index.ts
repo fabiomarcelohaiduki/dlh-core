@@ -11,8 +11,15 @@
 //     resolveEmbeddingProvider() — NUNCA o provider default do env (bge-m3),
 //     que produziria vetores em outro espaco e zeraria a relevancia.
 //   - Chama a RPC busca_semantica_documentos(p_embedding, p_limite), que faz
-//     HNSW (cosine) sobre memoria_chunks origem='documento' e enriquece o
+//     IVFFlat (cosine) sobre memoria_chunks origem='documento' e enriquece o
 //     top-K com nome/tipo do documento e as fontes (documento_vinculos).
+//   - BUSCA HIBRIDA (config_busca.hibrida_ativa): quando ligada, roda tambem a
+//     perna lexical (busca_lexical_documentos) em paralelo e funde as duas por
+//     Reciprocal Rank Fusion (RRF) — o vetorial acha por significado, a lexical
+//     ancora termo exato (numero de edital, UASG, CATMAT, CNPJ). A perna
+//     lexical e FAIL-OPEN: se falhar, cai no vetorial puro.
+//   - RERANK (config_busca.rerank_ativo): quando ligado, roda DEPOIS da fusao,
+//     sobre o conjunto unido (Cohere). Tambem fail-open.
 //   - limite e normalizado/limitado em [1, 50] (default 10); query vazia ou
 //     acima de 2000 caracteres e rejeitada por validacao (422).
 //
@@ -42,6 +49,30 @@ interface AcervoRow {
   nome_arquivo: string | null;
   tipo_documento: string | null;
   fontes: string[] | null;
+}
+
+/** Linha retornada pela RPC public.busca_lexical_documentos (perna lexical). */
+interface AcervoLexicalRow {
+  documento_id: string | null;
+  chunk_index: number | null;
+  verbatim: string | null;
+  rank_lexical: number | null;
+  nome_arquivo: string | null;
+  tipo_documento: string | null;
+  fontes: string[] | null;
+}
+
+/**
+ * Constante k do Reciprocal Rank Fusion. Atenua o peso das posicoes do topo
+ * para que itens bem ranqueados em QUALQUER perna contribuam, e itens
+ * presentes nas DUAS subam mais. 60 e o valor canonico da literatura RRF;
+ * raramente ajustado, mantido como constante (nao exposto no cockpit).
+ */
+const RRF_K = 60;
+
+/** Chave de fusao = o CHUNK (documento + indice), unidade das duas pernas. */
+function chaveChunk(documentoId: string | null, chunkIndex: number | null): string {
+  return `${documentoId ?? ""}#${chunkIndex ?? ""}`;
 }
 
 /** Item do contrato de saida (acervo). */
@@ -96,38 +127,139 @@ async function handler(req: Request): Promise<Response> {
       throw err;
     }
 
-    // Config do rerank (singleton config_busca, administravel pelo cockpit).
-    // Quando ativo, o vetorial traz MAIS candidatos (rerank_candidatos) para o
-    // reranker reordenar; senao traz apenas o limite pedido.
+    // Config de busca (singleton config_busca, administravel pelo cockpit):
+    // master switch da fusao hibrida + do rerank, e tamanhos dos pools.
     const service = createServiceClient();
     const configBusca = await loadConfigBusca(service);
     const usarRerank = configBusca?.rerankAtivo === true;
-    // Candidatos buscados no vetorial: ao menos o que a query pediu; a RPC
-    // ja clampa em [1,50] (defense in depth).
-    const candidatos = usarRerank
+    const usarHibrida = configBusca?.hibridaAtiva === true;
+
+    // Pool de candidatos por perna. Tanto rerank quanto fusao precisam de mais
+    // material que o limite final para reordenar; a RPC clampa em [1,50]
+    // (defense in depth). Sem nenhum dos dois, busca so o limite pedido.
+    const candidatos = usarRerank || usarHibrida
       ? Math.max(configBusca!.rerankCandidatos, normalizedLimite)
       : normalizedLimite;
+    const candidatosLexical = usarHibrida
+      ? Math.max(configBusca!.hibridaCandidatosLexical, normalizedLimite)
+      : 0;
 
-    // Busca HNSW (cosine) via RPC SECURITY DEFINER, executada server-side.
-    const { data, error } = await service.rpc("busca_semantica_documentos", {
-      p_embedding: queryVector,
-      p_limite: candidatos,
-    });
-    if (error) {
+    // Perna vetorial (sempre) + perna lexical (so na fusao), em paralelo. A
+    // lexical e FAIL-OPEN: se a RPC falhar, a busca cai no vetorial puro.
+    const [vetorialRes, lexicalRes] = await Promise.all([
+      service.rpc("busca_semantica_documentos", {
+        p_embedding: queryVector,
+        p_limite: candidatos,
+      }),
+      usarHibrida
+        ? service.rpc("busca_lexical_documentos", {
+          p_query: query,
+          p_limite: candidatosLexical,
+        })
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
+    if (vetorialRes.error) {
       throw new HttpError(500, "busca_semantica_failed", "falha ao executar a busca semantica");
     }
 
-    const rows = (data ?? []) as AcervoRow[];
-    let resultados: AcervoResultado[] = rows.map((row) => ({
-      documento_id: row.documento_id ?? null,
-      chunk_index: typeof row.chunk_index === "number" ? row.chunk_index : null,
-      verbatim: row.verbatim ?? "",
-      similaridade: typeof row.similaridade === "number" ? row.similaridade : 0,
-      nome_arquivo: row.nome_arquivo ?? null,
-      tipo_documento: row.tipo_documento ?? null,
-      fontes: Array.isArray(row.fontes) ? row.fontes : [],
-      relevancia: null,
-    }));
+    const vetorialRows = (vetorialRes.data ?? []) as AcervoRow[];
+    let lexicalRows: AcervoLexicalRow[] = [];
+    // Status da perna lexical, para auditoria/observabilidade.
+    let hibridaStatus: "aplicado" | "desligado" | "fail_open" = usarHibrida
+      ? "aplicado"
+      : "desligado";
+    if (usarHibrida) {
+      if (lexicalRes.error) {
+        // Fail-open: a falha lexical nao derruba a busca; segue so com vetorial.
+        console.warn(
+          `[hibrida] fail-open lexical: ${
+            (lexicalRes.error as { message?: string }).message ?? "erro desconhecido"
+          }`,
+        );
+        hibridaStatus = "fail_open";
+      } else {
+        lexicalRows = (lexicalRes.data ?? []) as AcervoLexicalRow[];
+      }
+    }
+
+    let resultados: AcervoResultado[];
+    if (!usarHibrida || hibridaStatus === "fail_open") {
+      // Caminho vetorial puro (fusao desligada ou lexical indisponivel).
+      resultados = vetorialRows.map((row) => ({
+        documento_id: row.documento_id ?? null,
+        chunk_index: typeof row.chunk_index === "number" ? row.chunk_index : null,
+        verbatim: row.verbatim ?? "",
+        similaridade: typeof row.similaridade === "number" ? row.similaridade : 0,
+        nome_arquivo: row.nome_arquivo ?? null,
+        tipo_documento: row.tipo_documento ?? null,
+        fontes: Array.isArray(row.fontes) ? row.fontes : [],
+        relevancia: null,
+      }));
+    } else {
+      // Fusao Reciprocal Rank Fusion: cada perna contribui 1/(k + posicao);
+      // o chunk presente nas DUAS soma as duas contribuicoes e sobe. A ordem
+      // de cada perna ja vem do banco (vetorial por distancia, lexical por
+      // rank), entao o indice do array E a posicao (0-based).
+      const fusao = new Map<string, AcervoResultado & { rrf: number }>();
+
+      vetorialRows.forEach((row, i) => {
+        const k = chaveChunk(row.documento_id ?? null, row.chunk_index ?? null);
+        const atual = fusao.get(k);
+        const contrib = 1 / (RRF_K + i + 1);
+        if (atual) {
+          atual.rrf += contrib;
+          atual.similaridade = typeof row.similaridade === "number" ? row.similaridade : 0;
+        } else {
+          fusao.set(k, {
+            documento_id: row.documento_id ?? null,
+            chunk_index: typeof row.chunk_index === "number" ? row.chunk_index : null,
+            verbatim: row.verbatim ?? "",
+            similaridade: typeof row.similaridade === "number" ? row.similaridade : 0,
+            nome_arquivo: row.nome_arquivo ?? null,
+            tipo_documento: row.tipo_documento ?? null,
+            fontes: Array.isArray(row.fontes) ? row.fontes : [],
+            relevancia: null,
+            rrf: contrib,
+          });
+        }
+      });
+
+      lexicalRows.forEach((row, i) => {
+        const k = chaveChunk(row.documento_id ?? null, row.chunk_index ?? null);
+        const atual = fusao.get(k);
+        const contrib = 1 / (RRF_K + i + 1);
+        if (atual) {
+          atual.rrf += contrib;
+        } else {
+          fusao.set(k, {
+            documento_id: row.documento_id ?? null,
+            chunk_index: typeof row.chunk_index === "number" ? row.chunk_index : null,
+            verbatim: row.verbatim ?? "",
+            // Chunk so-lexical nao tem similaridade vetorial.
+            similaridade: 0,
+            nome_arquivo: row.nome_arquivo ?? null,
+            tipo_documento: row.tipo_documento ?? null,
+            fontes: Array.isArray(row.fontes) ? row.fontes : [],
+            relevancia: null,
+            rrf: contrib,
+          });
+        }
+      });
+
+      resultados = [...fusao.values()]
+        .sort((a, b) => b.rrf - a.rrf)
+        .map(({ rrf: _rrf, ...rest }) => rest);
+    }
+
+    // Limita o material que segue para o rerank (Cohere) ao pool configurado,
+    // mantendo custo/latencia previsiveis quando a fusao une as duas pernas.
+    if (usarRerank) {
+      resultados = resultados.slice(
+        0,
+        Math.max(configBusca!.rerankCandidatos, normalizedLimite),
+      );
+    }
 
     // RERANK (fail-open): reordena os candidatos por relevancia real e corta no
     // limite pedido. Se a Cohere falhar (chave ausente, fora do ar, timeout), a
@@ -178,6 +310,10 @@ async function handler(req: Request): Promise<Response> {
         via: principal.kind,
         limite: normalizedLimite,
         candidatos,
+        candidatos_lexical: candidatosLexical,
+        hibrida_status: hibridaStatus,
+        vetorial_chunks: vetorialRows.length,
+        lexical_chunks: lexicalRows.length,
         rerank_status: rerankStatus,
         resultados: resultados.length,
       },

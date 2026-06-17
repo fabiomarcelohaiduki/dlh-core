@@ -196,6 +196,10 @@ export interface ConfigBusca {
   rerankModelo: string;
   /** Quantos candidatos o vetorial traz antes do rerank (cap [1,50]). */
   rerankCandidatos: number;
+  /** Master switch da fusao RRF (vetorial + lexical). OFF => vetorial puro. */
+  hibridaAtiva: boolean;
+  /** Quantos chunks a perna lexical traz para a fusao RRF (cap [1,50]). */
+  hibridaCandidatosLexical: number;
 }
 
 /**
@@ -206,7 +210,9 @@ export interface ConfigBusca {
 export async function loadConfigBusca(service: ServiceClient): Promise<ConfigBusca | null> {
   const { data, error } = await service
     .from("config_busca")
-    .select("rerank_ativo, rerank_modelo, rerank_candidatos")
+    .select(
+      "rerank_ativo, rerank_modelo, rerank_candidatos, hibrida_ativa, hibrida_candidatos_lexical",
+    )
     .limit(1)
     .maybeSingle();
   if (error) {
@@ -222,6 +228,11 @@ export async function loadConfigBusca(service: ServiceClient): Promise<ConfigBus
     rerankCandidatos: typeof c.rerank_candidatos === "number" && c.rerank_candidatos > 0
       ? Math.min(c.rerank_candidatos, 50)
       : 50,
+    hibridaAtiva: c.hibrida_ativa === true,
+    hibridaCandidatosLexical:
+      typeof c.hibrida_candidatos_lexical === "number" && c.hibrida_candidatos_lexical > 0
+        ? Math.min(c.hibrida_candidatos_lexical, 50)
+        : 50,
   };
 }
 

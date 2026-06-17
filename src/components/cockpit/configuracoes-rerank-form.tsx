@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   Check,
   KeyRound,
+  Layers,
   Loader2,
   ListOrdered,
   TriangleAlert,
@@ -23,6 +24,7 @@ const MODELOS = [
 const CANDIDATOS_DEFAULT = 50;
 const CANDIDATOS_MIN = 1;
 const CANDIDATOS_MAX = 50;
+const LEXICAL_DEFAULT = 50;
 
 type Feedback = { kind: "ok" | "err"; message: string };
 
@@ -40,6 +42,8 @@ export function ConfiguracoesRerankForm() {
   const [ativo, setAtivo] = useState(true);
   const [modelo, setModelo] = useState(MODELO_DEFAULT);
   const [candidatos, setCandidatos] = useState(CANDIDATOS_DEFAULT);
+  const [hibrida, setHibrida] = useState(false);
+  const [candidatosLex, setCandidatosLex] = useState(LEXICAL_DEFAULT);
   const [keyConfigurada, setKeyConfigurada] = useState(false);
   const [substituindo, setSubstituindo] = useState(false);
   const [apiKey, setApiKey] = useState("");
@@ -51,6 +55,8 @@ export function ConfiguracoesRerankForm() {
     setAtivo(data.rerankAtivo);
     setModelo(data.rerankModelo || MODELO_DEFAULT);
     setCandidatos(data.rerankCandidatos || CANDIDATOS_DEFAULT);
+    setHibrida(data.hibridaAtiva);
+    setCandidatosLex(data.hibridaCandidatosLexical || LEXICAL_DEFAULT);
     setKeyConfigurada(data.key_configurada);
     setSubstituindo(false);
     setApiKey("");
@@ -82,10 +88,24 @@ export function ConfiguracoesRerankForm() {
       return;
     }
 
+    if (
+      !Number.isInteger(candidatosLex) ||
+      candidatosLex < CANDIDATOS_MIN ||
+      candidatosLex > CANDIDATOS_MAX
+    ) {
+      setFeedback({
+        kind: "err",
+        message: `Candidatos lexicais deve ser entre ${CANDIDATOS_MIN} e ${CANDIDATOS_MAX}.`,
+      });
+      return;
+    }
+
     const input: ConfigBuscaInput = {
       rerankAtivo: ativo,
       rerankModelo: modelo.trim() || MODELO_DEFAULT,
       rerankCandidatos: candidatos,
+      hibridaAtiva: hibrida,
+      hibridaCandidatosLexical: candidatosLex,
     };
     const chave = apiKey.trim();
     if (chave !== "") input.apiKey = chave;
@@ -197,7 +217,51 @@ export function ConfiguracoesRerankForm() {
         </div>
       </div>
 
-      <div className="field">
+      <div className="section-title" style={{ marginTop: 24 }}>
+        <h3>
+          <Layers aria-hidden="true" />
+          Busca híbrida
+        </h3>
+      </div>
+      <p className="helper" style={{ marginTop: 2, marginBottom: 14 }}>
+        Combina o vetorial (significado) com a busca lexical (termo exato:
+        número de edital, UASG, CATMAT, CNPJ) por fusão RRF. Desligada, a busca
+        usa apenas o vetorial. O rerank, quando ativo, roda depois da fusão.
+      </p>
+
+      <label className="chk" style={{ maxWidth: 320 }}>
+        <input
+          type="checkbox"
+          checked={hibrida}
+          onChange={(e) => setHibrida(e.target.checked)}
+        />
+        <div className="t">Busca híbrida ativa</div>
+      </label>
+
+      <div className="grid-fields" style={{ marginTop: 14 }}>
+        <div className="field">
+          <label htmlFor="hibrida-candidatos">Candidatos lexicais</label>
+          <div className="input-affix">
+            <input
+              type="number"
+              id="hibrida-candidatos"
+              min={CANDIDATOS_MIN}
+              max={CANDIDATOS_MAX}
+              disabled={!hibrida}
+              value={Number.isNaN(candidatosLex) ? "" : candidatosLex}
+              onChange={(e) =>
+                setCandidatosLex(e.target.value === "" ? Number.NaN : Number(e.target.value))
+              }
+            />
+            <span className="suffix">chunks</span>
+          </div>
+          <div className="helper">
+            Entre {CANDIDATOS_MIN} e {CANDIDATOS_MAX}. Chunks que a perna lexical traz para a fusão.
+          </div>
+        </div>
+      </div>
+
+      <div className="field" style={{ marginTop: 18 }}>
         <label htmlFor="rerank-key">Chave da API</label>
         {mostraCampoChave ? (
           <>

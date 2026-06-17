@@ -1590,6 +1590,8 @@ export type ConfigLlmInput = z.infer<typeof configLlmSchema>;
 //   rerankAtivo:       master switch (OFF => Edge usa vetorial puro).
 //   rerankModelo:      modelo Cohere (ex.: 'rerank-v3.5').
 //   rerankCandidatos:  quantos chunks o vetorial traz antes do rerank [1,50].
+//   hibridaAtiva:      master switch da fusao RRF (vetorial + lexical).
+//   hibridaCandidatosLexical: quantos chunks a perna lexical traz p/ a fusao [1,50].
 //   apiKey:            OPCIONAL — quando presente, vai CIFRADA p/ o Vault e
 //                      nunca volta ao cliente; ausente preserva a ja gravada.
 // ---------------------------------------------------------------------
@@ -1616,6 +1618,17 @@ export const configBuscaSchema = z
       .int("rerankCandidatos deve ser inteiro")
       .min(1, "rerankCandidatos deve ser >= 1")
       .max(50, "rerankCandidatos excede o teto (50)"),
+    // Fusao hibrida (RRF). Defaults p/ compatibilidade com clientes antigos
+    // que ainda nao enviam os campos (a perna hibrida nasce desligada).
+    hibridaAtiva: z
+      .boolean({ invalid_type_error: "hibridaAtiva deve ser booleano" })
+      .default(false),
+    hibridaCandidatosLexical: z
+      .number({ invalid_type_error: "hibridaCandidatosLexical deve ser numero" })
+      .int("hibridaCandidatosLexical deve ser inteiro")
+      .min(1, "hibridaCandidatosLexical deve ser >= 1")
+      .max(50, "hibridaCandidatosLexical excede o teto (50)")
+      .default(50),
     apiKey: z
       .string({ invalid_type_error: "apiKey deve ser string" })
       .trim()
