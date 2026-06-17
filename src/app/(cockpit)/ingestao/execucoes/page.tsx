@@ -1,8 +1,7 @@
-import type { Metadata } from "next";
-import { ExecucoesClient } from "@/app/(cockpit)/execucoes/execucoes-client";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = { title: "Coleta" };
+export const dynamic = "force-dynamic";
 
 export default function IngestaoExecucoesPage() {
-  return <ExecucoesClient />;
+  redirect("/ingestao/coleta");
 }

@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
  * visual segmented/role=tablist do detalhe de produto.
  */
 const TABS: { href: string; label: string }[] = [
-  { href: "/ingestao/execucoes", label: "Coleta" },
+  { href: "/ingestao/coleta", label: "Coleta" },
   { href: "/ingestao/extracao", label: "Extração" },
   { href: "/ingestao/indexacao", label: "Indexação" },
   { href: "/ingestao/fontes", label: "Fontes e credenciais" },
