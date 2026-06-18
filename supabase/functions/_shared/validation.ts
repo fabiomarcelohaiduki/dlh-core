@@ -1775,14 +1775,14 @@ export type RevendaPrecoUpdateInput = z.infer<typeof revendaPrecoUpdateSchema>;
 // =====================================================================
 // Dominio E (Produtos): criterios de cotacao, regras estruturadas e
 // politica de participacao (secao 3.2 / RF-18..RF-21B). Diferente dos
-// parametros, o `nivel` aqui aceita SOMENTE 'linha' ou 'produto' e
+// parametros, o `nivel` aqui aceita 'linha', 'produto' ou 'sku' e
 // `escopo_id` e SEMPRE obrigatorio (FK logica, not null no schema). O texto
 // de cotacao_diretrizes.texto e politica_participacao.diretriz_texto e
 // indexado em memoria_chunks (origem='produto', tipo='produto-cotacao').
 // =====================================================================
 
 /** Niveis de escopo de cotacao (precedencia PRODUTO sobre LINHA). */
-export const COTACAO_NIVEIS = ["linha", "produto"] as const;
+export const COTACAO_NIVEIS = ["linha", "produto", "sku"] as const;
 export type CotacaoNivel = (typeof COTACAO_NIVEIS)[number];
 
 export const cotacaoNivelEnum = z.enum(COTACAO_NIVEIS, {
@@ -1790,7 +1790,7 @@ export const cotacaoNivelEnum = z.enum(COTACAO_NIVEIS, {
 });
 
 /**
- * Resolve/valida o filtro `nivel` (?nivel=) restrito a linha/produto. Ausente
+ * Resolve/valida o filtro `nivel` (?nivel=) restrito a linha/produto/sku. Ausente
  * -> undefined (sem filtro); valor presente e invalido -> 400.
  */
 export function parseCotacaoNivelFilter(value: string | null): CotacaoNivel | undefined {
