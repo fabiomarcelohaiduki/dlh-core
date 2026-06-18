@@ -1095,10 +1095,14 @@ export type FeedbackHumano = "correto" | "incorreto";
 /** Item da fila de triagem (aviso ja triado), exposto na aba Triagem. */
 export interface TriagemItem {
   avisoId: string;
+  effectiId: string | null;
+  /** Numero do edital/pregao (payload_bruto->>processo). */
+  edital: string | null;
+  portal: string | null;
   objeto: string;
   orgao: string;
   uf: string;
-  /** ISO8601 (data_publicacao | data_captura). */
+  /** ISO8601 da abertura dos lances (data_final). */
   data: string;
   veredito: Veredito | null;
   /** Confianca crua em [0,1]; null quando ausente. */

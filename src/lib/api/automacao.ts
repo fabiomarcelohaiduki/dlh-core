@@ -26,6 +26,9 @@ import type {
 
 interface RawTriagemItem {
   aviso_id: string;
+  effecti_id: string | null;
+  edital: string | null;
+  portal: string | null;
   objeto: string;
   orgao: string;
   uf: string;
@@ -130,6 +133,9 @@ interface RawFeedbackResponse {
 function toTriagemItem(raw: RawTriagemItem): TriagemItem {
   return {
     avisoId: raw.aviso_id,
+    effectiId: raw.effecti_id ?? null,
+    edital: raw.edital ?? null,
+    portal: raw.portal ?? null,
     objeto: raw.objeto,
     orgao: raw.orgao,
     uf: raw.uf,

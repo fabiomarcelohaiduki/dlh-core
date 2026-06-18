@@ -36,6 +36,9 @@ const VEREDITOS = new Set(["util", "duvida", "lixo", "todos"]);
 /** Item da listagem (contrato 3.2.3). */
 interface AvisoTriadoItem {
   aviso_id: string;
+  effecti_id: string | null;
+  edital: string | null;
+  portal: string | null;
   objeto: string;
   orgao: string;
   uf: string;
@@ -54,6 +57,9 @@ interface AvisoTriadoItem {
 /** Linha de avisos lida (com aliases de uf via payload_bruto). */
 interface AvisoRow {
   id: string;
+  effecti_id: string | null;
+  portal: string | null;
+  edital: string | null;
   objeto: string | null;
   orgao: string | null;
   data_final: string | null;
@@ -156,6 +162,9 @@ async function listarFila(
   const avisos = (data ?? []) as unknown as AvisoRow[];
   const itens: AvisoTriadoItem[] = avisos.map((aviso) => ({
     aviso_id: aviso.id,
+    effecti_id: aviso.effecti_id ?? null,
+    edital: aviso.edital ?? null,
+    portal: aviso.portal ?? null,
     objeto: aviso.objeto ?? "",
     orgao: aviso.orgao ?? "",
     uf: resolveUf(aviso),
@@ -251,9 +260,10 @@ async function handler(req: Request): Promise<Response> {
 
     const db = createServiceClient();
 
-    const selectCols = "id, objeto, orgao, data_final, data_publicacao, data_captura, " +
+    const selectCols = "id, effecti_id, portal, objeto, orgao, data_final, data_publicacao, data_captura, " +
       "triagem_veredito, triagem_confianca, triagem_em, reabilitado, " +
       "na_lixeira, na_lixeira_em, " +
+      "edital:payload_bruto->>processo, " +
       "uf_direct:payload_bruto->>uf, uf_estado:payload_bruto->>estado, " +
       "uf_sigla:payload_bruto->>siglaUf";
 
@@ -315,6 +325,9 @@ async function handler(req: Request): Promise<Response> {
       const confianca = aviso.triagem_confianca == null ? null : Number(aviso.triagem_confianca);
       return {
         aviso_id: aviso.id,
+        effecti_id: aviso.effecti_id ?? null,
+        edital: aviso.edital ?? null,
+        portal: aviso.portal ?? null,
         objeto: aviso.objeto ?? "",
         orgao: aviso.orgao ?? "",
         uf: resolveUf(aviso),

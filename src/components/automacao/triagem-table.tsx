@@ -1,18 +1,18 @@
 import type { CSSProperties, ReactNode } from "react";
 import { Inbox } from "lucide-react";
 import type { TriagemItem } from "@/lib/api/types";
-import { formatDate } from "@/lib/format";
+import { formatDataUtc, formatDate, formatHoraUtc } from "@/lib/format";
 import { VereditoBadge } from "@/components/automacao/veredito-badge";
 
 export type TriagemVariant = "triagem" | "lixeira" | "fila";
 
 const COLUMNS: Record<TriagemVariant, string[]> = {
-  triagem: ["Objeto", "Órgão / UF", "Abertura", "Veredito", "Motivo", "Avaliação"],
-  lixeira: ["Objeto", "Órgão / UF", "Abertura", "Veredito", "Motivo", "Descarte previsto"],
-  fila: ["Objeto", "Órgão / UF", "Abertura"],
+  triagem: ["Effecti", "Edital", "Portal", "Órgão / UF", "Abertura", "Hora", "Veredito", "Motivo", "Avaliação"],
+  lixeira: ["Effecti", "Edital", "Portal", "Órgão / UF", "Abertura", "Hora", "Veredito", "Motivo", "Descarte previsto"],
+  fila: ["Effecti", "Edital", "Portal", "Órgão / UF", "Abertura", "Hora"],
 };
 
-/** Truncamento inline (FE-4): motivo e objeto na propria linha, sem drawer. */
+/** Truncamento inline (FE-4): motivo na propria linha, sem drawer. */
 const truncate: CSSProperties = {
   display: "block",
   maxWidth: 360,
@@ -98,18 +98,17 @@ export function TriagemTable({
           ) : (
             items.map((it) => (
               <tr key={it.avisoId}>
-                <td>
-                  <span style={truncate} title={it.objeto}>
-                    {it.objeto || "—"}
-                  </span>
-                </td>
+                <td className="sub tnum">{it.effectiId || "—"}</td>
+                <td className="tnum">{it.edital || "—"}</td>
+                <td className="sub">{it.portal || "—"}</td>
                 <td>
                   <div className="cell-stack">
                     <span>{it.orgao || "—"}</span>
                     <span className="sub">{it.uf || "—"}</span>
                   </div>
                 </td>
-                <td className="sub tnum">{formatDate(it.data)}</td>
+                <td className="tnum">{formatDataUtc(it.data)}</td>
+                <td className="sub tnum">{formatHoraUtc(it.data)}</td>
                 {!isFila && (
                   <>
                     <td>

@@ -19,6 +19,23 @@ const DATE_TIME_FULL = new Intl.DateTimeFormat("pt-BR", {
   second: "2-digit",
 });
 
+// A abertura dos lances (data_final do aviso Effecti) e gravada NAIVE como UTC
+// (o horario local da licitacao foi serializado sem fuso). Por isso a data e a
+// hora dessa coluna sao formatadas em UTC, senao o BRT mostraria -3h (08:00 no
+// lugar de 11:00).
+const DATA_UTC = new Intl.DateTimeFormat("pt-BR", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+const HORA_UTC = new Intl.DateTimeFormat("pt-BR", {
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: "UTC",
+});
+
 const NUMBER = new Intl.NumberFormat("pt-BR");
 
 const CURRENCY = new Intl.NumberFormat("pt-BR", {
@@ -57,6 +74,18 @@ export function formatDate(value: string | null | undefined): string {
   if (dateOnly) return `${dateOnly[3]}/${dateOnly[2]}/${dateOnly[1]}`;
   const d = parse(value);
   return d ? d.toLocaleDateString("pt-BR") : "—";
+}
+
+/** "22/06/2026" — data de abertura dos lances (data_final), formatada em UTC. */
+export function formatDataUtc(value: string | null | undefined): string {
+  const d = parse(value);
+  return d ? DATA_UTC.format(d) : "—";
+}
+
+/** "11:00" — horario de abertura dos lances (data_final), formatado em UTC. */
+export function formatHoraUtc(value: string | null | undefined): string {
+  const d = parse(value);
+  return d ? HORA_UTC.format(d) : "—";
 }
 
 /** "há 14 min" / "há 2 h" / "há 3 d" — KPI de ultima sincronizacao. */
