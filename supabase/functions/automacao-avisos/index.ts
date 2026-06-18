@@ -318,7 +318,8 @@ async function handler(req: Request): Promise<Response> {
         objeto: aviso.objeto ?? "",
         orgao: aviso.orgao ?? "",
         uf: resolveUf(aviso),
-        data: aviso.data_publicacao ?? aviso.data_captura ?? null,
+        // Data de ABERTURA dos lances (data_final das propostas), igual a Fila.
+        data: aviso.data_final ?? null,
         veredito: aviso.triagem_veredito ?? null,
         confianca: confianca != null && Number.isFinite(confianca) ? confianca : null,
         motivo: dec?.motivo ?? null,

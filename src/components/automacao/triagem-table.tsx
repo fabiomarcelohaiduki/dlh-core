@@ -7,8 +7,8 @@ import { VereditoBadge } from "@/components/automacao/veredito-badge";
 export type TriagemVariant = "triagem" | "lixeira" | "fila";
 
 const COLUMNS: Record<TriagemVariant, string[]> = {
-  triagem: ["Objeto", "Órgão / UF", "Data", "Veredito", "Motivo", "Avaliação"],
-  lixeira: ["Objeto", "Órgão / UF", "Veredito", "Motivo", "Descarte previsto"],
+  triagem: ["Objeto", "Órgão / UF", "Abertura", "Veredito", "Motivo", "Avaliação"],
+  lixeira: ["Objeto", "Órgão / UF", "Abertura", "Veredito", "Motivo", "Descarte previsto"],
   fila: ["Objeto", "Órgão / UF", "Abertura"],
 };
 
@@ -109,7 +109,7 @@ export function TriagemTable({
                     <span className="sub">{it.uf || "—"}</span>
                   </div>
                 </td>
-                {!isLixeira && <td className="sub tnum">{formatDate(it.data)}</td>}
+                <td className="sub tnum">{formatDate(it.data)}</td>
                 {!isFila && (
                   <>
                     <td>
