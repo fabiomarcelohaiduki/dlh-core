@@ -35,8 +35,10 @@ import { getFonteByTipo, getFonteSecret } from "../_shared/vault.ts";
 import {
   createEmbeddingProvider,
   EmbeddingError,
+  type EmbeddingProvider,
   generateAndStoreChunks,
 } from "../_shared/embeddings.ts";
+import { resolveEmbeddingProvider } from "../_shared/indexacao.ts";
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
@@ -96,11 +98,24 @@ async function resolveEffectiConnector(): Promise<EffectiConnector | null> {
   }
 }
 
-/** Gera o embedding (1024-d) do exemplo. Best-effort: null em degradacao. */
+/**
+ * Gera o embedding (1024-d) do exemplo via MESMO provider do indice
+ * (resolveEmbeddingProvider -> OpenAI/Vault) para casar com o vetor do aviso na
+ * recuperacao few-shot. Best-effort: null em degradacao.
+ */
 async function embedExemplo(texto: string): Promise<string | null> {
-  if (!(getEnv().embeddingsEndpoint ?? "").trim()) return null;
+  let provider: EmbeddingProvider;
   try {
-    const provider = createEmbeddingProvider();
+    provider = await resolveEmbeddingProvider();
+  } catch (err) {
+    console.warn(
+      `[triagem-favoritar-retry] provider de embeddings indisponivel; exemplo sem vetor: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return null;
+  }
+  try {
     const [vector] = await provider.embed([texto]);
     if (!Array.isArray(vector) || vector.length === 0) return null;
     return `[${vector.join(",")}]`;

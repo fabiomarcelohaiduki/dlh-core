@@ -32,7 +32,8 @@ import { timingSafeEqual } from "../_shared/crypto.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 import { errorMessage, recordIngestErro } from "../_shared/ingest-errors.ts";
-import { createEmbeddingProvider, EmbeddingError } from "../_shared/embeddings.ts";
+import { EmbeddingError, type EmbeddingProvider } from "../_shared/embeddings.ts";
+import { resolveEmbeddingProvider } from "../_shared/indexacao.ts";
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
@@ -98,9 +99,21 @@ async function loadConfig(
  * exemplo e gravado sem vetor, sem derrubar o descarte.
  */
 async function embedExemplo(texto: string): Promise<string | null> {
-  if (!(getEnv().embeddingsEndpoint ?? "").trim()) return null;
+  // Usa o MESMO provider com que o substrato/catalogo foi indexado
+  // (resolveEmbeddingProvider -> OpenAI/Vault, 1024) para que o vetor do exemplo
+  // case com o vetor do aviso na recuperacao few-shot (cosine na fila).
+  let provider: EmbeddingProvider;
   try {
-    const provider = createEmbeddingProvider();
+    provider = await resolveEmbeddingProvider();
+  } catch (err) {
+    console.warn(
+      `[triagem-descarte-cron] provider de embeddings indisponivel; exemplo sem vetor: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return null;
+  }
+  try {
     const [vector] = await provider.embed([texto]);
     if (!Array.isArray(vector) || vector.length === 0) return null;
     return `[${vector.join(",")}]`;
