@@ -71,7 +71,7 @@ export function AvisosClient() {
   return (
     <>
       <div className="section-title" style={{ marginTop: 0 }}>
-        <h3>Triagem</h3>
+        <h3>Triados</h3>
         {!loading && !triagem.isError && (
           <span className="count">{filtrados.length}</span>
         )}

@@ -48,6 +48,12 @@ interface RawAvisosResponse {
   next_cursor: string | null;
 }
 
+interface RawFilaResponse {
+  itens: RawTriagemItem[];
+  total: number;
+  next_cursor: string | null;
+}
+
 interface RawRegra {
   id: string;
   tipo: string;
@@ -233,6 +239,19 @@ export interface ListLixeiraParams {
   cursor?: string;
 }
 
+/** Filtros da fila de avisos aguardando triagem (automacao-avisos?fila=true). */
+export interface ListFilaParams {
+  limite?: number;
+  cursor?: string;
+}
+
+/** Pagina da fila (aguardando triagem) + total da fila inteira. */
+export interface FilaPage {
+  itens: TriagemItem[];
+  total: number;
+  nextCursor: string | null;
+}
+
 export interface FeedbackInput {
   avisoId: string;
   feedback: FeedbackHumano;
@@ -310,6 +329,19 @@ export async function listTriagem(
     itens: (raw.itens ?? []).map(toTriagemItem),
     descarteFisicoLigado: raw.descarte_fisico_ligado === true,
     diasCarencia: raw.dias_carencia,
+    nextCursor: raw.next_cursor ?? null,
+  };
+}
+
+/** Lista os avisos aguardando triagem (fila FIFO) + total da fila inteira. */
+export async function listFila(params: ListFilaParams = {}): Promise<FilaPage> {
+  const raw = await apiFetch<RawFilaResponse>(
+    `automacao-avisos${buildQuery({ ...params, fila: true })}`,
+    { method: "GET" },
+  );
+  return {
+    itens: (raw.itens ?? []).map(toTriagemItem),
+    total: raw.total ?? 0,
     nextCursor: raw.next_cursor ?? null,
   };
 }

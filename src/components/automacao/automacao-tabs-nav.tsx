@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 /**
- * cmp-automacao-tabs-nav — Abas (por rota) do modulo Automacao: Triagem,
+ * cmp-automacao-tabs-nav — Abas (por rota) do modulo Automacao: Fila, Triagem,
  * Lixeira, Regras, Backtest, Aprendizado e Configuracao. Cada aba e um Link
  * real (sub-rota propria, carrega so os seus dados); o estado ativo deriva do
  * pathname. Mesmo padrao visual segmented/role=tablist do molde Ingestao.
@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
  * exige match EXATO, evitando ficar ativa em /automacao/avisos/lixeira etc.
  */
 const TABS: { href: string; label: string; exact?: boolean }[] = [
+  { href: "/automacao/fila", label: "Fila" },
   { href: "/automacao/avisos", label: "Triagem", exact: true },
   { href: "/automacao/avisos/lixeira", label: "Lixeira" },
   { href: "/automacao/avisos/regras", label: "Regras" },

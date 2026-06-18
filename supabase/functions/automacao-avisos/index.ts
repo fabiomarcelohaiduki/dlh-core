@@ -97,6 +97,84 @@ function resolveUf(aviso: AvisoRow): string {
   return "";
 }
 
+/**
+ * Fila: avisos aguardando triagem. Mesmos criterios da esteira
+ * (selectAvisosElegiveis): status_indexacao='indexado', reabilitado=false e
+ * triagem_veredito IS NULL, em ordem FIFO (data_captura asc, id asc). Devolve
+ * a pagina + `total` (count exato da fila inteira, para o badge "N aguardando").
+ */
+async function listarFila(
+  db: ServiceClient,
+  selectCols: string,
+  limite: number,
+  cursor: string | null,
+): Promise<Response> {
+  // Total da fila inteira (badge), independente da pagina/cursor.
+  const { count, error: countError } = await db
+    .from("avisos")
+    .select("id", { count: "exact", head: true })
+    .eq("status_indexacao", "indexado")
+    .eq("reabilitado", false)
+    .is("triagem_veredito", null);
+  if (countError) {
+    throw new Error(`falha ao contar a fila: ${countError.message}`);
+  }
+
+  let query = db
+    .from("avisos")
+    .select(selectCols)
+    .eq("status_indexacao", "indexado")
+    .eq("reabilitado", false)
+    .is("triagem_veredito", null);
+
+  // Keyset por cursor (uuid): retoma apos o aviso apontado, na ordem FIFO
+  // (data_captura asc, id asc). Cursor desconhecido => recomeca do inicio.
+  if (cursor) {
+    const { data: cursorRow } = await db
+      .from("avisos")
+      .select("data_captura")
+      .eq("id", cursor)
+      .maybeSingle();
+    const cursorCaptura = cursorRow?.data_captura as string | undefined;
+    if (cursorCaptura) {
+      query = query.or(
+        `data_captura.gt."${cursorCaptura}",` +
+          `and(data_captura.eq."${cursorCaptura}",id.gt."${cursor}")`,
+      );
+    }
+  }
+
+  const { data, error } = await query
+    .order("data_captura", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(limite);
+  if (error) {
+    throw new Error(`falha ao listar a fila: ${error.message}`);
+  }
+
+  const avisos = (data ?? []) as unknown as AvisoRow[];
+  const itens: AvisoTriadoItem[] = avisos.map((aviso) => ({
+    aviso_id: aviso.id,
+    objeto: aviso.objeto ?? "",
+    orgao: aviso.orgao ?? "",
+    uf: resolveUf(aviso),
+    data: aviso.data_publicacao ?? aviso.data_captura ?? null,
+    veredito: null,
+    confianca: null,
+    motivo: null,
+    produto_candidato: null,
+    feedback_humano: null,
+    na_lixeira: false,
+    na_lixeira_em: null,
+    descarte_previsto_em: null,
+    reabilitado: false,
+  }));
+
+  const nextCursor = itens.length === limite ? itens[itens.length - 1].aviso_id : null;
+
+  return jsonResponse({ itens, total: count ?? 0, next_cursor: nextCursor }, 200);
+}
+
 /** descarte_previsto_em = na_lixeira_em + dias_carencia (ou null). */
 function calcDescartePrevisto(naLixeiraEm: string | null, diasCarencia: number): string | null {
   if (!naLixeiraEm) return null;
@@ -163,6 +241,7 @@ async function handler(req: Request): Promise<Response> {
     const veredito = (url.searchParams.get("veredito") ?? "todos").toLowerCase();
     const vereditoFiltro = VEREDITOS.has(veredito) ? veredito : "todos";
     const lixeira = url.searchParams.get("lixeira") === "true";
+    const fila = url.searchParams.get("fila") === "true";
     const limite = normalizeLimite(url.searchParams.get("limite"));
     const cursor = url.searchParams.get("cursor");
 
@@ -173,6 +252,12 @@ async function handler(req: Request): Promise<Response> {
       "na_lixeira, na_lixeira_em, " +
       "uf_direct:payload_bruto->>uf, uf_estado:payload_bruto->>estado, " +
       "uf_sigla:payload_bruto->>siglaUf";
+
+    // Fila: avisos aguardando triagem (ainda sem veredito). Ramo proprio,
+    // ortogonal a listagem de triados/lixeira.
+    if (fila) {
+      return await listarFila(db, selectCols, limite, cursor);
+    }
 
     // Avisos JA triados (nunca oculta lixo na visao geral).
     let query = db

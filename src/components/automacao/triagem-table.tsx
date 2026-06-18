@@ -4,11 +4,12 @@ import type { TriagemItem } from "@/lib/api/types";
 import { formatDate } from "@/lib/format";
 import { VereditoBadge } from "@/components/automacao/veredito-badge";
 
-export type TriagemVariant = "triagem" | "lixeira";
+export type TriagemVariant = "triagem" | "lixeira" | "fila";
 
 const COLUMNS: Record<TriagemVariant, string[]> = {
   triagem: ["Objeto", "Órgão / UF", "Data", "Veredito", "Motivo", "Avaliação"],
   lixeira: ["Objeto", "Órgão / UF", "Veredito", "Motivo", "Descarte previsto"],
+  fila: ["Objeto", "Órgão / UF", "Data"],
 };
 
 /** Truncamento inline (FE-4): motivo e objeto na propria linha, sem drawer. */
@@ -69,6 +70,7 @@ export function TriagemTable({
   const columns = COLUMNS[variant];
   const colCount = columns.length;
   const isLixeira = variant === "lixeira";
+  const isFila = variant === "fila";
 
   return (
     <div className="tbl-wrap tbl-scroll">
@@ -108,18 +110,22 @@ export function TriagemTable({
                   </div>
                 </td>
                 {!isLixeira && <td className="sub tnum">{formatDate(it.data)}</td>}
-                <td>
-                  <VereditoBadge veredito={it.veredito} confianca={it.confianca} />
-                </td>
-                <td>
-                  <span className="sub" style={truncate} title={it.motivo ?? undefined}>
-                    {it.motivo ?? "—"}
-                  </span>
-                </td>
-                {isLixeira ? (
-                  <td className="sub tnum">{formatDate(it.descartePrevistoEm)}</td>
-                ) : (
-                  <td>{renderAction ? renderAction(it) : null}</td>
+                {!isFila && (
+                  <>
+                    <td>
+                      <VereditoBadge veredito={it.veredito} confianca={it.confianca} />
+                    </td>
+                    <td>
+                      <span className="sub" style={truncate} title={it.motivo ?? undefined}>
+                        {it.motivo ?? "—"}
+                      </span>
+                    </td>
+                    {isLixeira ? (
+                      <td className="sub tnum">{formatDate(it.descartePrevistoEm)}</td>
+                    ) : (
+                      <td>{renderAction ? renderAction(it) : null}</td>
+                    )}
+                  </>
                 )}
               </tr>
             ))

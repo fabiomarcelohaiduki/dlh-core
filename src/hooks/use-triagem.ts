@@ -1,7 +1,12 @@
 "use client";
 
 import { useQuery, type QueryKey } from "@tanstack/react-query";
-import { listTriagem, type ListTriagemParams } from "@/lib/api/automacao";
+import {
+  listFila,
+  listTriagem,
+  type ListFilaParams,
+  type ListTriagemParams,
+} from "@/lib/api/automacao";
 
 /**
  * Intervalo de refetch leve da fila enquanto a aba esta aberta (FE-3). Sem SSE
@@ -24,6 +29,25 @@ export function useTriagem(params: ListTriagemParams = {}) {
   return useQuery({
     queryKey: triagemKeys.list(params),
     queryFn: () => listTriagem(params),
+    refetchInterval: REFETCH_INTERVAL_MS,
+  });
+}
+
+/** Chaves de cache da fila de avisos aguardando triagem (aba Fila). */
+export const filaKeys = {
+  all: ["triagem-fila"] as QueryKey,
+  list: (params: ListFilaParams): QueryKey => ["triagem-fila", "list", params],
+};
+
+/**
+ * useFila — lista paginada dos avisos aguardando triagem (GET
+ * automacao-avisos?fila=true) + total da fila. Refetch leve enquanto a aba Fila
+ * esta aberta: a fila drena em rajadas conforme a esteira processa.
+ */
+export function useFila(params: ListFilaParams = {}) {
+  return useQuery({
+    queryKey: filaKeys.list(params),
+    queryFn: () => listFila(params),
     refetchInterval: REFETCH_INTERVAL_MS,
   });
 }

@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 
-// Entrada do menu Automação: cai na primeira aba (Triagem).
+// Entrada do menu Automação: cai na primeira aba (Fila).
 export const dynamic = "force-dynamic";
 
 export default function AutomacaoPage() {
-  redirect("/automacao/avisos");
+  redirect("/automacao/fila");
 }
