@@ -7,9 +7,13 @@ import { z } from "zod";
 import { Check, ChevronRight, Loader2, Plus, TriangleAlert, Trash2, X } from "lucide-react";
 import {
   useCreateDiretriz,
+  useCreateRegra,
   useDeleteDiretriz,
+  useDeleteRegra,
   useDiretrizes,
+  useRegras,
   useUpdateDiretriz,
+  useUpdateRegra,
 } from "@/hooks/use-criterios";
 import {
   useCreatePolitica,
@@ -17,7 +21,12 @@ import {
   useUpdatePolitica,
 } from "@/hooks/use-politica";
 import { cn } from "@/lib/utils";
-import type { CotacaoNivel, PoliticaParticipa } from "@/lib/api/types";
+import type {
+  CotacaoNivel,
+  CotacaoRegra,
+  CotacaoTipoRegra,
+  PoliticaParticipa,
+} from "@/lib/api/types";
 
 const PARTICIPA: { value: PoliticaParticipa; label: string }[] = [
   { value: "sim", label: "Sim" },
@@ -25,11 +34,30 @@ const PARTICIPA: { value: PoliticaParticipa; label: string }[] = [
   { value: "condicional", label: "Condicional" },
 ];
 
+const TIPO_REGRA: { value: CotacaoTipoRegra; label: string; ajuda: string }[] = [
+  {
+    value: "faixa",
+    label: "Faixa de valor",
+    ajuda: "Tolera variação numérica de um atributo (ex.: dimensão 28 a 32 cm).",
+  },
+  {
+    value: "opcional",
+    label: "Atributo opcional",
+    ajuda: "O atributo pode faltar no edital sem desqualificar a cotação.",
+  },
+  {
+    value: "substituicao",
+    label: "Substituição equivalente",
+    ajuda: "Permite trocar por um equivalente (ex.: composição diferente aceita).",
+  },
+];
+
 /**
  * cmp-criterios-panel — Bloco 4: diretrizes textuais, regras estruturadas e
- * politica de participacao de cotacao para um escopo (LINHA ou PRODUTO). O
- * mesmo painel atende os dois niveis variando `nivel`/`escopoId`. Diretrizes e
- * politica.diretriz_texto sao reindexadas semanticamente no backend ao salvar.
+ * politica de participacao de cotacao para um escopo (LINHA, PRODUTO ou SKU). O
+ * mesmo painel atende os tres niveis variando `nivel`/`escopoId`. Diretrizes
+ * alimentam a busca semantica (embedding); politica e regras sao carimbos
+ * deterministicos que a Lia segue (nunca entram no embedding).
  */
 export function CriteriosPanel({
   nivel,
@@ -41,9 +69,12 @@ export function CriteriosPanel({
   const params = { nivel, escopo_id: escopoId };
 
   return (
-    <div className="grid-dlh g2" style={{ alignItems: "start" }}>
-      <DiretrizesBlock params={params} nivel={nivel} escopoId={escopoId} />
-      <PoliticaBlock params={params} nivel={nivel} escopoId={escopoId} />
+    <div style={{ display: "grid", gap: 16 }}>
+      <div className="grid-dlh g2" style={{ alignItems: "start" }}>
+        <DiretrizesBlock params={params} nivel={nivel} escopoId={escopoId} />
+        <PoliticaBlock params={params} nivel={nivel} escopoId={escopoId} />
+      </div>
+      <RegrasBlock params={params} nivel={nivel} escopoId={escopoId} />
     </div>
   );
 }
@@ -147,8 +178,10 @@ function DiretrizesBlock({
         ) : null}
       </div>
       <p className="helper" style={{ margin: "0 0 14px" }}>
-        Como cotar depois que a DLH decide entrar. Preferências de estratégia que
-        a Lia segue ao montar o preço (não são travas).
+        Vocabulário que ajuda a Lia a <strong>encontrar</strong> este item no
+        edital: sinônimos, aplicações, termos técnicos e materiais. Entra na
+        busca semântica. Não escreva decisão, preço, margem nem tolerância aqui
+        (isso vai em Política e Regras).
       </p>
       {diretrizes.isLoading ? (
         <span className="skel skel-line" style={{ width: "70%" }} />
@@ -258,7 +291,7 @@ function DiretrizesBlock({
             <textarea
               id={`diretriz-${escopoId}`}
               rows={3}
-              placeholder="ex.: Mouse pad em gel pode ir no valor-alvo: o concorrente cota em espuma e é desclassificado."
+              placeholder="ex.: Também chamado de apoio de punho. Usado em estações de digitação. Superfície em gel de silicone."
               value={texto}
               onChange={(e) => {
                 setTexto(e.target.value);
@@ -415,8 +448,9 @@ function PoliticaBlock({
         <h3>Política de participação</h3>
       </div>
       <p className="helper" style={{ margin: "0 0 14px" }}>
-        Se a DLH entra ou não na licitação deste escopo (Sim / Não / Condicional)
-        e por quê.
+        Decisão de entrar ou não na licitação deste escopo (Sim / Não /
+        Condicional) e o porquê. É um carimbo determinístico: não entra na busca,
+        a Lia segue como regra.
       </p>
 
       {politica.isLoading ? (
@@ -456,7 +490,7 @@ function PoliticaBlock({
             <textarea
               id={`pol-diretriz-${escopoId}`}
               rows={2}
-              placeholder="ex.: Linha ergonomia é prioritária, tem a melhor margem."
+              placeholder="ex.: Linha prioritária. Concorrentes em espuma são desclassificados."
               {...register("diretriz_texto")}
             />
           </div>
@@ -496,5 +530,406 @@ function PoliticaBlock({
         </>
       )}
     </form>
+  );
+}
+
+// --- Regras estruturadas de cotacao --------------------------------
+
+/** Converte texto de numero pt-BR ("28,5") em Number; vazio/ausente -> NaN. */
+function paraNumero(v: string | undefined): number {
+  return v ? Number(v.replace(",", ".")) : NaN;
+}
+
+const regraSchema = z
+  .object({
+    atributo: z.string().trim().min(1, "Informe o atributo."),
+    tipo_regra: z.enum(["faixa", "opcional", "substituicao"]),
+    valor_min: z.string().trim().optional(),
+    valor_max: z.string().trim().optional(),
+    substituicao: z.string().trim().optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.tipo_regra === "faixa") {
+      if (!val.valor_min && !val.valor_max) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["valor_min"],
+          message: "Informe ao menos um limite (mínimo ou máximo).",
+        });
+      }
+      for (const campo of ["valor_min", "valor_max"] as const) {
+        const v = val[campo];
+        if (v && Number.isNaN(paraNumero(v))) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [campo],
+            message: "Use um número (ex.: 28 ou 28,5).",
+          });
+        }
+      }
+      const min = paraNumero(val.valor_min);
+      const max = paraNumero(val.valor_max);
+      if (!Number.isNaN(min) && !Number.isNaN(max) && min > max) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["valor_max"],
+          message: "Máximo deve ser maior ou igual ao mínimo.",
+        });
+      }
+    }
+    if (val.tipo_regra === "substituicao" && !val.substituicao) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["substituicao"],
+        message: "Descreva a substituição permitida.",
+      });
+    }
+  });
+type RegraValues = z.infer<typeof regraSchema>;
+
+const REGRA_VAZIA: RegraValues = {
+  atributo: "",
+  tipo_regra: "faixa",
+  valor_min: "",
+  valor_max: "",
+  substituicao: "",
+};
+
+function regraResumo(r: CotacaoRegra): string {
+  if (r.tipo_regra === "faixa") {
+    const min = r.valor_min != null ? r.valor_min : "−∞";
+    const max = r.valor_max != null ? r.valor_max : "+∞";
+    return `Faixa de ${min} a ${max}`;
+  }
+  if (r.tipo_regra === "substituicao") {
+    return `Substituição: ${r.substituicao ?? ""}`;
+  }
+  return "Opcional (pode faltar no edital)";
+}
+
+function RegrasBlock({
+  params,
+  nivel,
+  escopoId,
+}: {
+  params: ListParams;
+  nivel: CotacaoNivel;
+  escopoId: string;
+}) {
+  const regras = useRegras(params);
+  const createRegra = useCreateRegra();
+  const updateRegra = useUpdateRegra();
+  const deleteRegra = useDeleteRegra();
+
+  const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ kind: "ok" | "err"; msg: string } | null>(
+    null,
+  );
+
+  const items = regras.data?.items ?? [];
+  const formOpen = creating || editingId !== null;
+
+  const {
+    register,
+    handleSubmit,
+    watch,
+    reset,
+    formState: { errors },
+  } = useForm<RegraValues>({
+    resolver: zodResolver(regraSchema),
+    defaultValues: REGRA_VAZIA,
+  });
+  const tipo = watch("tipo_regra");
+
+  function openCreate() {
+    reset(REGRA_VAZIA);
+    setEditingId(null);
+    setCreating(true);
+    setFeedback(null);
+  }
+
+  function openEdit(r: CotacaoRegra) {
+    reset({
+      atributo: r.atributo,
+      tipo_regra: r.tipo_regra,
+      valor_min: r.valor_min != null ? String(r.valor_min) : "",
+      valor_max: r.valor_max != null ? String(r.valor_max) : "",
+      substituicao: r.substituicao ?? "",
+    });
+    setCreating(false);
+    setEditingId(r.id);
+    setFeedback(null);
+  }
+
+  function closeForm() {
+    setCreating(false);
+    setEditingId(null);
+    setFeedback(null);
+  }
+
+  async function onSubmit(values: RegraValues) {
+    const input = {
+      nivel,
+      escopo_id: escopoId,
+      atributo: values.atributo.trim(),
+      tipo_regra: values.tipo_regra,
+      valor_min:
+        values.tipo_regra === "faixa" && values.valor_min
+          ? paraNumero(values.valor_min)
+          : null,
+      valor_max:
+        values.tipo_regra === "faixa" && values.valor_max
+          ? paraNumero(values.valor_max)
+          : null,
+      substituicao:
+        values.tipo_regra === "substituicao" && values.substituicao?.trim()
+          ? values.substituicao.trim()
+          : null,
+    };
+    try {
+      if (editingId) {
+        await updateRegra.mutateAsync({ id: editingId, input });
+      } else {
+        await createRegra.mutateAsync(input);
+      }
+      closeForm();
+    } catch {
+      setFeedback({ kind: "err", msg: "Não foi possível salvar a regra." });
+    }
+  }
+
+  async function onRemove(id: string) {
+    setRemovingId(id);
+    try {
+      await deleteRegra.mutateAsync(id);
+      if (editingId === id) closeForm();
+    } catch {
+      setFeedback({ kind: "err", msg: "Não foi possível remover a regra." });
+    } finally {
+      setRemovingId(null);
+    }
+  }
+
+  const pending = createRegra.isPending || updateRegra.isPending;
+
+  return (
+    <div className="card">
+      <div className="section-title" style={{ margin: "0 0 8px" }}>
+        <h3>Regras de cotação</h3>
+        <span className="count">{items.length}</span>
+        {!formOpen ? (
+          <button
+            type="button"
+            className="btn btn-sm btn-icon"
+            style={{ marginLeft: "auto" }}
+            onClick={openCreate}
+            aria-label="Nova regra"
+            title="Nova regra"
+          >
+            <Plus aria-hidden="true" />
+          </button>
+        ) : null}
+      </div>
+      <p className="helper" style={{ margin: "0 0 14px" }}>
+        Travas estruturadas e determinísticas: o que pode variar na cotação
+        (faixa de medida, atributo opcional, substituição equivalente). Não entra
+        na busca, a Lia segue como regra.
+      </p>
+
+      {regras.isLoading ? (
+        <span className="skel skel-line" style={{ width: "70%" }} />
+      ) : items.length === 0 ? null : (
+        <div style={{ display: "grid", gap: 10, marginBottom: formOpen ? 14 : 0 }}>
+          {items.map((r) => (
+            <div
+              key={r.id}
+              className="card"
+              style={{
+                display: "flex",
+                gap: 10,
+                alignItems: "flex-start",
+                padding: "12px 14px",
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ margin: 0, fontSize: "12.5px", fontWeight: 600 }}>
+                  {r.atributo}
+                </p>
+                <p className="sub" style={{ margin: "2px 0 0", fontSize: "12px" }}>
+                  {regraResumo(r)}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-sm btn-icon"
+                style={{ color: "var(--accent)" }}
+                onClick={() => openEdit(r)}
+                aria-label="Editar regra"
+                title="Editar"
+              >
+                <ChevronRight aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-icon"
+                onClick={() => onRemove(r.id)}
+                disabled={removingId === r.id}
+                aria-label="Remover regra"
+                title="Excluir"
+              >
+                {removingId === r.id ? (
+                  <Loader2 className="spin" aria-hidden="true" />
+                ) : (
+                  <Trash2 aria-hidden="true" />
+                )}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {formOpen && (
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          noValidate
+          style={{ display: "grid", gap: 12 }}
+        >
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label htmlFor={`regra-tipo-${escopoId}`}>Tipo de regra</label>
+            <select id={`regra-tipo-${escopoId}`} {...register("tipo_regra")}>
+              {TIPO_REGRA.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+            <p className="helper" style={{ margin: "6px 0 0" }}>
+              {TIPO_REGRA.find((t) => t.value === tipo)?.ajuda}
+            </p>
+          </div>
+
+          <div
+            className={cn("field", errors.atributo && "invalid")}
+            style={{ marginBottom: 0 }}
+          >
+            <label htmlFor={`regra-atributo-${escopoId}`}>Atributo</label>
+            <input
+              id={`regra-atributo-${escopoId}`}
+              type="text"
+              placeholder="ex.: dimensão, gramatura, composição"
+              aria-invalid={Boolean(errors.atributo)}
+              {...register("atributo")}
+            />
+            {errors.atributo && (
+              <div className="err-msg">
+                <TriangleAlert aria-hidden="true" />
+                {errors.atributo.message}
+              </div>
+            )}
+          </div>
+
+          {tipo === "faixa" && (
+            <div className="grid-dlh g2" style={{ gap: 12 }}>
+              <div
+                className={cn("field", errors.valor_min && "invalid")}
+                style={{ marginBottom: 0 }}
+              >
+                <label htmlFor={`regra-min-${escopoId}`}>Mínimo</label>
+                <input
+                  id={`regra-min-${escopoId}`}
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="ex.: 28"
+                  aria-invalid={Boolean(errors.valor_min)}
+                  {...register("valor_min")}
+                />
+                {errors.valor_min && (
+                  <div className="err-msg">
+                    <TriangleAlert aria-hidden="true" />
+                    {errors.valor_min.message}
+                  </div>
+                )}
+              </div>
+              <div
+                className={cn("field", errors.valor_max && "invalid")}
+                style={{ marginBottom: 0 }}
+              >
+                <label htmlFor={`regra-max-${escopoId}`}>Máximo</label>
+                <input
+                  id={`regra-max-${escopoId}`}
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="ex.: 32"
+                  aria-invalid={Boolean(errors.valor_max)}
+                  {...register("valor_max")}
+                />
+                {errors.valor_max && (
+                  <div className="err-msg">
+                    <TriangleAlert aria-hidden="true" />
+                    {errors.valor_max.message}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {tipo === "substituicao" && (
+            <div
+              className={cn("field", errors.substituicao && "invalid")}
+              style={{ marginBottom: 0 }}
+            >
+              <label htmlFor={`regra-subst-${escopoId}`}>
+                Substituição permitida
+              </label>
+              <textarea
+                id={`regra-subst-${escopoId}`}
+                rows={2}
+                placeholder="ex.: aceita gel ou silicone no lugar de espuma viscoelástica."
+                aria-invalid={Boolean(errors.substituicao)}
+                {...register("substituicao")}
+              />
+              {errors.substituicao && (
+                <div className="err-msg">
+                  <TriangleAlert aria-hidden="true" />
+                  {errors.substituicao.message}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="form-foot" style={{ marginTop: 2 }}>
+            <button className="btn btn-primary" type="submit" disabled={pending}>
+              {pending ? (
+                <Loader2 className="spin" aria-hidden="true" />
+              ) : (
+                <Check aria-hidden="true" />
+              )}
+              <span>{editingId ? "Salvar regra" : "Adicionar regra"}</span>
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={closeForm}
+              disabled={pending}
+            >
+              <X aria-hidden="true" />
+              <span>Cancelar</span>
+            </button>
+            {feedback && (
+              <span className={cn("save-note", feedback.kind === "err" && "err")}>
+                {feedback.kind === "err" ? (
+                  <TriangleAlert aria-hidden="true" />
+                ) : (
+                  <Check aria-hidden="true" />
+                )}
+                {feedback.msg}
+              </span>
+            )}
+          </div>
+        </form>
+      )}
+    </div>
   );
 }

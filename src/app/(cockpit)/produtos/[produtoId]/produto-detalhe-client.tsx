@@ -549,6 +549,14 @@ function SkuDetail({
       <PrecoRegionalGrid skuId={sku.id} produtoId={sku.produto_id} />
       <ApoioPrecosForm skuId={sku.id} />
 
+      <div>
+        <div className="section-title">
+          <h3>Critérios de cotação do SKU</h3>
+          <span className="count">nível SKU</span>
+        </div>
+        <CriteriosPanel nivel="sku" escopoId={sku.id} />
+      </div>
+
       <FotosUploader skuId={sku.id} />
     </div>
   );

@@ -548,8 +548,8 @@ export type Regiao = "S" | "SE" | "CO" | "NE" | "N";
  *   CIF_ALVO   — IFP com frete + lucro alvo
  */
 export type Patamar = "FOB" | "CIF_MINIMO" | "CIF_ALVO";
-/** Nivel das diretrizes/regras/politica de cotacao (linha ou produto). */
-export type CotacaoNivel = "linha" | "produto";
+/** Nivel das diretrizes/regras/politica de cotacao (linha, produto ou sku). */
+export type CotacaoNivel = "linha" | "produto" | "sku";
 /** Tipo de regra estruturada de cotacao (cotacao_regras.tipo_regra). */
 export type CotacaoTipoRegra = "faixa" | "opcional" | "substituicao";
 /** Decisao de participacao em licitacao (politica_participacao.participa). */
