@@ -1078,3 +1078,102 @@ export interface RevendaPreco {
   created_at: string;
   updated_at: string;
 }
+
+// =====================================================================
+// Modulo Automacao (triagem) — contrato 4.3. camelCase no client, mapeado
+// do snake_case dos endpoints automacao-* (ver src/lib/api/automacao.ts).
+// SSE/realtime NAO usado no V1 (FE-3): atualizacao por refetchInterval +
+// botao manual. O frontend NUNCA manipula credenciais write:triagem/lia_sk_.
+// =====================================================================
+
+/** Veredito da triagem (classificacao deterministica server-side). */
+export type Veredito = "lixo" | "duvida" | "util";
+
+/** Rotulo do feedback humano sobre a decisao vigente. */
+export type FeedbackHumano = "correto" | "incorreto";
+
+/** Item da fila de triagem (aviso ja triado), exposto na aba Triagem. */
+export interface TriagemItem {
+  avisoId: string;
+  objeto: string;
+  orgao: string;
+  uf: string;
+  /** ISO8601 (data_publicacao | data_captura). */
+  data: string;
+  veredito: Veredito | null;
+  /** Confianca crua em [0,1]; null quando ausente. */
+  confianca: number | null;
+  motivo: string | null;
+  produtoCandidato: string | null;
+  feedbackHumano: FeedbackHumano | null;
+  naLixeira: boolean;
+  naLixeiraEm: string | null;
+  descartePrevistoEm: string | null;
+  reabilitado: boolean;
+}
+
+/** Item da lixeira: mesma forma da triagem (filtro lixeira aplicado no servidor). */
+export type LixeiraItem = TriagemItem;
+
+/** Regra dura editavel, consumida deterministicamente pela triagem (E5). */
+export interface RegraDura {
+  id: string;
+  tipo: "fora_de_ramo" | "termo_produto";
+  termo: string;
+  ativo: boolean;
+  criadoEm: string;
+}
+
+/** Exemplo rotulado do acervo few-shot (E14 — curadoria do aprendizado). */
+export interface ExemploFewShot {
+  id: string;
+  texto: string;
+  vereditoRotulado: Veredito;
+  ativo: boolean;
+  avisoId: string | null;
+  decisaoId: string | null;
+  criadoEm: string;
+}
+
+/** Config singleton da automacao (carencia, limiares, K, interruptor). */
+export interface AutomacaoConfig {
+  diasCarencia: number;
+  limiarInferior: number;
+  limiarSuperior: number;
+  kFewShot: number;
+  descarteFisicoLigado: boolean;
+  modoExecucaoIa: "lion" | "autonoma";
+  atualizadoEm: string;
+}
+
+/** Persona/prompt versionada do subagente especialista (E15, server-side). */
+export interface AgenteConfig {
+  ativo: boolean;
+  nome: string;
+  personaPrompt: string;
+  ferramentas: string[];
+  versao: number;
+  atualizadoEm: string;
+}
+
+/** Amostra de falso-descarte: aviso que virou processo real no Nomus mas foi marcado lixo. */
+export interface FalsoDescarteAmostra {
+  avisoId: string;
+  objeto: string;
+  veredito: Veredito;
+  confianca: number | null;
+  nomusProcessoRef: string;
+}
+
+/** Resultado do backtest de recall em modo sombra (gate do descarte fisico). */
+export interface BacktestRecall {
+  periodo: { desde: string; ate: string };
+  processosNomusReais: number;
+  casadosComAviso: number;
+  preservadosPelaTriagem: number;
+  descartadosIndevidamente: number;
+  /** null quando o Nomus esta indisponivel (502). */
+  recall: number | null;
+  descarteFisicoLigado: boolean;
+  amostrasFalsoDescarte: FalsoDescarteAmostra[];
+}

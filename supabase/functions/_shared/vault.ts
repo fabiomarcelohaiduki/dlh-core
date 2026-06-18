@@ -27,6 +27,14 @@ export const EFFECTI_TIPO = "effecti" as const;
 export const LIA_SERVICE_KEY_NAME = "LIA_SERVICE_API_KEY" as const;
 
 /**
+ * Nome deterministico do segredo da API key de servico de ESCRITA da triagem
+ * (escopo write:triagem) no Vault (RNF-01/SEC-1). Distinta da read-only da Lia
+ * (LIA_SERVICE_API_KEY), da service_role e da sessao humana; rotacionavel e
+ * revogavel pelas RPCs set/revoke (server-side only). Usada pelo POST veredito.
+ */
+export const TRIAGEM_WRITE_KEY_NAME = "TRIAGEM_WRITE_API_KEY" as const;
+
+/**
  * Nome deterministico do segredo da API key da LLM (OpenAI) no Vault,
  * usado pelas geracoes assistidas do cockpit. Configurado pela tela de
  * "Configuracoes da empresa" (card de IA); server-side only, nunca volta

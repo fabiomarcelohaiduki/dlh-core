@@ -2412,6 +2412,25 @@ select:focus {
   background: var(--surface-2);
   border-color: var(--border);
 }
+/* Veredito da triagem: util=verde (ok), duvida=ambar destacado (warn, fio mais
+   forte e peso 700), lixo=vermelho suave (err). Reaproveita os tokens de estado
+   travados, sem introduzir cor nova. */
+.tag.util {
+  color: var(--ok);
+  background: var(--ok-bg);
+  border-color: rgba(92, 191, 134, 0.24);
+}
+.tag.duvida {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-color: rgba(217, 177, 74, 0.34);
+  font-weight: 700;
+}
+.tag.lixo {
+  color: var(--err);
+  background: var(--err-bg);
+  border-color: rgba(221, 107, 98, 0.22);
+}
 
 /* Barra de progresso ao vivo (processados/total + pagina_atual). */
 .prog {

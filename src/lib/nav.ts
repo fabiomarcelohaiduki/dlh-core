@@ -7,6 +7,12 @@ import {
   Package,
   Store,
   Building2,
+  Sparkles,
+  Trash2,
+  Gavel,
+  Target,
+  GraduationCap,
+  SlidersHorizontal,
 } from "lucide-react";
 
 export type NavItem = {
@@ -48,6 +54,43 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    id: "automacao",
+    label: "Automação",
+    items: [
+      { id: "nav-automacao-triagem", label: "Triagem", href: "/automacao/avisos", icon: Sparkles },
+      {
+        id: "nav-automacao-lixeira",
+        label: "Lixeira",
+        href: "/automacao/avisos/lixeira",
+        icon: Trash2,
+      },
+      {
+        id: "nav-automacao-regras",
+        label: "Regras",
+        href: "/automacao/avisos/regras",
+        icon: Gavel,
+      },
+      {
+        id: "nav-automacao-backtest",
+        label: "Backtest",
+        href: "/automacao/avisos/backtest",
+        icon: Target,
+      },
+      {
+        id: "nav-automacao-aprendizado",
+        label: "Aprendizado",
+        href: "/automacao/avisos/aprendizado",
+        icon: GraduationCap,
+      },
+      {
+        id: "nav-automacao-config",
+        label: "Configuração",
+        href: "/automacao/avisos/config",
+        icon: SlidersHorizontal,
+      },
+    ],
+  },
+  {
     id: "administracao",
     label: "Administração",
     items: [
@@ -76,5 +119,12 @@ export const SCREEN_TITLES: Record<string, string> = {
   "/produtos": "Produtos",
   "/insumos": "Materiais",
   "/revenda": "Revenda",
+  "/automacao/avisos/lixeira": "Lixeira",
+  "/automacao/avisos/regras": "Regras",
+  "/automacao/avisos/backtest": "Backtest",
+  "/automacao/avisos/aprendizado": "Aprendizado",
+  "/automacao/avisos/config": "Configuração",
+  "/automacao/avisos": "Triagem",
+  "/automacao": "Automação",
   "/edital": "Detalhe do edital",
 };

@@ -70,7 +70,7 @@ export async function errorResponse(
 }
 
 /** Metodos HTTP suportados pelas Edge Functions do cockpit. */
-export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 /**
  * Garante que o metodo da requisicao esta entre os esperados; senao lanca 405.
