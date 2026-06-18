@@ -76,3 +76,38 @@ verify_jwt = false
 # --no-verify-jwt reabre o bug e a Lia nao consegue chamar a tool.
 [functions.v1-acervo-busca-processos]
 verify_jwt = false
+
+# Fila de triagem da esteira /v1 (modo lion): a Lia puxa o trabalho pendente
+# via authenticateV1 (API key lia_sk_ no Vault, escopo read-only:busca-semantica
+# OU sessao do cockpit). A API key NAO e JWT -> sem este pin o gateway barra o
+# Bearer lia_sk_ com {UNAUTHORIZED_INVALID_JWT_FORMAT} antes do codigo. Sem o
+# pin, deploy sem --no-verify-jwt reabre o bug e a esteira nunca recebe trabalho.
+[functions.v1-triagem-fila]
+verify_jwt = false
+
+# Veredito da triagem da esteira /v1 (modo lion): a Lia posta a confianca crua
+# via authenticateV1 (API key da escrita TRIAGEM_WRITE_API_KEY no Vault, escopo
+# write:triagem OU sessao do cockpit); o servidor aplica a classificacao
+# DETERMINISTICA. A API key NAO e JWT -> sem este pin o gateway barra o Bearer
+# com {UNAUTHORIZED_INVALID_JWT_FORMAT} antes do codigo. Sem o pin, deploy sem
+# --no-verify-jwt reabre o bug e nenhum veredito e salvo.
+[functions.v1-triagem-veredito]
+verify_jwt = false
+
+# Descarte fisico governado da triagem: o pg_cron (triagem-descarte) dispara
+# este Edge via pg_net com X-Cron-Secret PURO (sem Authorization). Com verify_jwt
+# no default (ON) o gateway barraria com 401 antes do codigo -> descarte agendado
+# morto em silencio. A funcao se autentica sozinha (assertInternalAuth:
+# X-Cron-Secret do Vault OU service_role bearer). Sem este pin, deploy sem
+# --no-verify-jwt reabre o bug.
+[functions.triagem-descarte-cron]
+verify_jwt = false
+
+# Retry de favoritar no Effecti da triagem: o pg_cron (triagem-favoritar-retry)
+# dispara este Edge via pg_net com X-Cron-Secret PURO (sem Authorization). Com
+# verify_jwt no default (ON) o gateway barraria com 401 antes do codigo -> retry
+# agendado morto em silencio. A funcao se autentica sozinha (assertInternalAuth:
+# X-Cron-Secret do Vault OU service_role bearer). Sem este pin, deploy sem
+# --no-verify-jwt reabre o bug.
+[functions.triagem-favoritar-retry]
+verify_jwt = false
