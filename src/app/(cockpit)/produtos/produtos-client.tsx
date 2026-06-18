@@ -29,6 +29,7 @@ import { LinhaForm } from "@/components/cockpit/produtos/linha-form";
 import { AtributosEditor } from "@/components/cockpit/produtos/atributos-editor";
 import { CriteriosPanel } from "@/components/cockpit/produtos/criterios-panel";
 import { ProdutoForm } from "@/components/cockpit/produtos/produto-form";
+import { TermosLinhaCard } from "@/components/cockpit/produtos/termos-linha-card";
 import { TabelaPrecosLinha } from "@/components/cockpit/produtos/tabela-precos-linha";
 import { GerarTabelaModal } from "@/components/cockpit/produtos/gerar-tabela-modal";
 import { GerarCatalogoModal } from "@/components/cockpit/produtos/gerar-catalogo-modal";
@@ -353,7 +354,12 @@ function LinhaEditPanel({
 /** Painel DETAIL de uma Linha: produtos da linha (com tabela de precos inline).
  * Identidade/acoes vivem na lista a esquerda; criterios da Linha no editar. */
 function LinhaDetail({ linha }: { linha: ProdutoLinha }) {
-  return <ProdutosDaLinha linha={linha} />;
+  return (
+    <>
+      <TermosLinhaCard linhaId={linha.id} linhaNome={linha.nome} />
+      <ProdutosDaLinha linha={linha} />
+    </>
+  );
 }
 
 /** Drill-down dos Produtos da Linha + criacao de Produto com o schema da Linha.

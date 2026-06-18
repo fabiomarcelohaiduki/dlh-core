@@ -212,6 +212,51 @@ export function gerarDescricaoProduto(
   });
 }
 
+// --- Termos de busca da Linha (produtos-termos) --------------------
+
+/** Sugestao de termos para a Linha (vocabulario transversal). */
+export interface TermosLinhaSugestao {
+  escopo_id: string;
+  nome: string;
+  texto: string;
+}
+
+/** Sugestao de termos para um Produto da linha. */
+export interface TermosProdutoSugestao {
+  escopo_id: string;
+  nome: string;
+  texto: string;
+}
+
+/** Sugestao de termos para um SKU (gerado so quando ha termo exclusivo). */
+export interface TermosSkuSugestao {
+  escopo_id: string;
+  codigo_sku: string;
+  produto_nome: string;
+  texto: string;
+}
+
+/** Resposta da geracao assistida de termos de busca de uma Linha inteira. */
+export interface GerarTermosLinhaResposta {
+  linha: TermosLinhaSugestao | null;
+  produtos: TermosProdutoSugestao[];
+  skus: TermosSkuSugestao[];
+}
+
+/**
+ * Gera os Termos de busca sugeridos via IA para uma Linha inteira (linha,
+ * produtos e, se necessario, SKUs). Nao grava nada: devolve as sugestoes
+ * por nivel para o usuario revisar e aplicar uma a uma.
+ */
+export function gerarTermosLinha(
+  linhaId: string,
+): Promise<GerarTermosLinhaResposta> {
+  return apiFetch<GerarTermosLinhaResposta>("produtos-termos", {
+    method: "POST",
+    body: JSON.stringify({ linha_id: linhaId }),
+  });
+}
+
 // --- Atributos proprios do Produto ---------------------------------
 
 export function listProdutoAtributos(
