@@ -29,6 +29,7 @@ interface RawTriagemItem {
   effecti_id: string | null;
   edital: string | null;
   portal: string | null;
+  uasg: string | null;
   objeto: string;
   orgao: string;
   uf: string;
@@ -136,6 +137,7 @@ function toTriagemItem(raw: RawTriagemItem): TriagemItem {
     effectiId: raw.effecti_id ?? null,
     edital: raw.edital ?? null,
     portal: raw.portal ?? null,
+    uasg: raw.uasg ?? null,
     objeto: raw.objeto,
     orgao: raw.orgao,
     uf: raw.uf,

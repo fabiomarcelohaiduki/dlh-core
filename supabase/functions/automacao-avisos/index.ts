@@ -39,6 +39,7 @@ interface AvisoTriadoItem {
   effecti_id: string | null;
   edital: string | null;
   portal: string | null;
+  uasg: string | null;
   objeto: string;
   orgao: string;
   uf: string;
@@ -60,6 +61,7 @@ interface AvisoRow {
   effecti_id: string | null;
   portal: string | null;
   edital: string | null;
+  uasg: string | null;
   objeto: string | null;
   orgao: string | null;
   data_final: string | null;
@@ -165,6 +167,7 @@ async function listarFila(
     effecti_id: aviso.effecti_id ?? null,
     edital: aviso.edital ?? null,
     portal: aviso.portal ?? null,
+    uasg: aviso.uasg ?? null,
     objeto: aviso.objeto ?? "",
     orgao: aviso.orgao ?? "",
     uf: resolveUf(aviso),
@@ -263,7 +266,7 @@ async function handler(req: Request): Promise<Response> {
     const selectCols = "id, effecti_id, portal, objeto, orgao, data_final, data_publicacao, data_captura, " +
       "triagem_veredito, triagem_confianca, triagem_em, reabilitado, " +
       "na_lixeira, na_lixeira_em, " +
-      "edital:payload_bruto->>processo, " +
+      "edital:payload_bruto->>processo, uasg:payload_bruto->>uasg, " +
       "uf_direct:payload_bruto->>uf, uf_estado:payload_bruto->>estado, " +
       "uf_sigla:payload_bruto->>siglaUf";
 
@@ -328,6 +331,7 @@ async function handler(req: Request): Promise<Response> {
         effecti_id: aviso.effecti_id ?? null,
         edital: aviso.edital ?? null,
         portal: aviso.portal ?? null,
+        uasg: aviso.uasg ?? null,
         objeto: aviso.objeto ?? "",
         orgao: aviso.orgao ?? "",
         uf: resolveUf(aviso),

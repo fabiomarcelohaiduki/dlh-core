@@ -1099,6 +1099,7 @@ export interface TriagemItem {
   /** Numero do edital/pregao (payload_bruto->>processo). */
   edital: string | null;
   portal: string | null;
+  uasg: string | null;
   objeto: string;
   orgao: string;
   uf: string;

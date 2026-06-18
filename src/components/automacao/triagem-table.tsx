@@ -7,9 +7,9 @@ import { VereditoBadge } from "@/components/automacao/veredito-badge";
 export type TriagemVariant = "triagem" | "lixeira" | "fila";
 
 const COLUMNS: Record<TriagemVariant, string[]> = {
-  triagem: ["Effecti", "Edital", "Portal", "Órgão / UF", "Abertura", "Hora", "Veredito", "Motivo", "Avaliação"],
-  lixeira: ["Effecti", "Edital", "Portal", "Órgão / UF", "Abertura", "Hora", "Veredito", "Motivo", "Descarte previsto"],
-  fila: ["Effecti", "Edital", "Portal", "Órgão / UF", "Abertura", "Hora"],
+  triagem: ["Effecti", "Edital", "Portal", "UASG", "Órgão / UF", "Abertura", "Hora", "Veredito", "Motivo", "Avaliação"],
+  lixeira: ["Effecti", "Edital", "Portal", "UASG", "Órgão / UF", "Abertura", "Hora", "Veredito", "Motivo", "Descarte previsto"],
+  fila: ["Effecti", "Edital", "Portal", "UASG", "Órgão / UF", "Abertura", "Hora"],
 };
 
 /** Truncamento inline (FE-4): motivo na propria linha, sem drawer. */
@@ -101,6 +101,7 @@ export function TriagemTable({
                 <td className="sub tnum">{it.effectiId || "—"}</td>
                 <td className="sub tnum">{it.edital || "—"}</td>
                 <td className="sub tnum">{it.portal || "—"}</td>
+                <td className="sub tnum">{it.uasg || "—"}</td>
                 <td className="sub tnum">
                   <div className="cell-stack">
                     <span>{it.orgao || "—"}</span>
