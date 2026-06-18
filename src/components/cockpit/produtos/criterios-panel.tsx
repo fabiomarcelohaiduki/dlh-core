@@ -109,7 +109,7 @@ function DiretrizesBlock({
   async function onAdd() {
     const t = texto.trim();
     if (!t) {
-      setErro("Escreva a diretriz antes de salvar.");
+      setErro("Escreva o termo antes de salvar.");
       return;
     }
     setErro(null);
@@ -118,7 +118,7 @@ function DiretrizesBlock({
       setTexto("");
       setCreating(false);
     } catch {
-      setErro("Não foi possível salvar a diretriz. Tente novamente.");
+      setErro("Não foi possível salvar o termo. Tente novamente.");
     }
   }
 
@@ -131,7 +131,7 @@ function DiretrizesBlock({
   async function onSaveEdit(id: string) {
     const t = editingText.trim();
     if (!t) {
-      setErro("A diretriz não pode ficar vazia.");
+      setErro("O termo não pode ficar vazio.");
       return;
     }
     setErro(null);
@@ -140,7 +140,7 @@ function DiretrizesBlock({
       setEditingId(null);
       setEditingText("");
     } catch {
-      setErro("Não foi possível salvar a diretriz. Tente novamente.");
+      setErro("Não foi possível salvar o termo. Tente novamente.");
     }
   }
 
@@ -150,7 +150,7 @@ function DiretrizesBlock({
       await deleteDiretriz.mutateAsync(id);
       if (editingId === id) setEditingId(null);
     } catch {
-      setErro("Não foi possível remover a diretriz.");
+      setErro("Não foi possível remover o termo.");
     } finally {
       setRemovingId(null);
     }
@@ -159,7 +159,7 @@ function DiretrizesBlock({
   return (
     <div className="card">
       <div className="section-title" style={{ margin: "0 0 8px" }}>
-        <h3>Diretrizes de cotação</h3>
+        <h3>Termos de busca</h3>
         <span className="count">{items.length}</span>
         {!creating ? (
           <button
@@ -170,8 +170,8 @@ function DiretrizesBlock({
               setCreating(true);
               setErro(null);
             }}
-            aria-label="Nova diretriz"
-            title="Nova diretriz"
+            aria-label="Novo termo"
+            title="Novo termo"
           >
             <Plus aria-hidden="true" />
           </button>
@@ -201,7 +201,7 @@ function DiretrizesBlock({
                     setEditingText(e.target.value);
                     setErro(null);
                   }}
-                  aria-label="Editar diretriz"
+                  aria-label="Editar termo"
                 />
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
@@ -259,7 +259,7 @@ function DiretrizesBlock({
                   className="btn btn-sm btn-icon"
                   style={{ color: "var(--accent)" }}
                   onClick={() => startEdit(d.id, d.texto)}
-                  aria-label="Editar diretriz"
+                  aria-label="Editar termo"
                   title="Editar"
                 >
                   <ChevronRight aria-hidden="true" />
@@ -269,7 +269,7 @@ function DiretrizesBlock({
                   className="btn btn-sm btn-icon"
                   onClick={() => onRemove(d.id)}
                   disabled={removingId === d.id}
-                  aria-label="Remover diretriz"
+                  aria-label="Remover termo"
                   title="Excluir"
                 >
                   {removingId === d.id ? (
@@ -287,7 +287,7 @@ function DiretrizesBlock({
       {creating && (
         <>
           <div className="field" style={{ marginBottom: 0 }}>
-            <label htmlFor={`diretriz-${escopoId}`}>Nova diretriz</label>
+            <label htmlFor={`diretriz-${escopoId}`}>Novo termo</label>
             <textarea
               id={`diretriz-${escopoId}`}
               rows={3}
@@ -311,7 +311,7 @@ function DiretrizesBlock({
               ) : (
                 <Plus aria-hidden="true" />
               )}
-              <span>Adicionar diretriz</span>
+              <span>Adicionar termo</span>
             </button>
             <button
               type="button"
