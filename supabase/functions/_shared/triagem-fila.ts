@@ -31,6 +31,7 @@
 import { createServiceClient } from "./supabase.ts";
 import { createEmbeddingProvider, EmbeddingError, type EmbeddingProvider } from "./embeddings.ts";
 import { getEnv } from "./env.ts";
+import { type JanelaTriagem, janelaOrFilters, loadJanelaTriagem } from "./triagem-janela.ts";
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
@@ -163,15 +164,16 @@ export async function buildTriagemFila(
   const db = createServiceClient();
 
   // 1) Insumos globais (uma leitura cada, reusados por todos os itens).
-  const [agente, kFewShot, regrasDuras, fewShotBank] = await Promise.all([
+  const [agente, kFewShot, regrasDuras, fewShotBank, janela] = await Promise.all([
     loadAgente(db),
     loadKFewShot(db),
     loadRegrasDuras(db),
     loadFewShotBank(db),
+    loadJanelaTriagem(db),
   ]);
 
-  // 2) Avisos elegiveis (FIFO por data_captura asc; keyset por cursor).
-  const avisos = await selectAvisosElegiveis(db, params.limite, params.cursor);
+  // 2) Avisos elegiveis (FIFO por data_captura asc; keyset por cursor; janela).
+  const avisos = await selectAvisosElegiveis(db, params.limite, params.cursor, janela);
   if (avisos.length === 0) {
     return { ...(agente.ativo ? { agente } : {}), itens: [], next_cursor: null };
   }
@@ -301,6 +303,7 @@ async function selectAvisosElegiveis(
   db: ServiceClient,
   limite: number,
   cursor: string | null,
+  janela: JanelaTriagem,
 ): Promise<AvisoRow[]> {
   // Campos minimos. uf nao e coluna -> extraido do payload_bruto via arrow
   // (top-level, sem trafegar o payload inteiro). data_captura ordena a FIFO.
@@ -314,6 +317,11 @@ async function selectAvisosElegiveis(
     .eq("status_indexacao", "indexado")
     .eq("reabilitado", false)
     .is("triagem_veredito", null);
+
+  // Janela de datas configuravel (data_final). Cada .or() e combinado em AND.
+  for (const filtro of janelaOrFilters(janela)) {
+    query = query.or(filtro);
+  }
 
   // Keyset por cursor (uuid): retoma apos o aviso apontado, na ordem FIFO
   // (data_captura asc, id asc). Cursor desconhecido => recomeca do inicio.

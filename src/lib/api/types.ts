@@ -1147,6 +1147,8 @@ export interface AutomacaoConfig {
   limiarSuperior: number;
   kFewShot: number;
   descarteFisicoLigado: boolean;
+  triarApenasFuturos: boolean;
+  triagemHorizonteDias: number;
   modoExecucaoIa: "lion" | "autonoma";
   atualizadoEm: string;
 }

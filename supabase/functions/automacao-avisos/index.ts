@@ -22,6 +22,7 @@ import { assertMethod, errorResponse, jsonResponse } from "../_shared/http.ts";
 import { getEnv } from "../_shared/env.ts";
 import { requireAuthorizedUser } from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
+import { janelaOrFilters, loadJanelaTriagem } from "../_shared/triagem-janela.ts";
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
@@ -118,13 +119,22 @@ async function listarFila(
   limite: number,
   cursor: string | null,
 ): Promise<Response> {
+  // Janela de datas configuravel (data_final): o cockpit espelha exatamente o
+  // que a esteira IA vai triar (mesmo filtro de selectAvisosElegiveis).
+  const janela = await loadJanelaTriagem(db);
+  const filtrosJanela = janelaOrFilters(janela);
+
   // Total da fila inteira (badge), independente da pagina/cursor.
-  const { count, error: countError } = await db
+  let countQuery = db
     .from("avisos")
     .select("id", { count: "exact", head: true })
     .eq("status_indexacao", "indexado")
     .eq("reabilitado", false)
     .is("triagem_veredito", null);
+  for (const filtro of filtrosJanela) {
+    countQuery = countQuery.or(filtro);
+  }
+  const { count, error: countError } = await countQuery;
   if (countError) {
     throw new Error(`falha ao contar a fila: ${countError.message}`);
   }
@@ -135,6 +145,9 @@ async function listarFila(
     .eq("status_indexacao", "indexado")
     .eq("reabilitado", false)
     .is("triagem_veredito", null);
+  for (const filtro of filtrosJanela) {
+    query = query.or(filtro);
+  }
 
   // Keyset por cursor (uuid): retoma apos o aviso apontado, na ordem FIFO
   // (data_captura asc, id asc). Cursor desconhecido => recomeca do inicio.

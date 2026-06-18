@@ -20,6 +20,8 @@ const DEFAULTS = {
   limiarSuperior: 0.55,
   kFewShot: 8,
   descarteFisicoLigado: false,
+  triarApenasFuturos: false,
+  triagemHorizonteDias: 0,
 };
 
 const configSchema = z
@@ -43,6 +45,12 @@ const configSchema = z
       .min(0, "Mínimo 0.")
       .max(50, "Máximo 50."),
     descarteFisicoLigado: z.boolean(),
+    triarApenasFuturos: z.boolean(),
+    triagemHorizonteDias: z
+      .number({ invalid_type_error: "Informe um número." })
+      .int("Use um número inteiro.")
+      .min(0, "Mínimo 0.")
+      .max(3650, "Máximo 3650."),
   })
   .refine((v) => v.limiarInferior <= v.limiarSuperior, {
     path: ["limiarInferior"],
@@ -84,6 +92,8 @@ export function AutomacaoConfigForm() {
       limiarSuperior: data.limiarSuperior,
       kFewShot: data.kFewShot,
       descarteFisicoLigado: data.descarteFisicoLigado,
+      triarApenasFuturos: data.triarApenasFuturos,
+      triagemHorizonteDias: data.triagemHorizonteDias,
     });
   }, [data, reset]);
 
@@ -96,6 +106,8 @@ export function AutomacaoConfigForm() {
         limiarSuperior: values.limiarSuperior,
         kFewShot: values.kFewShot,
         descarteFisicoLigado: values.descarteFisicoLigado,
+        triarApenasFuturos: values.triarApenasFuturos,
+        triagemHorizonteDias: values.triagemHorizonteDias,
       });
       setFeedback({ kind: "ok", message: "Configuração salva." });
     } catch (err) {
@@ -180,6 +192,26 @@ export function AutomacaoConfigForm() {
           <div className="helper">Exemplos rotulados enviados ao subagente. Entre 0 e 50.</div>
         </div>
 
+        <div className={cn("field", errors.triagemHorizonteDias && "invalid")}>
+          <label htmlFor="cfg-horizonte">Horizonte de triagem (dias)</label>
+          <input
+            id="cfg-horizonte"
+            type="number"
+            min={0}
+            max={3650}
+            step={1}
+            aria-invalid={Boolean(errors.triagemHorizonteDias)}
+            {...register("triagemHorizonteDias", { valueAsNumber: true })}
+          />
+          <div className="err-msg">
+            <TriangleAlert aria-hidden="true" />
+            {errors.triagemHorizonteDias?.message ?? "Entre 0 e 3650."}
+          </div>
+          <div className="helper">
+            Só triagem avisos que abrem dentro deste prazo. 0 = sem limite.
+          </div>
+        </div>
+
         <div className={cn("field", errors.limiarInferior && "invalid")}>
           <label htmlFor="cfg-limiar-inf">Limiar inferior</label>
           <input
@@ -216,6 +248,15 @@ export function AutomacaoConfigForm() {
           <div className="helper">Acima deste valor, o aviso é tratado como útil.</div>
         </div>
       </div>
+
+      <label className="chk" style={{ marginTop: 14, maxWidth: 360 }}>
+        <input type="checkbox" {...register("triarApenasFuturos")} />
+        <div className="t">Triar apenas avisos futuros</div>
+      </label>
+      <p className="helper" style={{ marginTop: 6 }}>
+        Ligado: ignora avisos cuja abertura dos lances já passou. Avisos sem data
+        de abertura entram sempre.
+      </p>
 
       <label className="chk" style={{ marginTop: 14, maxWidth: 360 }}>
         <input type="checkbox" {...register("descarteFisicoLigado")} />

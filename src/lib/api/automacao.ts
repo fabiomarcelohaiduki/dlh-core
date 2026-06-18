@@ -72,6 +72,8 @@ interface RawConfig {
   limiar_superior: number;
   k_few_shot: number;
   descarte_fisico_ligado: boolean;
+  triar_apenas_futuros: boolean;
+  triagem_horizonte_dias: number;
   modo_execucao_ia: string;
   atualizado_em: string | null;
 }
@@ -171,6 +173,8 @@ function toConfig(raw: RawConfig): AutomacaoConfig {
     limiarSuperior: raw.limiar_superior,
     kFewShot: raw.k_few_shot,
     descarteFisicoLigado: raw.descarte_fisico_ligado === true,
+    triarApenasFuturos: raw.triar_apenas_futuros === true,
+    triagemHorizonteDias: raw.triagem_horizonte_dias ?? 0,
     modoExecucaoIa: (raw.modo_execucao_ia === "autonoma" ? "autonoma" : "lion"),
     atualizadoEm: raw.atualizado_em ?? "",
   };
@@ -293,6 +297,8 @@ export interface AutomacaoConfigInput {
   limiarSuperior: number;
   kFewShot: number;
   descarteFisicoLigado: boolean;
+  triarApenasFuturos: boolean;
+  triagemHorizonteDias: number;
 }
 
 export interface AgenteConfigInput {
@@ -445,6 +451,8 @@ export async function updateAutomacaoConfig(
       limiar_superior: input.limiarSuperior,
       k_few_shot: input.kFewShot,
       descarte_fisico_ligado: input.descarteFisicoLigado,
+      triar_apenas_futuros: input.triarApenasFuturos,
+      triagem_horizonte_dias: input.triagemHorizonteDias,
     }),
   });
   return toConfig(raw);

@@ -74,6 +74,12 @@ const putBodySchema = z
       .min(0, "k_few_shot minimo 0")
       .max(50, "k_few_shot maximo 50"),
     descarte_fisico_ligado: z.boolean(),
+    triar_apenas_futuros: z.boolean(),
+    triagem_horizonte_dias: z
+      .number()
+      .int("triagem_horizonte_dias deve ser inteiro")
+      .min(0, "triagem_horizonte_dias minimo 0")
+      .max(3650, "triagem_horizonte_dias maximo 3650"),
   })
   .superRefine((val, ctx) => {
     if (val.limiar_inferior > val.limiar_superior) {
@@ -94,6 +100,8 @@ interface ConfigResponse {
   limiar_superior: number;
   k_few_shot: number;
   descarte_fisico_ligado: boolean;
+  triar_apenas_futuros: boolean;
+  triagem_horizonte_dias: number;
   modo_execucao_ia: string;
   atualizado_em: string | null;
 }
@@ -105,13 +113,15 @@ interface ConfigRow {
   limiar_superior: number | string | null;
   k_few_shot: number | string | null;
   descarte_fisico_ligado: boolean | null;
+  triar_apenas_futuros: boolean | null;
+  triagem_horizonte_dias: number | string | null;
   modo_execucao_ia: string | null;
   atualizado_em: string | null;
 }
 
 const CONFIG_COLS =
   "dias_carencia, limiar_inferior, limiar_superior, k_few_shot, descarte_fisico_ligado, " +
-  "modo_execucao_ia, atualizado_em";
+  "triar_apenas_futuros, triagem_horizonte_dias, modo_execucao_ia, atualizado_em";
 
 /** Mapeia a linha do banco para o shape de resposta (coage numeric -> number). */
 function toResponse(row: ConfigRow): ConfigResponse {
@@ -121,6 +131,8 @@ function toResponse(row: ConfigRow): ConfigResponse {
     limiar_superior: Number(row.limiar_superior ?? 0.55),
     k_few_shot: Number(row.k_few_shot ?? 8),
     descarte_fisico_ligado: row.descarte_fisico_ligado === true,
+    triar_apenas_futuros: row.triar_apenas_futuros === true,
+    triagem_horizonte_dias: Number(row.triagem_horizonte_dias ?? 0),
     modo_execucao_ia: row.modo_execucao_ia ?? "lion",
     atualizado_em: row.atualizado_em ?? null,
   };
@@ -328,6 +340,8 @@ async function handlePut(req: Request, db: ServiceClient, usuario: string): Prom
       limiar_superior: body.limiar_superior,
       k_few_shot: body.k_few_shot,
       descarte_fisico_ligado: body.descarte_fisico_ligado,
+      triar_apenas_futuros: body.triar_apenas_futuros,
+      triagem_horizonte_dias: body.triagem_horizonte_dias,
       atualizado_por: usuario,
     })
     .eq("singleton", true)
@@ -360,6 +374,8 @@ async function handlePut(req: Request, db: ServiceClient, usuario: string): Prom
       limiar_superior: Number(atual.limiar_superior ?? 0.55),
       k_few_shot: Number(atual.k_few_shot ?? 8),
       descarte_fisico_ligado: atual.descarte_fisico_ligado === true,
+      triar_apenas_futuros: atual.triar_apenas_futuros === true,
+      triagem_horizonte_dias: Number(atual.triagem_horizonte_dias ?? 0),
     },
     dadosNovos: {
       dias_carencia: body.dias_carencia,
@@ -367,6 +383,8 @@ async function handlePut(req: Request, db: ServiceClient, usuario: string): Prom
       limiar_superior: body.limiar_superior,
       k_few_shot: body.k_few_shot,
       descarte_fisico_ligado: body.descarte_fisico_ligado,
+      triar_apenas_futuros: body.triar_apenas_futuros,
+      triagem_horizonte_dias: body.triagem_horizonte_dias,
       limiares_mudaram: limiaresMudaram,
       avisos_rederivados: rederivados,
     },
