@@ -1120,6 +1120,45 @@ export interface TriagemItem {
 /** Item da lixeira: mesma forma da triagem (filtro lixeira aplicado no servidor). */
 export type LixeiraItem = TriagemItem;
 
+/** Estado da extracao de itens de um documento (recall por item). */
+export type ItensStatus =
+  | "pendente"
+  | "extraido"
+  | "sem_itens"
+  | "erro"
+  | "inobtenivel"
+  | "ignorado";
+
+/** Documento vinculado a um aviso + estado da extracao de itens (lazy). */
+export interface AvisoDocumento {
+  documentoId: string;
+  nomeArquivo: string | null;
+  itensStatus: ItensStatus;
+}
+
+/** Item literal extraido de um documento de edital (descricao integral). */
+export interface AvisoItem {
+  documentoId: string;
+  /** Rotulo da lista de origem (ex.: 'principal', 'anexo TR'); listas convivem. */
+  listaOrigem: string;
+  /** 'tecnica' (descricao confiavel) ou 'portal' (generica, nao confiavel). */
+  fonteDescricao: string;
+  itemNumero: string | null;
+  lote: string | null;
+  descricao: string;
+  unidade: string | null;
+  quantidade: number | null;
+  /** Preco de referencia UNITARIO (nullable). */
+  precoReferencia: number | null;
+  ordem: number | null;
+}
+
+/** Itens extraidos de um aviso (documentos + itens por documento). */
+export interface AvisoItens {
+  documentos: AvisoDocumento[];
+  itens: AvisoItem[];
+}
+
 /** Regra dura editavel, consumida deterministicamente pela triagem (E5). */
 export interface RegraDura {
   id: string;

@@ -10,10 +10,12 @@ import { apiFetch, buildQuery } from "@/lib/api/client";
 import type {
   AgenteConfig,
   AutomacaoConfig,
+  AvisoItens,
   BacktestRecall,
   ExemploFewShot,
   FalsoDescarteAmostra,
   FeedbackHumano,
+  ItensStatus,
   LixeiraItem,
   RegraDura,
   TriagemItem,
@@ -373,6 +375,61 @@ export async function listLixeira(
     descarteFisicoLigado: raw.descarte_fisico_ligado === true,
     diasCarencia: raw.dias_carencia,
     nextCursor: raw.next_cursor ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------
+// Itens extraidos por aviso (recall por item) — automacao-aviso-itens.
+// ---------------------------------------------------------------------
+
+interface RawAvisoDocumento {
+  documento_id: string;
+  nome_arquivo: string | null;
+  itens_status: string;
+}
+
+interface RawAvisoItem {
+  documento_id: string;
+  lista_origem: string;
+  fonte_descricao: string;
+  item_numero: string | null;
+  lote: string | null;
+  descricao: string;
+  unidade: string | null;
+  quantidade: number | null;
+  preco_referencia: number | null;
+  ordem: number | null;
+}
+
+interface RawAvisoItensResponse {
+  documentos: RawAvisoDocumento[];
+  itens: RawAvisoItem[];
+}
+
+/** Documentos + itens extraidos de um aviso (so leitura; a Lia extrai). */
+export async function getAvisoItens(avisoId: string): Promise<AvisoItens> {
+  const raw = await apiFetch<RawAvisoItensResponse>(
+    `automacao-aviso-itens${buildQuery({ aviso_id: avisoId })}`,
+    { method: "GET" },
+  );
+  return {
+    documentos: (raw.documentos ?? []).map((d) => ({
+      documentoId: d.documento_id,
+      nomeArquivo: d.nome_arquivo ?? null,
+      itensStatus: (d.itens_status ?? "pendente") as ItensStatus,
+    })),
+    itens: (raw.itens ?? []).map((i) => ({
+      documentoId: i.documento_id,
+      listaOrigem: i.lista_origem ?? "principal",
+      fonteDescricao: i.fonte_descricao ?? "tecnica",
+      itemNumero: i.item_numero ?? null,
+      lote: i.lote ?? null,
+      descricao: i.descricao,
+      unidade: i.unidade ?? null,
+      quantidade: i.quantidade ?? null,
+      precoReferencia: i.preco_referencia ?? null,
+      ordem: i.ordem ?? null,
+    })),
   };
 }
 

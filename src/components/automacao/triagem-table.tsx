@@ -1,8 +1,11 @@
-import type { CSSProperties, ReactNode } from "react";
-import { Inbox } from "lucide-react";
+"use client";
+
+import { type CSSProperties, Fragment, type ReactNode, useState } from "react";
+import { ChevronDown, ChevronRight, Inbox } from "lucide-react";
 import type { TriagemItem } from "@/lib/api/types";
 import { formatDataBr, formatDate, formatHoraBr } from "@/lib/format";
 import { VereditoBadge } from "@/components/automacao/veredito-badge";
+import { AvisoItensPanel } from "@/components/automacao/aviso-itens-panel";
 
 export type TriagemVariant = "triagem" | "lixeira" | "fila";
 
@@ -68,15 +71,18 @@ export function TriagemTable({
   footer?: ReactNode;
 }) {
   const columns = COLUMNS[variant];
-  const colCount = columns.length;
+  // +1 = coluna do expansor (itens extraidos pela Lia, recall por item).
+  const colCount = columns.length + 1;
   const isLixeira = variant === "lixeira";
   const isFila = variant === "fila";
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
     <div className="tbl-wrap tbl-scroll">
       <table>
         <thead>
           <tr>
+            <th aria-hidden="true" style={{ width: 32 }} />
             {columns.map((c) => (
               <th key={c}>{c}</th>
             ))}
@@ -96,8 +102,22 @@ export function TriagemTable({
               </td>
             </tr>
           ) : (
-            items.map((it) => (
-              <tr key={it.avisoId}>
+            items.map((it) => {
+              const expanded = expandedId === it.avisoId;
+              return (
+              <Fragment key={it.avisoId}>
+              <tr>
+                <td>
+                  <button
+                    type="button"
+                    className="btn-icon"
+                    aria-expanded={expanded}
+                    aria-label={expanded ? "Recolher itens do edital" : "Ver itens do edital"}
+                    onClick={() => setExpandedId(expanded ? null : it.avisoId)}
+                  >
+                    {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+                  </button>
+                </td>
                 <td className="sub tnum">{it.effectiId || "—"}</td>
                 <td className="sub tnum">{it.portal || "—"}</td>
                 <td className="sub tnum">
@@ -128,7 +148,17 @@ export function TriagemTable({
                   </>
                 )}
               </tr>
-            ))
+              {expanded && (
+                <tr>
+                  <td aria-hidden="true" />
+                  <td colSpan={colCount - 1}>
+                    <AvisoItensPanel avisoId={it.avisoId} />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
+              );
+            })
           )}
         </tbody>
       </table>

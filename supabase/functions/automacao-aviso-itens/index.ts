@@ -1,0 +1,224 @@
+// =====================================================================
+// Edge Function: automacao-aviso-itens  (cockpit - itens extraidos por aviso)
+//   -> GET /automacao-aviso-itens?aviso_id=<uuid>
+//
+// Da VISIBILIDADE no cockpit do que a Lia extraiu de um edital (recall por
+// item). Por aviso, resolve os documentos vinculados (via effecti_id +
+// documento_vinculos, dedup global) e devolve:
+//   - documentos[]: nome_arquivo + itens_status (pendente|extraido|sem_itens|
+//                   erro|inobtenivel|ignorado) — o estado da extracao de ITENS
+//   - itens[]:      as linhas literais de documento_itens (descricao integral,
+//                   unidade, qtd, preco_referencia, lista_origem, fonte_descricao)
+//
+// SO LEITURA: o cockpit nao extrai nem reprocessa (a extracao e 1x/doc, feita
+// pela Lia quando ativa). Documento `pendente` = aguardando a Lia.
+//
+// Autorizacao na borda (US-21): requireAuthorizedUser -> 401 sem sessao, 403
+// fora da allowlist. A leitura corre com service_role apos a borda autorizar
+// (tabelas de triagem/documentos ficam fora das views lia.*, SEC-3).
+// =====================================================================
+
+import { handleCorsPreflight } from "../_shared/cors.ts";
+import { assertMethod, errorResponse, jsonResponse } from "../_shared/http.ts";
+import { getEnv } from "../_shared/env.ts";
+import { requireAuthorizedUser } from "../_shared/auth.ts";
+import { createServiceClient } from "../_shared/supabase.ts";
+
+type ServiceClient = ReturnType<typeof createServiceClient>;
+
+const FUNCTION_SEGMENT = "automacao-aviso-itens";
+
+/**
+ * Estados de extracao de TEXTO (documento_vinculos.status_extracao) com texto
+ * aproveitavel — os mesmos elegiveis a extracao de itens na fila. Documentos
+ * sem texto (pendente/erro/inobtenivel) nao rendem itens e ficam de fora.
+ */
+const STATUS_EXTRACAO_COM_TEXTO = ["extraido", "herdado", "precisa_ocr"];
+
+/**
+ * PostgREST limita a resposta a 1000 linhas; sem paginar, itens em volume
+ * seriam truncados em SILENCIO (viola RECALL TOTAL). Pagina via .range().
+ */
+const PAGE_SIZE = 1000;
+
+async function fetchAllRows<T>(
+  label: string,
+  build: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0;; from += PAGE_SIZE) {
+    const { data, error } = await build(from, from + PAGE_SIZE - 1);
+    if (error) throw new Error(`falha ao ler ${label}: ${error.message}`);
+    const batch = (data ?? []) as T[];
+    out.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+  }
+  return out;
+}
+
+interface DocumentoFila {
+  documento_id: string;
+  nome_arquivo: string | null;
+  itens_status: string;
+}
+
+interface ItemLicitacao {
+  documento_id: string;
+  lista_origem: string;
+  fonte_descricao: string;
+  item_numero: string | null;
+  lote: string | null;
+  descricao: string;
+  unidade: string | null;
+  quantidade: number | null;
+  preco_referencia: number | null;
+  ordem: number | null;
+}
+
+interface VinculoRow {
+  documento_id: string;
+}
+
+interface DocumentoMetaRow {
+  id: string;
+  nome_arquivo: string | null;
+  itens_status: string | null;
+}
+
+interface ItemRow {
+  documento_id: string;
+  lista_origem: string | null;
+  fonte_descricao: string | null;
+  item_numero: string | null;
+  lote: string | null;
+  descricao: string;
+  unidade: string | null;
+  quantidade: number | null;
+  preco_referencia: number | null;
+  ordem: number | null;
+}
+
+/** Resolve o effecti_id do aviso (chave do vinculo de documentos). */
+async function loadEffectiId(db: ServiceClient, avisoId: string): Promise<string | null> {
+  const { data, error } = await db
+    .from("avisos")
+    .select("effecti_id")
+    .eq("id", avisoId)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`falha ao ler aviso: ${error.message}`);
+  }
+  const eid = (data?.effecti_id ?? "").trim();
+  return eid === "" ? null : eid;
+}
+
+/** documento_ids com texto aproveitavel vinculados ao effecti_id (dedup). */
+async function loadDocIds(db: ServiceClient, effectiId: string): Promise<string[]> {
+  const vinculos = await fetchAllRows<VinculoRow>("documento_vinculos", (from, to) =>
+    db
+      .from("documento_vinculos")
+      .select("documento_id")
+      .eq("fonte", "effecti")
+      .eq("registro_origem_id", effectiId)
+      .in("status_extracao", STATUS_EXTRACAO_COM_TEXTO)
+      .range(from, to));
+  const set = new Set<string>();
+  for (const v of vinculos) {
+    if (v.documento_id) set.add(v.documento_id);
+  }
+  return [...set];
+}
+
+/** Metadados (nome + itens_status) dos documentos. */
+async function loadDocumentos(db: ServiceClient, docIds: string[]): Promise<DocumentoFila[]> {
+  const { data, error } = await db
+    .from("documentos")
+    .select("id, nome_arquivo, itens_status")
+    .in("id", docIds);
+  if (error) {
+    throw new Error(`falha ao ler documentos: ${error.message}`);
+  }
+  return ((data ?? []) as DocumentoMetaRow[])
+    .map((row) => ({
+      documento_id: row.id,
+      nome_arquivo: row.nome_arquivo ?? null,
+      itens_status: row.itens_status ?? "pendente",
+    }))
+    .sort((a, b) => (a.nome_arquivo ?? "").localeCompare(b.nome_arquivo ?? ""));
+}
+
+/** Itens literais (documento_itens), ordenados por documento/lista/ordem. */
+async function loadItens(db: ServiceClient, docIds: string[]): Promise<ItemLicitacao[]> {
+  const rows = await fetchAllRows<ItemRow>("documento_itens", (from, to) =>
+    db
+      .from("documento_itens")
+      .select(
+        "documento_id, lista_origem, fonte_descricao, item_numero, lote, " +
+          "descricao, unidade, quantidade, preco_referencia, ordem",
+      )
+      .in("documento_id", docIds)
+      .order("documento_id", { ascending: true })
+      .order("lista_origem", { ascending: true })
+      .order("ordem", { ascending: true })
+      .range(from, to));
+  return rows.map((row) => ({
+    documento_id: row.documento_id,
+    lista_origem: row.lista_origem ?? "principal",
+    fonte_descricao: row.fonte_descricao ?? "tecnica",
+    item_numero: row.item_numero ?? null,
+    lote: row.lote ?? null,
+    descricao: row.descricao,
+    unidade: row.unidade ?? null,
+    quantidade: typeof row.quantidade === "number" ? row.quantidade : null,
+    preco_referencia: typeof row.preco_referencia === "number" ? row.preco_referencia : null,
+    ordem: typeof row.ordem === "number" ? row.ordem : null,
+  }));
+}
+
+async function handler(req: Request): Promise<Response> {
+  const preflight = handleCorsPreflight(req);
+  if (preflight) return preflight;
+
+  try {
+    assertMethod(req, "GET");
+
+    // Autorizacao na borda: 401 sem sessao, 403 fora da allowlist.
+    await requireAuthorizedUser(req);
+
+    const url = new URL(req.url);
+    const avisoId = (url.searchParams.get("aviso_id") ?? "").trim();
+    if (avisoId === "") {
+      return jsonResponse({ error: "aviso_id obrigatorio" }, 400);
+    }
+
+    const db = createServiceClient();
+
+    const effectiId = await loadEffectiId(db, avisoId);
+    if (effectiId === null) {
+      // Aviso sem effecti_id (ou inexistente): sem documentos vinculados.
+      return jsonResponse({ documentos: [], itens: [] }, 200);
+    }
+
+    const docIds = await loadDocIds(db, effectiId);
+    if (docIds.length === 0) {
+      return jsonResponse({ documentos: [], itens: [] }, 200);
+    }
+
+    const [documentos, itens] = await Promise.all([
+      loadDocumentos(db, docIds),
+      loadItens(db, docIds),
+    ]);
+
+    return jsonResponse({ documentos, itens }, 200);
+  } catch (err) {
+    return await errorResponse(err, { fn: FUNCTION_SEGMENT });
+  }
+}
+
+// Validacao de env no startup: falha cedo se faltar configuracao obrigatoria.
+getEnv();
+
+Deno.serve(handler);
