@@ -29,7 +29,8 @@ import { getEnv } from "../_shared/env.ts";
 import { authenticateV1, principalLabel } from "../_shared/service-auth.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
-import { createEmbeddingProvider, EmbeddingError } from "../_shared/embeddings.ts";
+import { EmbeddingError } from "../_shared/embeddings.ts";
+import { resolveEmbeddingProvider } from "../_shared/indexacao.ts";
 import { buscaSemanticaSchema, normalizeLimite, parseJsonBody } from "../_shared/validation.ts";
 import type {
   BuscaSemanticaRegistro,
@@ -70,8 +71,10 @@ async function handler(req: Request): Promise<Response> {
     // garante o intervalo [1, 50]; ausente -> default.
     const normalizedLimite = normalizeLimite(limite ?? topK);
 
-    // Embedding da query via MESMO provider plugavel da ingestao (dim 1024).
-    const provider = createEmbeddingProvider();
+    // Embedding da query via MESMO provider com que o substrato foi indexado
+    // (resolveEmbeddingProvider -> OpenAI/Vault, dim 1024). Casar o provider e
+    // obrigatorio: provider divergente gera vetor incompativel -> 0 resultados.
+    const provider = await resolveEmbeddingProvider();
     let queryVector: number[];
     try {
       const [vector] = await provider.embed([query]);

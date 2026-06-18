@@ -27,7 +27,8 @@ import { getEnv } from "../_shared/env.ts";
 import { authenticateV1, principalLabel } from "../_shared/service-auth.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
-import { createEmbeddingProvider, EmbeddingError } from "../_shared/embeddings.ts";
+import { EmbeddingError } from "../_shared/embeddings.ts";
+import { resolveEmbeddingProvider } from "../_shared/indexacao.ts";
 import {
   parseJsonBody,
   PRODUTOS_BUSCA_DEFAULT_LIMITE,
@@ -66,8 +67,10 @@ async function handler(req: Request): Promise<Response> {
     const { query, limite } = await parseJsonBody(req, produtosBuscaSemanticaSchema);
     const normalizedLimite = limite ?? PRODUTOS_BUSCA_DEFAULT_LIMITE;
 
-    // Embedding da query via MESMO provider plugavel da ingestao (bge-m3, 1024).
-    const provider = createEmbeddingProvider();
+    // Embedding da query via MESMO provider com que o catalogo foi indexado
+    // (resolveEmbeddingProvider -> OpenAI/Vault, 1024). Casar o provider e
+    // obrigatorio: provider divergente gera vetor incompativel -> 0 resultados.
+    const provider = await resolveEmbeddingProvider();
     let queryVector: number[];
     try {
       const [vector] = await provider.embed([query]);
