@@ -9,7 +9,7 @@ export type TriagemVariant = "triagem" | "lixeira" | "fila";
 const COLUMNS: Record<TriagemVariant, string[]> = {
   triagem: ["Objeto", "Órgão / UF", "Data", "Veredito", "Motivo", "Avaliação"],
   lixeira: ["Objeto", "Órgão / UF", "Veredito", "Motivo", "Descarte previsto"],
-  fila: ["Objeto", "Órgão / UF", "Data"],
+  fila: ["Objeto", "Órgão / UF", "Abertura"],
 };
 
 /** Truncamento inline (FE-4): motivo e objeto na propria linha, sem drawer. */

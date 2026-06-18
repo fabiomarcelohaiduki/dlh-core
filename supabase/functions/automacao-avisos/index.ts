@@ -56,6 +56,7 @@ interface AvisoRow {
   id: string;
   objeto: string | null;
   orgao: string | null;
+  data_inicial: string | null;
   data_publicacao: string | null;
   data_captura: string | null;
   triagem_veredito: string | null;
@@ -158,7 +159,9 @@ async function listarFila(
     objeto: aviso.objeto ?? "",
     orgao: aviso.orgao ?? "",
     uf: resolveUf(aviso),
-    data: aviso.data_publicacao ?? aviso.data_captura ?? null,
+    // Fila mostra a data de ABERTURA da licitacao (data_inicial das propostas),
+    // nao a captura/publicacao. A ordenacao da fila segue FIFO por data_captura.
+    data: aviso.data_inicial ?? null,
     veredito: null,
     confianca: null,
     motivo: null,
@@ -247,7 +250,7 @@ async function handler(req: Request): Promise<Response> {
 
     const db = createServiceClient();
 
-    const selectCols = "id, objeto, orgao, data_publicacao, data_captura, " +
+    const selectCols = "id, objeto, orgao, data_inicial, data_publicacao, data_captura, " +
       "triagem_veredito, triagem_confianca, triagem_em, reabilitado, " +
       "na_lixeira, na_lixeira_em, " +
       "uf_direct:payload_bruto->>uf, uf_estado:payload_bruto->>estado, " +
