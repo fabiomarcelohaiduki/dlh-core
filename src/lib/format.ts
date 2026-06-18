@@ -19,21 +19,21 @@ const DATE_TIME_FULL = new Intl.DateTimeFormat("pt-BR", {
   second: "2-digit",
 });
 
-// A abertura dos lances (data_final do aviso Effecti) e gravada NAIVE como UTC
-// (o horario local da licitacao foi serializado sem fuso). Por isso a data e a
-// hora dessa coluna sao formatadas em UTC, senao o BRT mostraria -3h (08:00 no
-// lugar de 11:00).
-const DATA_UTC = new Intl.DateTimeFormat("pt-BR", {
+// A abertura dos lances (data_final do aviso Effecti) e gravada em UTC real
+// (o horario de Brasilia do edital foi convertido com offset -03:00 na ingestao,
+// ex: 08:00 BRT -> 11:00Z). Por isso data e hora sao formatadas no fuso de
+// Brasilia, devolvendo o horario que a licitacao realmente abre (08:00).
+const DATA_BR = new Intl.DateTimeFormat("pt-BR", {
   day: "2-digit",
   month: "2-digit",
   year: "numeric",
-  timeZone: "UTC",
+  timeZone: "America/Sao_Paulo",
 });
 
-const HORA_UTC = new Intl.DateTimeFormat("pt-BR", {
+const HORA_BR = new Intl.DateTimeFormat("pt-BR", {
   hour: "2-digit",
   minute: "2-digit",
-  timeZone: "UTC",
+  timeZone: "America/Sao_Paulo",
 });
 
 const NUMBER = new Intl.NumberFormat("pt-BR");
@@ -76,16 +76,16 @@ export function formatDate(value: string | null | undefined): string {
   return d ? d.toLocaleDateString("pt-BR") : "—";
 }
 
-/** "22/06/2026" — data de abertura dos lances (data_final), formatada em UTC. */
-export function formatDataUtc(value: string | null | undefined): string {
+/** "22/06/2026" — data de abertura dos lances (data_final), no fuso de Brasilia. */
+export function formatDataBr(value: string | null | undefined): string {
   const d = parse(value);
-  return d ? DATA_UTC.format(d) : "—";
+  return d ? DATA_BR.format(d) : "—";
 }
 
-/** "11:00" — horario de abertura dos lances (data_final), formatado em UTC. */
-export function formatHoraUtc(value: string | null | undefined): string {
+/** "08:00" — horario de abertura dos lances (data_final), no fuso de Brasilia. */
+export function formatHoraBr(value: string | null | undefined): string {
   const d = parse(value);
-  return d ? HORA_UTC.format(d) : "—";
+  return d ? HORA_BR.format(d) : "—";
 }
 
 /** "há 14 min" / "há 2 h" / "há 3 d" — KPI de ultima sincronizacao. */

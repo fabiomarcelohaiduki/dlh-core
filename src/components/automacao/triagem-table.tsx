@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { Inbox } from "lucide-react";
 import type { TriagemItem } from "@/lib/api/types";
-import { formatDataUtc, formatDate, formatHoraUtc } from "@/lib/format";
+import { formatDataBr, formatDate, formatHoraBr } from "@/lib/format";
 import { VereditoBadge } from "@/components/automacao/veredito-badge";
 
 export type TriagemVariant = "triagem" | "lixeira" | "fila";
@@ -99,16 +99,16 @@ export function TriagemTable({
             items.map((it) => (
               <tr key={it.avisoId}>
                 <td className="sub tnum">{it.effectiId || "—"}</td>
-                <td className="tnum">{it.edital || "—"}</td>
-                <td className="sub">{it.portal || "—"}</td>
-                <td>
+                <td className="sub tnum">{it.edital || "—"}</td>
+                <td className="sub tnum">{it.portal || "—"}</td>
+                <td className="sub tnum">
                   <div className="cell-stack">
                     <span>{it.orgao || "—"}</span>
                     <span className="sub">{it.uf || "—"}</span>
                   </div>
                 </td>
-                <td className="tnum">{formatDataUtc(it.data)}</td>
-                <td className="sub tnum">{formatHoraUtc(it.data)}</td>
+                <td className="sub tnum">{formatDataBr(it.data)}</td>
+                <td className="sub tnum">{formatHoraBr(it.data)}</td>
                 {!isFila && (
                   <>
                     <td>
