@@ -2,41 +2,43 @@
 // _shared/triagem-fila.ts
 // Montagem do PAYLOAD MINIMO da FILA de triagem (Caminho 2: o servidor NAO
 // chama LLM, apenas entrega trabalho ao Lion). Por aviso elegivel monta:
-//   - trechos_edital      (aviso_chunks.conteudo + aviso_arquivos.texto_extraido)
-//   - produtos_candidatos (busca semantica escopo 'produto-cotacao', MASCARADOS)
-//   - few_shot            (triagem_exemplos.ativo, ate k por similaridade + recencia)
-//   - regras_duras        (triagem_regras ativas: fora_de_ramo / termo_produto)
+//   - trechos_edital   (aviso_chunks.conteudo + aviso_arquivos.texto_extraido)
+//   - documentos       (documentos vinculados ao aviso + itens_status de cada um)
+//   - itens_licitacao  (LISTA DE ITENS extraida — documento_itens — por documento)
+//   - few_shot         (triagem_exemplos.ativo, ate k por recencia)
+//   - regras_duras     (triagem_regras ativas: fora_de_ramo / termo_produto)
 // e, no topo, o objeto `agente` versionado (triagem_agente_config).
+//
+// RECALL POR ITEM (2026-06-18): o servidor NAO cruza mais o edital contra o
+// catalogo. Em vez de `produtos_candidatos`, entrega a LISTA DE ITENS literal
+// do edital/anexos (documento_itens) e a propria Lia cruza com o catalogo e
+// consulta a politica de participacao por produto que identificar. "Entregar a
+// lista e barato; analisar o edital inteiro e caro" — a fila SO LE
+// documento_itens; a extracao (1x/doc, armazenada) e feita pela Lia.
+//
+// Estado de extracao por documento (itens_status): a fila expoe documentos +
+// itens_status para a Lia saber o que ainda falta extrair. Quando um documento
+// vem 'pendente', a Lia le o texto JA extraido, estrutura os itens e grava via
+// documento_itens_gravar — depois triada. Extracao e dedup-global (por
+// documento), reaproveitada por todos os avisos que compartilham o edital.
 //
 // Selecao de avisos (E6/E7, RF-01..RF-04):
 //   status_indexacao = 'indexado' E reabilitado = false E ainda nao triados
-//   (triagem_veredito IS NULL). A re-triagem por mudanca de conteudo
-//   (conteudo_hash diferente do usado na ultima triagem) e materializada
-//   upstream: o pipeline de re-coleta/re-indexacao zera triagem_veredito quando
-//   o conteudo muda, fazendo o aviso voltar a esta fila pelo MESMO filtro
-//   (triagem_veredito IS NULL). Ordenacao FIFO por data de captura ascendente.
+//   (triagem_veredito IS NULL). A re-triagem por mudanca de conteudo e
+//   materializada upstream (o pipeline zera triagem_veredito quando o conteudo
+//   muda). Ordenacao FIFO por data de captura ascendente.
 //
 // SEC-4 / RNF-01: o payload NUNCA contem conteudo_verbatim, payload_bruto,
-// custos, margens, BOM, hashes, tokens nem o edital integral. trechos_edital
-// sao SEGMENTOS limitados (cap de quantidade e de caracteres); produtos vem
-// mascarados (apenas produto_id, nome e similaridade).
-//
-// Nota sobre busca_semantica_chunks(p_aviso_id): a RPC origem-aware retorna o
-// `conteudo_verbatim` agregado do aviso (nao o texto por chunk), inadequado
-// para trechos limitados sob SEC-4. Por isso os trechos sao montados a partir
-// dos SEGMENTOS ja indexados (aviso_chunks.conteudo) — exatamente o material
-// sobre o qual a RPC opera — garantindo limite e conformidade.
+// custos, margens, BOM, hashes nem tokens. trechos_edital sao SEGMENTOS
+// limitados (cap de quantidade e de caracteres). itens_licitacao e conteudo de
+// NEGOCIO (descricao literal do item, quantidade, unidade, preco de referencia)
+// — fronteira SOM permite; custo/margem/BOM seguem fora.
 // =====================================================================
 
 import { createServiceClient } from "./supabase.ts";
-import { createEmbeddingProvider, EmbeddingError, type EmbeddingProvider } from "./embeddings.ts";
-import { getEnv } from "./env.ts";
 import { type JanelaTriagem, janelaOrFilters, loadJanelaTriagem } from "./triagem-janela.ts";
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
-
-/** Escopo fixo do indice de memoria do catalogo de produtos (RF-24/RF-25). */
-const PRODUTO_CHUNK_ESCOPO = "produto-cotacao" as const;
 
 /** Limites de montagem (defense in depth contra payload inflado / SEC-4). */
 export const FILA_DEFAULT_LIMITE = 20;
@@ -44,10 +46,40 @@ export const FILA_MAX_LIMITE = 50;
 const MAX_TRECHOS = 6;
 const MAX_TRECHO_CHARS = 600;
 const MAX_TEXTO_EXTRAIDO_TRECHOS = 2;
-const MAX_PRODUTOS_CANDIDATOS = 5;
-const PRODUTOS_BUSCA_K = 8;
-const MAX_QUERY_CHARS = 1_500;
 const FEWSHOT_BANK_CAP = 200;
+
+/**
+ * Estados de extracao de TEXTO (documento_vinculos.status_extracao) que tem
+ * texto aproveitavel para extracao de itens. precisa_ocr incluido de proposito:
+ * editais escaneados/grandes podem ter texto parcial. pendente/erro/inobtenivel/
+ * ignorado ficam fora (sem texto valido para a Lia estruturar itens).
+ */
+const STATUS_EXTRACAO_COM_TEXTO = ["extraido", "herdado", "precisa_ocr"];
+
+/**
+ * PostgREST limita a resposta a 1000 linhas; sem paginar, vinculos/itens em
+ * volume sao truncados em SILENCIO — perda de documentos/itens que viola o
+ * RECALL TOTAL. fetchAllRows pagina via .range() ate esgotar.
+ */
+const PAGE_SIZE = 1000;
+
+async function fetchAllRows<T>(
+  label: string,
+  build: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0;; from += PAGE_SIZE) {
+    const { data, error } = await build(from, from + PAGE_SIZE - 1);
+    if (error) throw new Error(`falha ao ler ${label}: ${error.message}`);
+    const batch = (data ?? []) as T[];
+    out.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+  }
+  return out;
+}
 
 /** Objeto agente versionado entregue no topo da FILA (E15). */
 export interface AgentePayload {
@@ -58,11 +90,30 @@ export interface AgentePayload {
   versao: number;
 }
 
-/** Produto candidato MASCARADO (sem custo/margem/BOM) — SEC-4. */
-export interface ProdutoCandidato {
-  produto_id: string;
-  nome: string;
-  similaridade: number;
+/** Documento vinculado ao aviso + estado da extracao de itens (lazy). */
+export interface DocumentoFila {
+  documento_id: string;
+  nome_arquivo: string | null;
+  /** pendente | extraido | sem_itens | erro | inobtenivel | ignorado. */
+  itens_status: string;
+}
+
+/** Item de licitacao literal (documento_itens) — recall total, sem fusao. */
+export interface ItemLicitacao {
+  documento_id: string;
+  /** Rotulo da lista de origem (ex.: 'principal', 'anexo TR'); listas convivem. */
+  lista_origem: string;
+  /** 'tecnica' (descricao confiavel) ou 'portal' (generica, nao confiavel). */
+  fonte_descricao: string;
+  item_numero: string | null;
+  lote: string | null;
+  /** Descricao INTEGRAL/literal do item (sem truncar) — recall total. */
+  descricao: string;
+  unidade: string | null;
+  quantidade: number | null;
+  /** Preco de referencia UNITARIO (nullable). */
+  preco_referencia: number | null;
+  ordem: number | null;
 }
 
 /** Exemplo few-shot rotulado (sem embedding nem ids internos). */
@@ -77,7 +128,7 @@ export interface RegrasDuras {
   termo_produto: string[];
 }
 
-/** Item da FILA no contrato 3.2.1. */
+/** Item da FILA no contrato 3.2.1 (recall por item). */
 export interface TriagemFilaItem {
   aviso_id: string;
   objeto: string;
@@ -85,7 +136,8 @@ export interface TriagemFilaItem {
   uf: string;
   data: string | null;
   trechos_edital: string[];
-  produtos_candidatos: ProdutoCandidato[];
+  documentos: DocumentoFila[];
+  itens_licitacao: ItemLicitacao[];
   few_shot: FewShotExemplo[];
   k_few_shot: number;
   regras_duras: RegrasDuras;
@@ -101,8 +153,6 @@ export interface TriagemFilaResult {
 export interface BuildTriagemFilaParams {
   limite: number;
   cursor: string | null;
-  /** Provider de embeddings injetavel (testes); senao resolve o padrao. */
-  provider?: EmbeddingProvider;
 }
 
 /** Normaliza `limite` da query: default 20, faixa [1, 50] (cap, nao rejeita). */
@@ -120,6 +170,7 @@ export function normalizeFilaLimite(raw: string | null): number {
 // ---------------------------------------------------------------------
 interface AvisoRow {
   id: string;
+  effecti_id: string | null;
   objeto: string;
   orgao: string;
   data_publicacao: string | null;
@@ -144,19 +195,37 @@ interface ExemploRow {
   id: string;
   texto: string;
   veredito_rotulado: string | null;
-  embedding: unknown;
   criado_em: string;
 }
 
-interface BuscaRow {
-  registro_id: string | null;
-  similaridade: number | null;
+interface VinculoRow {
+  registro_origem_id: string;
+  documento_id: string;
+}
+
+interface DocumentoMetaRow {
+  id: string;
+  nome_arquivo: string | null;
+  itens_status: string | null;
+}
+
+interface ItemRow {
+  documento_id: string;
+  lista_origem: string | null;
+  fonte_descricao: string | null;
+  item_numero: string | null;
+  lote: string | null;
+  descricao: string;
+  unidade: string | null;
+  quantidade: number | null;
+  preco_referencia: number | null;
+  ordem: number | null;
 }
 
 /**
  * Monta o payload completo da FILA: agente + itens + next_cursor.
- * Toda a leitura roda com service_role (a RPC e SECURITY DEFINER e a borda ja
- * autorizou). Erros de banco viram excecao para o handler converter em 500.
+ * Toda a leitura roda com service_role (a borda ja autorizou). Erros de banco
+ * viram excecao para o handler converter em 500.
  */
 export async function buildTriagemFila(
   params: BuildTriagemFilaParams,
@@ -186,23 +255,26 @@ export async function buildTriagemFila(
     loadTextoExtraidoByAviso(db, avisoIds),
   ]);
 
-  // 4) Embedding do texto de cada aviso (objeto + trechos), em UM lote. Em
-  //    degradacao (provider ausente/indisponivel) seguimos sem produtos e com
-  //    few-shot por recencia: a FILA continua entregando trabalho.
-  const queryTexts = avisos.map((a) => buildQueryText(a.objeto, chunksByAviso.get(a.id) ?? []));
-  const vectors = await embedQueries(queryTexts, params.provider);
+  // 4) Documentos vinculados (por effecti_id) e seus itens extraidos, em lote.
+  //    A Lia recebe a lista de itens (documento_itens) e os documentos com
+  //    itens_status para extrair os 'pendente' sob demanda. SEM cross-join.
+  const { docsByAviso, itensByDocumento } = await loadDocumentosEItens(db, avisos);
 
   // 5) Monta cada item.
   const itens: TriagemFilaItem[] = [];
-  for (let i = 0; i < avisos.length; i++) {
-    const aviso = avisos[i];
-    const vector = vectors[i] ?? null;
+  for (const aviso of avisos) {
     const trechos = buildTrechos(
       chunksByAviso.get(aviso.id) ?? [],
       textoByAviso.get(aviso.id) ?? [],
     );
-    const produtosCandidatos = vector ? await buscarProdutos(db, vector) : [];
-    const fewShot = selectFewShot(fewShotBank, vector, kFewShot);
+    const documentos = docsByAviso.get(aviso.id) ?? [];
+    const itensLicitacao: ItemLicitacao[] = [];
+    for (const doc of documentos) {
+      for (const item of itensByDocumento.get(doc.documento_id) ?? []) {
+        itensLicitacao.push(item);
+      }
+    }
+    const fewShot = selectFewShot(fewShotBank, kFewShot);
 
     itens.push({
       aviso_id: aviso.id,
@@ -211,7 +283,8 @@ export async function buildTriagemFila(
       uf: resolveUf(aviso),
       data: aviso.data_publicacao ?? aviso.data_captura ?? null,
       trechos_edital: trechos,
-      produtos_candidatos: produtosCandidatos,
+      documentos,
+      itens_licitacao: itensLicitacao,
       few_shot: fewShot,
       k_few_shot: kFewShot,
       regras_duras: regrasDuras,
@@ -285,7 +358,7 @@ async function loadRegrasDuras(db: ServiceClient): Promise<RegrasDuras> {
 async function loadFewShotBank(db: ServiceClient): Promise<ExemploRow[]> {
   const { data, error } = await db
     .from("triagem_exemplos")
-    .select("id, texto, veredito_rotulado, embedding, criado_em")
+    .select("id, texto, veredito_rotulado, criado_em")
     .eq("ativo", true)
     .order("criado_em", { ascending: false })
     .limit(FEWSHOT_BANK_CAP);
@@ -305,9 +378,10 @@ async function selectAvisosElegiveis(
   cursor: string | null,
   janela: JanelaTriagem,
 ): Promise<AvisoRow[]> {
-  // Campos minimos. uf nao e coluna -> extraido do payload_bruto via arrow
-  // (top-level, sem trafegar o payload inteiro). data_captura ordena a FIFO.
-  const selectCols = "id, objeto, orgao, data_publicacao, data_captura, " +
+  // Campos minimos. effecti_id liga aos documentos via documento_vinculos. uf
+  // nao e coluna -> extraido do payload_bruto via arrow (top-level, sem
+  // trafegar o payload inteiro). data_captura ordena a FIFO.
+  const selectCols = "id, effecti_id, objeto, orgao, data_publicacao, data_captura, " +
     "uf_direct:payload_bruto->>uf, uf_estado:payload_bruto->>estado, " +
     "uf_sigla:payload_bruto->>siglaUf";
 
@@ -427,130 +501,157 @@ function buildTrechos(chunks: ChunkRow[], textoExtraido: string[]): string[] {
 }
 
 // ---------------------------------------------------------------------
-// Embedding em lote + produtos candidatos mascarados.
+// Documentos vinculados ao aviso + itens extraidos (recall por item).
+// O servidor SO LE: entrega a lista de itens e o estado de extracao; a propria
+// Lia extrai os 'pendente' e cruza com o catalogo. SEM embedding, SEM RPC de
+// cruzamento, SEM produtos candidatos.
 // ---------------------------------------------------------------------
 
-function buildQueryText(objeto: string, chunks: ChunkRow[]): string {
-  const partes = [objeto?.trim() ?? ""];
-  for (const c of chunks.slice(0, 2)) {
-    const t = (c.conteudo ?? "").trim();
-    if (t !== "") partes.push(t);
-  }
-  return clip(partes.filter((p) => p !== "").join("\n"), MAX_QUERY_CHARS);
-}
-
-/**
- * Gera o embedding de cada query em UM lote. Degradacao graciosa: sem provider
- * configurado ou em falha do provider, retorna vetores nulos (a FILA segue sem
- * produtos candidatos e com few-shot por recencia).
- */
-async function embedQueries(
-  queryTexts: string[],
-  injected?: EmbeddingProvider,
-): Promise<(number[] | null)[]> {
-  const nulls = queryTexts.map(() => null);
-  if (!injected && !(getEnv().embeddingsEndpoint ?? "").trim()) {
-    return nulls;
-  }
-  const provider = injected ?? createEmbeddingProvider();
-  try {
-    const vectors = await provider.embed(queryTexts);
-    return queryTexts.map((_, i) => {
-      const v = vectors[i];
-      return Array.isArray(v) && v.length > 0 ? v : null;
-    });
-  } catch (err) {
-    if (err instanceof EmbeddingError) {
-      console.warn(`[triagem-fila] embeddings indisponiveis; degradando: ${err.message}`);
-      return nulls;
-    }
-    throw err;
-  }
-}
-
-async function buscarProdutos(
+async function loadDocumentosEItens(
   db: ServiceClient,
-  vector: number[],
-): Promise<ProdutoCandidato[]> {
-  const { data, error } = await db.rpc("busca_semantica_chunks", {
-    p_embedding: vector,
-    p_limite: PRODUTOS_BUSCA_K,
-    p_escopo: PRODUTO_CHUNK_ESCOPO,
-  });
-  if (error) {
-    // Falha de produtos nao derruba a FILA: entrega item sem candidatos.
-    console.warn(`[triagem-fila] busca de produtos falhou: ${error.message}`);
-    return [];
+  avisos: AvisoRow[],
+): Promise<{
+  docsByAviso: Map<string, DocumentoFila[]>;
+  itensByDocumento: Map<string, ItemLicitacao[]>;
+}> {
+  const docsByAviso = new Map<string, DocumentoFila[]>();
+  const itensByDocumento = new Map<string, ItemLicitacao[]>();
+
+  // effecti_id -> avisos (a MESMA licitacao pode aparecer em >1 aviso; o
+  // vinculo e por effecti_id, dedup global de documento).
+  const avisosByEffecti = new Map<string, AvisoRow[]>();
+  for (const a of avisos) {
+    const eid = (a.effecti_id ?? "").trim();
+    if (eid === "") continue;
+    const list = avisosByEffecti.get(eid) ?? [];
+    list.push(a);
+    avisosByEffecti.set(eid, list);
+  }
+  const effectiIds = [...avisosByEffecti.keys()];
+  if (effectiIds.length === 0) {
+    return { docsByAviso, itensByDocumento };
   }
 
-  // registro_id (escopo produto-cotacao) = produto_skus.id. Resolve sku ->
-  // produto (id + nome) e deduplica por produto mantendo a maior similaridade.
-  const rows = ((data ?? []) as BuscaRow[]).filter((r) => r.registro_id);
-  const bestBySku = new Map<string, number>();
-  for (const r of rows) {
-    const sim = typeof r.similaridade === "number" ? r.similaridade : 0;
-    const prev = bestBySku.get(r.registro_id as string) ?? -1;
-    if (sim > prev) bestBySku.set(r.registro_id as string, sim);
-  }
-  const skuIds = [...bestBySku.keys()];
-  if (skuIds.length === 0) return [];
+  // 1) Vinculos effecti com texto aproveitavel -> documentos por effecti_id.
+  //    Paginado: avisos compartilham editais -> muitos vinculos; sem .range()
+  //    o teto de 1000 do PostgREST truncaria documentos em silencio (RECALL).
+  const vinculos = await fetchAllRows<VinculoRow>("documento_vinculos", (from, to) =>
+    db
+      .from("documento_vinculos")
+      .select("registro_origem_id, documento_id")
+      .eq("fonte", "effecti")
+      .in("registro_origem_id", effectiIds)
+      .in("status_extracao", STATUS_EXTRACAO_COM_TEXTO)
+      .range(from, to));
 
-  const { data: skus, error: skuErr } = await db
-    .from("produto_skus")
-    .select("id, produto_id, produtos(id, nome)")
-    .in("id", skuIds);
-  if (skuErr) {
-    console.warn(`[triagem-fila] resolucao de produtos falhou: ${skuErr.message}`);
-    return [];
+  // effecti_id -> Set(documento_id) (dedup: o mesmo doc pode ter N vinculos).
+  const docIdsByEffecti = new Map<string, Set<string>>();
+  const allDocIds = new Set<string>();
+  for (const v of vinculos) {
+    if (!v.registro_origem_id || !v.documento_id) continue;
+    const set = docIdsByEffecti.get(v.registro_origem_id) ?? new Set<string>();
+    set.add(v.documento_id);
+    docIdsByEffecti.set(v.registro_origem_id, set);
+    allDocIds.add(v.documento_id);
   }
+  if (allDocIds.size === 0) {
+    return { docsByAviso, itensByDocumento };
+  }
+  const docIdList = [...allDocIds];
 
-  // Mapeia sku -> { produto_id, nome } e agrega por produto (maior similaridade).
-  const bestByProduto = new Map<string, ProdutoCandidato>();
-  for (const sku of (skus ?? []) as SkuJoinRow[]) {
-    const produto = Array.isArray(sku.produtos) ? sku.produtos[0] : sku.produtos;
-    const produtoId = produto?.id ?? sku.produto_id;
-    const nome = produto?.nome ?? "";
-    if (!produtoId) continue;
-    const sim = bestBySku.get(sku.id) ?? 0;
-    const prev = bestByProduto.get(produtoId);
-    if (!prev || sim > prev.similaridade) {
-      bestByProduto.set(produtoId, { produto_id: produtoId, nome, similaridade: sim });
+  // 2) Metadados dos documentos (nome + itens_status) e itens, em lote.
+  const [metaMap, itensMap] = await Promise.all([
+    loadDocumentosMeta(db, docIdList),
+    loadItensByDocumento(db, docIdList),
+  ]);
+  for (const [docId, itens] of itensMap) itensByDocumento.set(docId, itens);
+
+  // 3) Distribui os documentos para cada aviso (via effecti_id compartilhado).
+  for (const [eid, avisosDoEffecti] of avisosByEffecti) {
+    const docIds = docIdsByEffecti.get(eid);
+    if (!docIds || docIds.size === 0) continue;
+    const documentos: DocumentoFila[] = [];
+    for (const docId of docIds) {
+      const meta = metaMap.get(docId);
+      documentos.push({
+        documento_id: docId,
+        nome_arquivo: meta?.nome_arquivo ?? null,
+        itens_status: meta?.itens_status ?? "pendente",
+      });
     }
+    for (const a of avisosDoEffecti) docsByAviso.set(a.id, documentos);
   }
 
-  return [...bestByProduto.values()]
-    .sort((a, b) => b.similaridade - a.similaridade)
-    .slice(0, MAX_PRODUTOS_CANDIDATOS);
+  return { docsByAviso, itensByDocumento };
 }
 
-interface SkuJoinRow {
-  id: string;
-  produto_id: string;
-  produtos: { id: string; nome: string } | { id: string; nome: string }[] | null;
+async function loadDocumentosMeta(
+  db: ServiceClient,
+  docIds: string[],
+): Promise<Map<string, DocumentoMetaRow>> {
+  const { data, error } = await db
+    .from("documentos")
+    .select("id, nome_arquivo, itens_status")
+    .in("id", docIds);
+  if (error) {
+    throw new Error(`falha ao ler documentos: ${error.message}`);
+  }
+  const map = new Map<string, DocumentoMetaRow>();
+  for (const row of (data ?? []) as DocumentoMetaRow[]) {
+    map.set(row.id, row);
+  }
+  return map;
+}
+
+async function loadItensByDocumento(
+  db: ServiceClient,
+  docIds: string[],
+): Promise<Map<string, ItemLicitacao[]>> {
+  // Paginado: um edital pode ter centenas de itens em multiplas listas; sem
+  // .range() o teto de 1000 do PostgREST truncaria itens em silencio (RECALL).
+  // Ordena por (documento_id, lista_origem, ordem) p/ manter as listas que
+  // convivem (corpo do edital + anexo TR) agrupadas e na ordem original.
+  const rows = await fetchAllRows<ItemRow>("documento_itens", (from, to) =>
+    db
+      .from("documento_itens")
+      .select(
+        "documento_id, lista_origem, fonte_descricao, item_numero, lote, " +
+          "descricao, unidade, quantidade, preco_referencia, ordem",
+      )
+      .in("documento_id", docIds)
+      .order("documento_id", { ascending: true })
+      .order("lista_origem", { ascending: true })
+      .order("ordem", { ascending: true })
+      .range(from, to));
+  const map = new Map<string, ItemLicitacao[]>();
+  for (const row of rows) {
+    const list = map.get(row.documento_id) ?? [];
+    list.push({
+      documento_id: row.documento_id,
+      lista_origem: row.lista_origem ?? "principal",
+      fonte_descricao: row.fonte_descricao ?? "tecnica",
+      item_numero: row.item_numero ?? null,
+      lote: row.lote ?? null,
+      descricao: row.descricao,
+      unidade: row.unidade ?? null,
+      quantidade: typeof row.quantidade === "number" ? row.quantidade : null,
+      preco_referencia: typeof row.preco_referencia === "number" ? row.preco_referencia : null,
+      ordem: typeof row.ordem === "number" ? row.ordem : null,
+    });
+    map.set(row.documento_id, list);
+  }
+  return map;
 }
 
 // ---------------------------------------------------------------------
-// Few-shot: ativos, ordenados por similaridade ao aviso + recencia, ate k.
+// Few-shot: ativos, mais recentes primeiro, ate k. Sem embedding em runtime —
+// a fila nao gera vetores (a Lia cruza/decide). Ranking por recencia.
 // ---------------------------------------------------------------------
 
-function selectFewShot(
-  bank: ExemploRow[],
-  vector: number[] | null,
-  k: number,
-): FewShotExemplo[] {
+function selectFewShot(bank: ExemploRow[], k: number): FewShotExemplo[] {
   if (k <= 0 || bank.length === 0) return [];
-
-  // O banco ja vem ordenado por recencia desc. Com vetor do aviso, reordena
-  // por similaridade (desc) e usa a recencia como desempate (ordem de chegada).
-  const ranked = bank.map((ex, idx) => {
-    const exVec = vector ? parseVector(ex.embedding) : null;
-    const sim = vector && exVec ? cosineSimilarity(vector, exVec) : 0;
-    return { ex, sim, idx };
-  });
-
-  ranked.sort((a, b) => (b.sim - a.sim) || (a.idx - b.idx));
-
-  return ranked.slice(0, k).map(({ ex }) => ({
+  // O banco ja vem ordenado por recencia desc; toma os k mais recentes.
+  return bank.slice(0, k).map((ex) => ({
     texto: ex.texto,
     veredito_rotulado: ex.veredito_rotulado ?? null,
   }));
@@ -572,39 +673,4 @@ function resolveUf(aviso: AvisoRow): string {
 function clip(text: string, max: number): string {
   if (text.length <= max) return text;
   return text.slice(0, max);
-}
-
-/** Converte o embedding retornado pelo PostgREST (string "[...]" ou array). */
-function parseVector(raw: unknown): number[] | null {
-  if (Array.isArray(raw)) {
-    const nums = raw.map((n) => Number(n));
-    return nums.every((n) => Number.isFinite(n)) ? nums : null;
-  }
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    if (!trimmed.startsWith("[")) return null;
-    try {
-      const arr = JSON.parse(trimmed) as unknown[];
-      if (!Array.isArray(arr)) return null;
-      const nums = arr.map((n) => Number(n));
-      return nums.every((n) => Number.isFinite(n)) ? nums : null;
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length === 0) return 0;
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
-  }
-  if (na === 0 || nb === 0) return 0;
-  return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }

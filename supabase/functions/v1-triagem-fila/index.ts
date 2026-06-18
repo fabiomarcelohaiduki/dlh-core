@@ -4,9 +4,10 @@
 //
 // Pagina a FILA de triagem (contrato 3.2.1): lista avisos JA indexados e
 // AINDA nao triados, ja enriquecidos com os insumos que o Lion precisa para
-// decidir (trechos do edital, produtos candidatos MASCARADOS, few-shot ativo,
-// regras duras) e, no topo, o objeto `agente` versionado. O servidor NAO
-// chama LLM aqui — apenas monta e entrega o trabalho.
+// decidir (trechos do edital, LISTA DE ITENS do edital + documentos com
+// itens_status, few-shot ativo, regras duras) e, no topo, o objeto `agente`
+// versionado. O servidor NAO cruza com o catalogo nem chama LLM aqui — entrega
+// os itens literais (documento_itens) e a propria Lia cruza/decide.
 //
 // Autenticacao (RNF-01 / SEC-1 / SEC-4): authenticateV1 com requiredScope
 // read-only:busca-semantica autoriza NA BORDA, antes de qualquer montagem de

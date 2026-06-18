@@ -94,6 +94,21 @@ verify_jwt = false
 [functions.v1-triagem-veredito]
 verify_jwt = false
 
+# Write path da extracao de itens (modo lion): a Lia posta a(s) lista(s) de
+# itens extraidas via authenticateV1 (mesma API key de escrita TRIAGEM_WRITE,
+# escopo write:triagem). A API key NAO e JWT -> sem este pin o gateway barra o
+# Bearer com {UNAUTHORIZED_INVALID_JWT_FORMAT} antes do codigo.
+[functions.v1-documento-itens-gravar]
+verify_jwt = false
+
+# Consulta de politica de participacao (modo lion): a Lia identifica os produtos
+# nos itens do edital e consulta a politica deterministica de cada um via
+# authenticateV1 (API key read-only LIA_SERVICE_API_KEY, escopo
+# read-only:busca-semantica). A API key NAO e JWT -> sem este pin o gateway barra
+# o Bearer com {UNAUTHORIZED_INVALID_JWT_FORMAT} antes do codigo.
+[functions.v1-politica-participacao]
+verify_jwt = false
+
 # Descarte fisico governado da triagem: o pg_cron (triagem-descarte) dispara
 # este Edge via pg_net com X-Cron-Secret PURO (sem Authorization). Com verify_jwt
 # no default (ON) o gateway barraria com 401 antes do codigo -> descarte agendado
