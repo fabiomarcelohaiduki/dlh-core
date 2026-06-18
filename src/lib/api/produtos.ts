@@ -257,6 +257,32 @@ export function gerarTermosLinha(
   });
 }
 
+// --- Reindexacao da busca (produtos-indexar) -----------------------
+
+/** Resultado da reindexacao: quantos SKUs foram varridos/indexados. */
+export interface ReindexarProdutosResposta {
+  ok: boolean;
+  total: number;
+  indexados: number;
+  erros: number;
+  chunks: number;
+}
+
+/**
+ * Reindexa o vocabulario de busca dos SKUs no indice semantico. Com linhaId,
+ * reindexa apenas os SKUs daquela linha (rapido, retorna sincrono); sem ela,
+ * reindexa todos os SKUs ativos. Necessario apos criar/alterar termos para
+ * que entrem na busca.
+ */
+export function reindexarProdutos(
+  linhaId: string,
+): Promise<ReindexarProdutosResposta> {
+  return apiFetch<ReindexarProdutosResposta>("produtos-indexar", {
+    method: "POST",
+    body: JSON.stringify({ linha_id: linhaId }),
+  });
+}
+
 // --- Atributos proprios do Produto ---------------------------------
 
 export function listProdutoAtributos(

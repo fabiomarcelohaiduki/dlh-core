@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Loader2, Sparkles, TriangleAlert, X } from "lucide-react";
+import { Check, Loader2, RefreshCw, Sparkles, TriangleAlert, X } from "lucide-react";
 import { useCreateDiretriz } from "@/hooks/use-criterios";
 import { ApiError } from "@/lib/api/client";
 import {
   gerarTermosLinha,
+  reindexarProdutos,
   type GerarTermosLinhaResposta,
 } from "@/lib/api/produtos";
 import type { CotacaoNivel } from "@/lib/api/types";
@@ -41,6 +42,11 @@ export function TermosLinhaCard({
   // Estado por item: pendente | aplicado | descartado (chave = `${nivel}:${id}`).
   const [estados, setEstados] = useState<Record<string, "pending" | "applying" | "applied" | "dismissed">>({});
   const [algoAplicado, setAlgoAplicado] = useState(false);
+
+  const [reindexando, setReindexando] = useState(false);
+  const [reindexFeedback, setReindexFeedback] = useState<
+    { kind: "ok" | "err"; message: string } | null
+  >(null);
 
   async function onGerar() {
     setErro(null);
@@ -80,6 +86,30 @@ export function TermosLinhaCard({
 
   function descartar(key: string) {
     setEstados((s) => ({ ...s, [key]: "dismissed" }));
+  }
+
+  async function onReindexar() {
+    if (reindexando) return;
+    setReindexFeedback(null);
+    setReindexando(true);
+    try {
+      const r = await reindexarProdutos(linhaId);
+      setReindexFeedback({
+        kind: "ok",
+        message: `Índice atualizado · ${r.indexados} SKU(s) reindexado(s).`,
+      });
+      setAlgoAplicado(false);
+    } catch (err) {
+      setReindexFeedback({
+        kind: "err",
+        message:
+          err instanceof ApiError && err.status === 503
+            ? "Reindexação indisponível: configure e ative a IA em Configurações da empresa."
+            : "Não foi possível reindexar. Tente novamente.",
+      });
+    } finally {
+      setReindexando(false);
+    }
   }
 
   // Achata a sugestao numa lista ordenada (linha -> produtos -> skus).
@@ -208,11 +238,56 @@ export function TermosLinhaCard({
         </div>
       )}
 
-      {algoAplicado && (
-        <p className="sub" style={{ margin: "12px 0 0" }}>
-          Termos aplicados. Reindexe os SKUs desta linha para que entrem na busca.
-        </p>
-      )}
+      <div
+        style={{
+          marginTop: 14,
+          paddingTop: 14,
+          borderTop: "1px solid var(--line)",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          flexWrap: "wrap",
+        }}
+      >
+        <button
+          type="button"
+          className={algoAplicado ? "btn btn-sm btn-primary" : "btn btn-sm"}
+          onClick={onReindexar}
+          disabled={reindexando}
+          title="Recalcula a busca semântica dos SKUs desta linha (necessário após alterar termos)"
+        >
+          {reindexando ? (
+            <Loader2 className="spin" aria-hidden="true" />
+          ) : (
+            <RefreshCw aria-hidden="true" />
+          )}
+          <span>{reindexando ? "Reindexando…" : "Reindexar busca da linha"}</span>
+        </button>
+        {algoAplicado && !reindexFeedback && (
+          <span className="sub">
+            Termos aplicados. Reindexe para que entrem na busca.
+          </span>
+        )}
+        {reindexFeedback && (
+          <span
+            className="sub"
+            role="status"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              color: reindexFeedback.kind === "err" ? "var(--err)" : "var(--ok)",
+            }}
+          >
+            {reindexFeedback.kind === "err" ? (
+              <TriangleAlert aria-hidden="true" />
+            ) : (
+              <Check aria-hidden="true" />
+            )}
+            {reindexFeedback.message}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
