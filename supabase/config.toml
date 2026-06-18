@@ -103,6 +103,12 @@ verify_jwt = false
 [functions.triagem-descarte-cron]
 verify_jwt = false
 
+# Backfill one-shot da indexacao do catalogo de produtos no escopo
+# produto-cotacao: chamada manual com service_role Bearer (sem JWT de usuario).
+# A funcao se autentica sozinha (service_role Bearer OU X-Cron-Secret).
+[functions.produtos-indexar]
+verify_jwt = false
+
 # Retry de favoritar no Effecti da triagem: o pg_cron (triagem-favoritar-retry)
 # dispara este Edge via pg_net com X-Cron-Secret PURO (sem Authorization). Com
 # verify_jwt no default (ON) o gateway barraria com 401 antes do codigo -> retry
