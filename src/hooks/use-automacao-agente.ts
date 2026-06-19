@@ -26,7 +26,7 @@ export function useAutomacaoAgente() {
 }
 
 /**
- * useUpdateAutomacaoAgente — atualiza a persona/prompt + ferramentas (PUT). O
+ * useUpdateAutomacaoAgente — atualiza a persona/prompt + método (PUT). O
  * backend incrementa a versao. Invalida a config do agente no onSuccess.
  */
 export function useUpdateAutomacaoAgente() {

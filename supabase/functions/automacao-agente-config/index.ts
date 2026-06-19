@@ -7,13 +7,12 @@
 // unica de verdade), administrada no cockpit, auditada e versionada; a persona e
 // ENTREGUE pela FILA, mas o servidor NAO chama LLM. Contrato 3.2.6.2 (E15/E16).
 //
-//   GET -> { ativo, nome, persona_prompt, instrucoes_operacionais, ferramentas,
+//   GET -> { ativo, nome, persona_prompt, instrucoes_operacionais,
 //            versao, atualizado_em }
 //   PUT -> valida zod { ativo, nome, persona_prompt (nao vazio),
-//          instrucoes_operacionais (nao vazio; metodo do modo), ferramentas
-//          (subconjunto das tools conhecidas) }; o trigger incrementa `versao`;
-//          responde com o shape do GET (versao nova). Auditoria registra a
-//          versao anterior/nova.
+//          instrucoes_operacionais (nao vazio; metodo do modo) }; o trigger
+//          incrementa `versao`; responde com o shape do GET (versao nova).
+//          Auditoria registra a versao anterior/nova.
 //
 // Quando ativo = false, a config persiste e a FILA passa a OMITIR o objeto
 // agente (verificavel na FILA). A persona NUNCA carrega segredo nem conteudo
@@ -34,17 +33,6 @@ import { logSensitiveAction } from "../_shared/audit.ts";
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
 const FUNCTION_SEGMENT = "automacao-agente-config";
-
-/**
- * Tools LOCAIS conhecidas do Lion (3.4): busca semantica de produtos,
- * recuperacao direcionada de trechos e aplicacao de regras duras. `ferramentas`
- * deve ser um SUBCONJUNTO desta lista. Espelha o seed do singleton.
- */
-const FERRAMENTAS_CONHECIDAS = [
-  "busca_produtos",
-  "recuperar_trechos",
-  "aplicar_regras_duras",
-] as const;
 
 const MAX_NOME_CHARS = 200;
 const MAX_PERSONA_CHARS = 10_000;
@@ -71,11 +59,6 @@ const putBodySchema = z.object({
     .trim()
     .min(1, "instrucoes_operacionais nao pode ser vazio")
     .max(MAX_INSTRUCOES_CHARS, "instrucoes_operacionais muito longo"),
-  ferramentas: z
-    .array(z.enum(FERRAMENTAS_CONHECIDAS, {
-      errorMap: () => ({ message: "ferramenta desconhecida" }),
-    }))
-    .max(FERRAMENTAS_CONHECIDAS.length, "ferramentas excede o conjunto conhecido"),
 });
 
 type PutBody = z.infer<typeof putBodySchema>;
@@ -86,7 +69,6 @@ interface AgenteConfigResponse {
   nome: string;
   persona_prompt: string;
   instrucoes_operacionais: string;
-  ferramentas: string[];
   versao: number;
   atualizado_em: string | null;
 }
@@ -96,13 +78,12 @@ interface AgenteConfigRow {
   nome: string | null;
   persona_prompt: string | null;
   instrucoes_operacionais: string | null;
-  ferramentas: unknown;
   versao: number | null;
   atualizado_em: string | null;
 }
 
 const AGENTE_COLS =
-  "ativo, nome, persona_prompt, instrucoes_operacionais, ferramentas, versao, atualizado_em";
+  "ativo, nome, persona_prompt, instrucoes_operacionais, versao, atualizado_em";
 
 /** Mapeia a linha do banco para o shape de resposta. */
 function toResponse(row: AgenteConfigRow): AgenteConfigResponse {
@@ -111,9 +92,6 @@ function toResponse(row: AgenteConfigRow): AgenteConfigResponse {
     nome: row.nome ?? "",
     persona_prompt: row.persona_prompt ?? "",
     instrucoes_operacionais: row.instrucoes_operacionais ?? "",
-    ferramentas: Array.isArray(row.ferramentas)
-      ? (row.ferramentas as unknown[]).map((f) => String(f))
-      : [],
     versao: typeof row.versao === "number" ? row.versao : 0,
     atualizado_em: row.atualizado_em ?? null,
   };
@@ -156,9 +134,6 @@ async function handlePut(req: Request, db: ServiceClient, usuario: string): Prom
   const atual = await loadConfig(db);
   const versaoAnterior = typeof atual.versao === "number" ? atual.versao : 0;
 
-  // Deduplica as ferramentas preservando a ordem de entrada.
-  const ferramentas = [...new Set(body.ferramentas)];
-
   // O trigger trg_triagem_agente_config_updated incrementa `versao` e seta
   // atualizado_em; nao enviamos esses campos no patch.
   const { data: updatedRaw, error: upErr } = await db
@@ -168,7 +143,6 @@ async function handlePut(req: Request, db: ServiceClient, usuario: string): Prom
       nome: body.nome,
       persona_prompt: body.persona_prompt,
       instrucoes_operacionais: body.instrucoes_operacionais,
-      ferramentas,
       atualizado_por: usuario,
     })
     .eq("singleton", true)
@@ -193,7 +167,6 @@ async function handlePut(req: Request, db: ServiceClient, usuario: string): Prom
       versao: versaoNova,
       ativo: body.ativo,
       nome: body.nome,
-      ferramentas,
     },
   });
 

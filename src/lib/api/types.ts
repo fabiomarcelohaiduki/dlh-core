@@ -1199,7 +1199,6 @@ export interface AgenteConfig {
   personaPrompt: string;
   /** Metodo operacional do modo (os passos que o subagente executa). */
   instrucoesOperacionais: string;
-  ferramentas: string[];
   versao: number;
   atualizadoEm: string;
 }

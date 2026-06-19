@@ -101,7 +101,6 @@ export interface AgentePayload {
    * administrado pelo cockpit sem rebuild/reboot. Vazio = sem metodo definido.
    */
   instrucoes_operacionais: string;
-  ferramentas: string[];
   versao: number;
 }
 
@@ -336,7 +335,7 @@ export async function buildTriagemFila(
 async function loadAgente(db: ServiceClient): Promise<AgentePayload> {
   const { data, error } = await db
     .from("triagem_agente_config")
-    .select("ativo, nome, persona_prompt, instrucoes_operacionais, ferramentas, versao")
+    .select("ativo, nome, persona_prompt, instrucoes_operacionais, versao")
     .limit(1)
     .maybeSingle();
   if (error) {
@@ -349,7 +348,6 @@ async function loadAgente(db: ServiceClient): Promise<AgentePayload> {
       nome: "",
       persona_prompt: "",
       instrucoes_operacionais: "",
-      ferramentas: [],
       versao: 0,
     };
   }
@@ -358,9 +356,6 @@ async function loadAgente(db: ServiceClient): Promise<AgentePayload> {
     nome: String(data.nome ?? ""),
     persona_prompt: String(data.persona_prompt ?? ""),
     instrucoes_operacionais: String(data.instrucoes_operacionais ?? ""),
-    ferramentas: Array.isArray(data.ferramentas)
-      ? (data.ferramentas as unknown[]).map((f) => String(f))
-      : [],
     versao: typeof data.versao === "number" ? data.versao : 0,
   };
 }

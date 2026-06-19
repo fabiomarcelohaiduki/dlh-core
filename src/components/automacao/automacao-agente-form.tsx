@@ -32,25 +32,15 @@ const agenteSchema = z.object({
     .trim()
     .min(1, "Informe as instruções operacionais (o método).")
     .max(20000, "Instruções muito longas (máx. 20000 caracteres)."),
-  // Ferramentas: uma por linha no textarea; vazio = sem ferramentas.
-  ferramentasTexto: z.string(),
 });
 type AgenteValues = z.infer<typeof agenteSchema>;
 
 type Feedback = { kind: "ok" | "err"; message: string };
 
-/** Quebra o textarea de ferramentas (1 por linha) num array limpo. */
-function parseFerramentas(texto: string): string[] {
-  return texto
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
-}
-
 /**
  * cmp-automacao-agente-form — persona versionada do subagente especialista
- * (E15) entregue pela FILA. Edita ativo, nome, persona/prompt e a lista de
- * ferramentas (uma por linha), exibindo a versao atual. Salva via
+ * (E15) entregue pela FILA. Edita ativo, nome, persona/prompt e as instrucoes
+ * operacionais (metodo), exibindo a versao atual. Salva via
  * use-automacao-agente (o backend incrementa a versao e o hook invalida no
  * onSuccess). Hidrata do GET; estados loading/error tratados.
  */
@@ -72,7 +62,6 @@ export function AutomacaoAgenteForm() {
       nome: "",
       personaPrompt: "",
       instrucoesOperacionais: "",
-      ferramentasTexto: "",
     },
   });
 
@@ -84,7 +73,6 @@ export function AutomacaoAgenteForm() {
       nome: data.nome,
       personaPrompt: data.personaPrompt,
       instrucoesOperacionais: data.instrucoesOperacionais,
-      ferramentasTexto: data.ferramentas.join("\n"),
     });
   }, [data, reset]);
 
@@ -96,7 +84,6 @@ export function AutomacaoAgenteForm() {
         nome: values.nome.trim(),
         personaPrompt: values.personaPrompt.trim(),
         instrucoesOperacionais: values.instrucoesOperacionais.trim(),
-        ferramentas: parseFerramentas(values.ferramentasTexto),
       });
       setFeedback({ kind: "ok", message: "Persona salva. Versão incrementada." });
     } catch (err) {
@@ -197,17 +184,6 @@ export function AutomacaoAgenteForm() {
           Método do modo entregue pela FILA. Vale na próxima execução da esteira;
           cada alteração incrementa a versão.
         </div>
-      </div>
-
-      <div className="field">
-        <label htmlFor="agente-ferramentas">Ferramentas</label>
-        <textarea
-          id="agente-ferramentas"
-          rows={4}
-          placeholder={"busca-semantica\nconsulta-produto"}
-          {...register("ferramentasTexto")}
-        />
-        <div className="helper">Uma ferramenta por linha. Deixe em branco para nenhuma.</div>
       </div>
 
       <div className="form-foot" style={{ marginTop: 22 }}>

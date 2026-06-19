@@ -86,7 +86,6 @@ interface RawAgenteConfig {
   nome: string;
   persona_prompt: string;
   instrucoes_operacionais: string;
-  ferramentas: string[];
   versao: number;
   atualizado_em: string | null;
 }
@@ -208,7 +207,6 @@ function toAgenteConfig(raw: RawAgenteConfig): AgenteConfig {
     nome: raw.nome,
     personaPrompt: raw.persona_prompt,
     instrucoesOperacionais: raw.instrucoes_operacionais ?? "",
-    ferramentas: Array.isArray(raw.ferramentas) ? raw.ferramentas : [],
     versao: raw.versao,
     atualizadoEm: raw.atualizado_em ?? "",
   };
@@ -342,7 +340,6 @@ export interface AgenteConfigInput {
   nome: string;
   personaPrompt: string;
   instrucoesOperacionais: string;
-  ferramentas: string[];
 }
 
 export interface ListConhecimentosParams {
@@ -591,7 +588,6 @@ export async function updateAgenteConfig(input: AgenteConfigInput): Promise<Agen
       nome: input.nome,
       persona_prompt: input.personaPrompt,
       instrucoes_operacionais: input.instrucoesOperacionais,
-      ferramentas: input.ferramentas,
     }),
   });
   return toAgenteConfig(raw);
