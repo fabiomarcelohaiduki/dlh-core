@@ -124,6 +124,8 @@ export interface DocumentoFila {
 
 /** Item de licitacao literal (documento_itens) — recall total, sem fusao. */
 export interface ItemLicitacao {
+  /** id do documento_itens — o subagente o devolve no match (triagem_item_matches). */
+  id: string;
   documento_id: string;
   /** Rotulo da lista de origem (ex.: 'principal', 'anexo TR'); listas convivem. */
   lista_origem: string;
@@ -240,6 +242,7 @@ interface DocumentoMetaRow {
 }
 
 interface ItemRow {
+  id: string;
   documento_id: string;
   lista_origem: string | null;
   fonte_descricao: string | null;
@@ -673,7 +676,7 @@ async function loadItensByDocumento(
     db
       .from("documento_itens")
       .select(
-        "documento_id, lista_origem, fonte_descricao, item_numero, lote, " +
+        "id, documento_id, lista_origem, fonte_descricao, item_numero, lote, " +
           "descricao, unidade, quantidade, preco_referencia, ordem",
       )
       .in("documento_id", docIds)
@@ -685,6 +688,7 @@ async function loadItensByDocumento(
   for (const row of rows) {
     const list = map.get(row.documento_id) ?? [];
     list.push({
+      id: row.id,
       documento_id: row.documento_id,
       lista_origem: row.lista_origem ?? "principal",
       fonte_descricao: row.fonte_descricao ?? "tecnica",

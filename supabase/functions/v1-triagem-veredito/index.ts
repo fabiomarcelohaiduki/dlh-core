@@ -60,6 +60,18 @@ const produtoCandidatoSchema = z.object({
   sku_id: z.string().uuid("sku_id deve ser um uuid valido").nullish(),
 });
 
+// Match de UM item do edital com UM produto do catalogo (por aviso). O
+// subagente cruza item x catalogo e devolve a lista; o servidor persiste em
+// triagem_item_matches para o cockpit exibir o produto sob o item aprovado.
+// produto_id e obrigatorio: um match SEM produto nao e match (nao se grava).
+const itemMatchSchema = z.object({
+  documento_item_id: z.string().uuid("documento_item_id deve ser um uuid valido"),
+  produto_id: z.string().uuid("produto_id deve ser um uuid valido"),
+  sku_id: z.string().uuid("sku_id deve ser um uuid valido").nullish(),
+  produto_nome: z.string().max(500).nullish(),
+  score: z.number().nullish(),
+});
+
 const veredictoBodySchema = z.object({
   aviso_id: z.string().uuid("aviso_id deve ser um uuid valido"),
   rotulo: z.enum(["alta", "media", "baixa"], {
@@ -67,6 +79,9 @@ const veredictoBodySchema = z.object({
   }),
   motivo: z.string().max(5_000).nullish(),
   produto_candidato: produtoCandidatoSchema.nullish(),
+  // Matches por item (recall por item). Independem do veredito final: gravamos
+  // sempre que vierem, para o painel mostrar o que casou mesmo em `duvida`.
+  itens_matches: z.array(itemMatchSchema).max(500).nullish(),
   agente_versao: z.number().int("agente_versao deve ser inteiro").nullish(),
 });
 
@@ -301,6 +316,63 @@ async function candidatoNaoParticipa(
 }
 
 // ---------------------------------------------------------------------
+// Persistencia dos matches por item (recall por item, SOM): delete-then-insert
+// por aviso em triagem_item_matches. Idempotente por rodada — a re-triagem
+// (conteudo_hash muda) reabilita o aviso e regrava. BEST-EFFORT: a falha NUNCA
+// derruba o veredito (ja gravado); registra erro e devolve false para sinalizar
+// que os matches nao foram persistidos. produto_id e garantido pelo schema.
+// ---------------------------------------------------------------------
+
+async function persistirItemMatches(
+  db: ServiceClient,
+  avisoId: string,
+  matches: VeredictoBody["itens_matches"],
+): Promise<boolean> {
+  try {
+    // Limpa os matches da rodada anterior deste aviso (delete-then-insert).
+    const { error: delErr } = await db
+      .from("triagem_item_matches")
+      .delete()
+      .eq("aviso_id", avisoId);
+    if (delErr) {
+      throw new Error(`falha ao limpar matches anteriores: ${delErr.message}`);
+    }
+
+    if (!matches || matches.length === 0) return true;
+
+    // Dedup por documento_item_id (constraint unique aviso+item): o melhor match
+    // por item. Mantem o primeiro de cada item (o subagente ja envia o melhor).
+    const porItem = new Map<string, (typeof matches)[number]>();
+    for (const m of matches) {
+      if (!porItem.has(m.documento_item_id)) porItem.set(m.documento_item_id, m);
+    }
+
+    const rows = [...porItem.values()].map((m) => ({
+      aviso_id: avisoId,
+      documento_item_id: m.documento_item_id,
+      produto_id: m.produto_id,
+      sku_id: m.sku_id ?? null,
+      produto_nome: m.produto_nome ?? null,
+      score: typeof m.score === "number" ? m.score : null,
+    }));
+
+    const { error: insErr } = await db.from("triagem_item_matches").insert(rows);
+    if (insErr) {
+      throw new Error(`falha ao inserir matches: ${insErr.message}`);
+    }
+    return true;
+  } catch (err) {
+    await recordIngestErro(db, {
+      avisoId,
+      severidade: "media",
+      etapa: "Persistencia",
+      mensagem: `matches por item nao persistidos: ${errorMessage(err)}`,
+    });
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------
 
@@ -428,6 +500,12 @@ async function handler(req: Request): Promise<Response> {
       throw new Error(`falha ao gravar triagem_decisoes: ${decErr.message}`);
     }
 
+    // 7.1) Matches por item (recall por item): persiste o item x produto que o
+    //      subagente casou, para o cockpit exibir o produto sob o item aprovado.
+    //      Independe do veredito final (grava em util/duvida/lixo). Best-effort:
+    //      nao derruba o veredito ja gravado.
+    const matchesPersistidos = await persistirItemMatches(db, aviso.id, body.itens_matches);
+
     // 8) Auditoria das acoes sensiveis (favoritar/lixeira). `duvida` nao audita.
     //    Sem conteudo sensivel: apenas principal + veredito + flags de efeito.
     if (estado.favoritar || estado.naLixeira) {
@@ -461,6 +539,9 @@ async function handler(req: Request): Promise<Response> {
         // candidato tem politica de participacao `nao`). Sinaliza que o match e
         // real mas a DLH nao participa: validacao humana antes de favoritar.
         rebaixado_por_politica: rebaixadoPorPolitica,
+        // false -> os matches por item nao foram persistidos (erro registrado em
+        // erros_ingestao). O veredito vale; so o detalhamento por item faltou.
+        matches_persistidos: matchesPersistidos,
       },
       200,
     );

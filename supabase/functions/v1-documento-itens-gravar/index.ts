@@ -152,6 +152,11 @@ async function handler(req: Request): Promise<Response> {
     }
 
     let gravados = 0;
+    // Itens recem-inseridos (id + chaves de correlacao). Permite ao chamador
+    // referenciar o documento_item_id de itens que ELE acabou de extrair (ainda
+    // nao estavam na fila) — necessario para persistir match por item no mesmo
+    // run (ex.: PDF extraido na primeira triagem, que nao retorna a fila depois).
+    let itensInseridos: { id: string; lista_origem: string; ordem: number | null }[] = [];
     if (body.itens.length > 0) {
       const rows = body.itens.map((it, i) => ({
         documento_id: body.documento_id,
@@ -165,10 +170,14 @@ async function handler(req: Request): Promise<Response> {
         preco_referencia: it.preco_referencia ?? null,
         ordem: it.ordem ?? i + 1,
       }));
-      const { error: insErr } = await db.from("documento_itens").insert(rows);
+      const { data: ins, error: insErr } = await db
+        .from("documento_itens")
+        .insert(rows)
+        .select("id, lista_origem, ordem");
       if (insErr) {
         throw new Error(`falha ao inserir itens: ${insErr.message}`);
       }
+      itensInseridos = (ins ?? []) as typeof itensInseridos;
       gravados = rows.length;
     }
 
@@ -181,7 +190,12 @@ async function handler(req: Request): Promise<Response> {
     }
 
     return jsonResponse(
-      { documento_id: body.documento_id, status: body.status, itens_gravados: gravados },
+      {
+        documento_id: body.documento_id,
+        status: body.status,
+        itens_gravados: gravados,
+        itens: itensInseridos,
+      },
       200,
     );
   } catch (err) {

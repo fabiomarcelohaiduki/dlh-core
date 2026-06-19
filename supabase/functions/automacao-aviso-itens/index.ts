@@ -66,6 +66,8 @@ interface DocumentoFila {
 }
 
 interface ItemLicitacao {
+  /** id do documento_itens — chave para correlacionar com o match (FE). */
+  id: string;
   documento_id: string;
   lista_origem: string;
   fonte_descricao: string;
@@ -76,6 +78,17 @@ interface ItemLicitacao {
   quantidade: number | null;
   preco_referencia: number | null;
   ordem: number | null;
+}
+
+/** Match item x produto (triagem_item_matches), por aviso. */
+interface ItemMatch {
+  documento_item_id: string;
+  produto_id: string | null;
+  sku_id: string | null;
+  /** Codigo legivel do SKU casado (ex: FLM-OURO-30X50), resolvido de produto_skus. */
+  codigo_sku: string | null;
+  produto_nome: string | null;
+  score: number | null;
 }
 
 interface VinculoRow {
@@ -89,6 +102,7 @@ interface DocumentoMetaRow {
 }
 
 interface ItemRow {
+  id: string;
   documento_id: string;
   lista_origem: string | null;
   fonte_descricao: string | null;
@@ -156,7 +170,7 @@ async function loadItens(db: ServiceClient, docIds: string[]): Promise<ItemLicit
     db
       .from("documento_itens")
       .select(
-        "documento_id, lista_origem, fonte_descricao, item_numero, lote, " +
+        "id, documento_id, lista_origem, fonte_descricao, item_numero, lote, " +
           "descricao, unidade, quantidade, preco_referencia, ordem",
       )
       .in("documento_id", docIds)
@@ -165,6 +179,7 @@ async function loadItens(db: ServiceClient, docIds: string[]): Promise<ItemLicit
       .order("ordem", { ascending: true })
       .range(from, to));
   return rows.map((row) => ({
+    id: row.id,
     documento_id: row.documento_id,
     lista_origem: row.lista_origem ?? "principal",
     fonte_descricao: row.fonte_descricao ?? "tecnica",
@@ -175,6 +190,44 @@ async function loadItens(db: ServiceClient, docIds: string[]): Promise<ItemLicit
     quantidade: typeof row.quantidade === "number" ? row.quantidade : null,
     preco_referencia: typeof row.preco_referencia === "number" ? row.preco_referencia : null,
     ordem: typeof row.ordem === "number" ? row.ordem : null,
+  }));
+}
+
+/** Matches item x produto deste aviso (triagem_item_matches). Pagina (recall
+ *  total): um edital com >1000 itens cotaveis nao pode truncar no teto PostgREST. */
+async function loadMatches(db: ServiceClient, avisoId: string): Promise<ItemMatch[]> {
+  const rows = await fetchAllRows<{
+    documento_item_id: string;
+    produto_id: string | null;
+    sku_id: string | null;
+    produto_nome: string | null;
+    score: number | null;
+  }>("triagem_item_matches", (from, to) =>
+    db
+      .from("triagem_item_matches")
+      .select("documento_item_id, produto_id, sku_id, produto_nome, score")
+      .eq("aviso_id", avisoId)
+      .range(from, to));
+  // Resolve o codigo_sku legivel (ex: FLM-OURO-30X50) dos sku_id que casaram.
+  const skuIds = [...new Set(rows.map((r) => r.sku_id).filter((x): x is string => Boolean(x)))];
+  const codigoPorSku = new Map<string, string>();
+  if (skuIds.length > 0) {
+    const { data, error } = await db
+      .from("produto_skus")
+      .select("id, codigo_sku")
+      .in("id", skuIds);
+    if (error) throw new Error(`falha ao ler produto_skus: ${error.message}`);
+    for (const r of (data ?? []) as { id: string; codigo_sku: string | null }[]) {
+      if (r.codigo_sku) codigoPorSku.set(r.id, r.codigo_sku);
+    }
+  }
+  return rows.map((m) => ({
+    documento_item_id: m.documento_item_id,
+    produto_id: m.produto_id ?? null,
+    sku_id: m.sku_id ?? null,
+    codigo_sku: m.sku_id ? (codigoPorSku.get(m.sku_id) ?? null) : null,
+    produto_nome: m.produto_nome ?? null,
+    score: typeof m.score === "number" ? m.score : null,
   }));
 }
 
@@ -199,20 +252,21 @@ async function handler(req: Request): Promise<Response> {
     const effectiId = await loadEffectiId(db, avisoId);
     if (effectiId === null) {
       // Aviso sem effecti_id (ou inexistente): sem documentos vinculados.
-      return jsonResponse({ documentos: [], itens: [] }, 200);
+      return jsonResponse({ documentos: [], itens: [], matches: [] }, 200);
     }
 
     const docIds = await loadDocIds(db, effectiId);
     if (docIds.length === 0) {
-      return jsonResponse({ documentos: [], itens: [] }, 200);
+      return jsonResponse({ documentos: [], itens: [], matches: [] }, 200);
     }
 
-    const [documentos, itens] = await Promise.all([
+    const [documentos, itens, matches] = await Promise.all([
       loadDocumentos(db, docIds),
       loadItens(db, docIds),
+      loadMatches(db, avisoId),
     ]);
 
-    return jsonResponse({ documentos, itens }, 200);
+    return jsonResponse({ documentos, itens, matches }, 200);
   } catch (err) {
     return await errorResponse(err, { fn: FUNCTION_SEGMENT });
   }
