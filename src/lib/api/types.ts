@@ -1197,9 +1197,27 @@ export interface AgenteConfig {
   ativo: boolean;
   nome: string;
   personaPrompt: string;
+  /** Metodo operacional do modo (os passos que o subagente executa). */
+  instrucoesOperacionais: string;
   ferramentas: string[];
   versao: number;
   atualizadoEm: string;
+}
+
+/**
+ * Item da base de conhecimento de dominio (generica por setor), versionada e
+ * administrada no cockpit, entregue ao subagente pela FILA. Conteudo de dominio
+ * (regras, vocabulario, criterios), nunca segredo.
+ */
+export interface Conhecimento {
+  id: string;
+  setor: string;
+  titulo: string;
+  conteudo: string;
+  ativo: boolean;
+  ordem: number;
+  versao: number;
+  atualizadoEm: string | null;
 }
 
 /** Amostra de falso-descarte: aviso que virou processo real no Nomus mas foi marcado lixo. */

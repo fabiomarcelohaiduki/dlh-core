@@ -2030,3 +2030,71 @@ export const listaPrecosLicitacaoSchema = z
   .strict();
 
 export type ListaPrecosLicitacaoInput = z.infer<typeof listaPrecosLicitacaoSchema>;
+
+// ---------------------------------------------------------------------
+// conhecimentos (CRUD). Base de conhecimento por setor, versionada e
+// administrada no cockpit, entregue pela FILA ao subagente. POST exige
+// setor/titulo/conteudo; PUT aceita campos parciais. Trigger versiona.
+// ---------------------------------------------------------------------
+export const MAX_CONHECIMENTO_TITULO_CHARS = 200;
+export const MAX_CONHECIMENTO_CONTEUDO_CHARS = 50_000;
+export const MAX_CONHECIMENTO_SETOR_CHARS = 80;
+
+export const conhecimentoCreateSchema = z
+  .object({
+    setor: z
+      .string({ required_error: "setor e obrigatorio", invalid_type_error: "setor deve ser string" })
+      .trim()
+      .min(1, "setor nao pode ser vazio")
+      .max(MAX_CONHECIMENTO_SETOR_CHARS, "setor muito longo"),
+    titulo: z
+      .string({ required_error: "titulo e obrigatorio", invalid_type_error: "titulo deve ser string" })
+      .trim()
+      .min(1, "titulo nao pode ser vazio")
+      .max(MAX_CONHECIMENTO_TITULO_CHARS, "titulo muito longo"),
+    conteudo: z
+      .string({ required_error: "conteudo e obrigatorio", invalid_type_error: "conteudo deve ser string" })
+      .trim()
+      .min(1, "conteudo nao pode ser vazio")
+      .max(MAX_CONHECIMENTO_CONTEUDO_CHARS, "conteudo muito longo"),
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
+    ordem: z
+      .number({ invalid_type_error: "ordem deve ser numero" })
+      .int("ordem deve ser inteiro")
+      .min(0, "ordem nao pode ser negativa")
+      .optional(),
+  })
+  .strict();
+
+export type ConhecimentoCreateInput = z.infer<typeof conhecimentoCreateSchema>;
+
+export const conhecimentoUpdateSchema = z
+  .object({
+    setor: z
+      .string({ invalid_type_error: "setor deve ser string" })
+      .trim()
+      .min(1, "setor nao pode ser vazio")
+      .max(MAX_CONHECIMENTO_SETOR_CHARS, "setor muito longo")
+      .optional(),
+    titulo: z
+      .string({ invalid_type_error: "titulo deve ser string" })
+      .trim()
+      .min(1, "titulo nao pode ser vazio")
+      .max(MAX_CONHECIMENTO_TITULO_CHARS, "titulo muito longo")
+      .optional(),
+    conteudo: z
+      .string({ invalid_type_error: "conteudo deve ser string" })
+      .trim()
+      .min(1, "conteudo nao pode ser vazio")
+      .max(MAX_CONHECIMENTO_CONTEUDO_CHARS, "conteudo muito longo")
+      .optional(),
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
+    ordem: z
+      .number({ invalid_type_error: "ordem deve ser numero" })
+      .int("ordem deve ser inteiro")
+      .min(0, "ordem nao pode ser negativa")
+      .optional(),
+  })
+  .strict();
+
+export type ConhecimentoUpdateInput = z.infer<typeof conhecimentoUpdateSchema>;

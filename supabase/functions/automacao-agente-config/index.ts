@@ -7,8 +7,10 @@
 // unica de verdade), administrada no cockpit, auditada e versionada; a persona e
 // ENTREGUE pela FILA, mas o servidor NAO chama LLM. Contrato 3.2.6.2 (E15/E16).
 //
-//   GET -> { ativo, nome, persona_prompt, ferramentas, versao, atualizado_em }
-//   PUT -> valida zod { ativo, nome, persona_prompt (nao vazio), ferramentas
+//   GET -> { ativo, nome, persona_prompt, instrucoes_operacionais, ferramentas,
+//            versao, atualizado_em }
+//   PUT -> valida zod { ativo, nome, persona_prompt (nao vazio),
+//          instrucoes_operacionais (nao vazio; metodo do modo), ferramentas
 //          (subconjunto das tools conhecidas) }; o trigger incrementa `versao`;
 //          responde com o shape do GET (versao nova). Auditoria registra a
 //          versao anterior/nova.
@@ -46,6 +48,7 @@ const FERRAMENTAS_CONHECIDAS = [
 
 const MAX_NOME_CHARS = 200;
 const MAX_PERSONA_CHARS = 10_000;
+const MAX_INSTRUCOES_CHARS = 20_000;
 
 // ---------------------------------------------------------------------
 // Schema (zod) do PUT.
@@ -63,6 +66,11 @@ const putBodySchema = z.object({
     .trim()
     .min(1, "persona_prompt nao pode ser vazio")
     .max(MAX_PERSONA_CHARS, "persona_prompt muito longo"),
+  instrucoes_operacionais: z
+    .string()
+    .trim()
+    .min(1, "instrucoes_operacionais nao pode ser vazio")
+    .max(MAX_INSTRUCOES_CHARS, "instrucoes_operacionais muito longo"),
   ferramentas: z
     .array(z.enum(FERRAMENTAS_CONHECIDAS, {
       errorMap: () => ({ message: "ferramenta desconhecida" }),
@@ -77,6 +85,7 @@ interface AgenteConfigResponse {
   ativo: boolean;
   nome: string;
   persona_prompt: string;
+  instrucoes_operacionais: string;
   ferramentas: string[];
   versao: number;
   atualizado_em: string | null;
@@ -86,12 +95,14 @@ interface AgenteConfigRow {
   ativo: boolean | null;
   nome: string | null;
   persona_prompt: string | null;
+  instrucoes_operacionais: string | null;
   ferramentas: unknown;
   versao: number | null;
   atualizado_em: string | null;
 }
 
-const AGENTE_COLS = "ativo, nome, persona_prompt, ferramentas, versao, atualizado_em";
+const AGENTE_COLS =
+  "ativo, nome, persona_prompt, instrucoes_operacionais, ferramentas, versao, atualizado_em";
 
 /** Mapeia a linha do banco para o shape de resposta. */
 function toResponse(row: AgenteConfigRow): AgenteConfigResponse {
@@ -99,6 +110,7 @@ function toResponse(row: AgenteConfigRow): AgenteConfigResponse {
     ativo: row.ativo === true,
     nome: row.nome ?? "",
     persona_prompt: row.persona_prompt ?? "",
+    instrucoes_operacionais: row.instrucoes_operacionais ?? "",
     ferramentas: Array.isArray(row.ferramentas)
       ? (row.ferramentas as unknown[]).map((f) => String(f))
       : [],
@@ -155,6 +167,7 @@ async function handlePut(req: Request, db: ServiceClient, usuario: string): Prom
       ativo: body.ativo,
       nome: body.nome,
       persona_prompt: body.persona_prompt,
+      instrucoes_operacionais: body.instrucoes_operacionais,
       ferramentas,
       atualizado_por: usuario,
     })

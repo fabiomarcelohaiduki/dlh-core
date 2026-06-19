@@ -13,10 +13,25 @@ import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import { WidgetError } from "@/components/cockpit/widget-error";
 
+// Limites espelham o schema do servidor (automacao-agente-config) para falhar
+// cedo no cliente, antes do PUT.
 const agenteSchema = z.object({
   ativo: z.boolean(),
-  nome: z.string().trim().min(1, "Informe o nome do subagente."),
-  personaPrompt: z.string().trim().min(1, "Informe a persona/prompt do subagente."),
+  nome: z
+    .string()
+    .trim()
+    .min(1, "Informe o nome do subagente.")
+    .max(200, "Nome muito longo (máx. 200 caracteres)."),
+  personaPrompt: z
+    .string()
+    .trim()
+    .min(1, "Informe a persona/prompt do subagente.")
+    .max(10000, "Persona muito longa (máx. 10000 caracteres)."),
+  instrucoesOperacionais: z
+    .string()
+    .trim()
+    .min(1, "Informe as instruções operacionais (o método).")
+    .max(20000, "Instruções muito longas (máx. 20000 caracteres)."),
   // Ferramentas: uma por linha no textarea; vazio = sem ferramentas.
   ferramentasTexto: z.string(),
 });
@@ -56,6 +71,7 @@ export function AutomacaoAgenteForm() {
       ativo: false,
       nome: "",
       personaPrompt: "",
+      instrucoesOperacionais: "",
       ferramentasTexto: "",
     },
   });
@@ -67,6 +83,7 @@ export function AutomacaoAgenteForm() {
       ativo: data.ativo,
       nome: data.nome,
       personaPrompt: data.personaPrompt,
+      instrucoesOperacionais: data.instrucoesOperacionais,
       ferramentasTexto: data.ferramentas.join("\n"),
     });
   }, [data, reset]);
@@ -78,13 +95,16 @@ export function AutomacaoAgenteForm() {
         ativo: values.ativo,
         nome: values.nome.trim(),
         personaPrompt: values.personaPrompt.trim(),
+        instrucoesOperacionais: values.instrucoesOperacionais.trim(),
         ferramentas: parseFerramentas(values.ferramentasTexto),
       });
       setFeedback({ kind: "ok", message: "Persona salva. Versão incrementada." });
     } catch (err) {
+      // 400/422: propaga a mensagem específica do servidor (ex.: qual campo é
+      // inválido); demais falhas usam o fallback genérico.
       const message =
         err instanceof ApiError && (err.status === 400 || err.status === 422)
-          ? "Dados inválidos: revise os campos."
+          ? err.message || "Dados inválidos: revise os campos."
           : "Não foi possível salvar a persona. Tente novamente.";
       setFeedback({ kind: "err", message });
     }
@@ -157,6 +177,25 @@ export function AutomacaoAgenteForm() {
         <div className="err-msg">
           <TriangleAlert aria-hidden="true" />
           {errors.personaPrompt?.message ?? "Informe a persona/prompt do subagente."}
+        </div>
+      </div>
+
+      <div className={cn("field", errors.instrucoesOperacionais && "invalid")}>
+        <label htmlFor="agente-instrucoes">Instruções operacionais (método)</label>
+        <textarea
+          id="agente-instrucoes"
+          rows={12}
+          placeholder="Os passos do modo atual que o subagente executa, na ordem…"
+          aria-invalid={Boolean(errors.instrucoesOperacionais)}
+          {...register("instrucoesOperacionais")}
+        />
+        <div className="err-msg">
+          <TriangleAlert aria-hidden="true" />
+          {errors.instrucoesOperacionais?.message ?? "Informe as instruções operacionais (o método)."}
+        </div>
+        <div className="helper">
+          Método do modo entregue pela FILA. Vale na próxima execução da esteira;
+          cada alteração incrementa a versão.
         </div>
       </div>
 

@@ -12,6 +12,7 @@ import type {
   AutomacaoConfig,
   AvisoItens,
   BacktestRecall,
+  Conhecimento,
   ExemploFewShot,
   FalsoDescarteAmostra,
   FeedbackHumano,
@@ -84,9 +85,28 @@ interface RawAgenteConfig {
   ativo: boolean;
   nome: string;
   persona_prompt: string;
+  instrucoes_operacionais: string;
   ferramentas: string[];
   versao: number;
   atualizado_em: string | null;
+}
+
+interface RawConhecimento {
+  id: string;
+  setor: string;
+  titulo: string;
+  conteudo: string;
+  ativo: boolean;
+  ordem: number;
+  versao: number;
+  atualizado_em: string | null;
+}
+
+interface RawConhecimentosResponse {
+  items: RawConhecimento[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 interface RawExemplo {
@@ -187,9 +207,23 @@ function toAgenteConfig(raw: RawAgenteConfig): AgenteConfig {
     ativo: raw.ativo === true,
     nome: raw.nome,
     personaPrompt: raw.persona_prompt,
+    instrucoesOperacionais: raw.instrucoes_operacionais ?? "",
     ferramentas: Array.isArray(raw.ferramentas) ? raw.ferramentas : [],
     versao: raw.versao,
     atualizadoEm: raw.atualizado_em ?? "",
+  };
+}
+
+function toConhecimento(raw: RawConhecimento): Conhecimento {
+  return {
+    id: raw.id,
+    setor: raw.setor,
+    titulo: raw.titulo,
+    conteudo: raw.conteudo,
+    ativo: raw.ativo === true,
+    ordem: typeof raw.ordem === "number" ? raw.ordem : 0,
+    versao: typeof raw.versao === "number" ? raw.versao : 1,
+    atualizadoEm: raw.atualizado_em ?? null,
   };
 }
 
@@ -307,7 +341,30 @@ export interface AgenteConfigInput {
   ativo: boolean;
   nome: string;
   personaPrompt: string;
+  instrucoesOperacionais: string;
   ferramentas: string[];
+}
+
+export interface ListConhecimentosParams {
+  setor: string;
+  ativo?: boolean;
+  limit?: number;
+}
+
+export interface CreateConhecimentoInput {
+  setor: string;
+  titulo: string;
+  conteudo: string;
+  ativo: boolean;
+  ordem?: number;
+}
+
+export interface UpdateConhecimentoInput {
+  id: string;
+  titulo: string;
+  conteudo: string;
+  ativo: boolean;
+  ordem?: number;
 }
 
 /** Filtros da curadoria de exemplos few-shot (automacao-exemplos). */
@@ -533,10 +590,60 @@ export async function updateAgenteConfig(input: AgenteConfigInput): Promise<Agen
       ativo: input.ativo,
       nome: input.nome,
       persona_prompt: input.personaPrompt,
+      instrucoes_operacionais: input.instrucoesOperacionais,
       ferramentas: input.ferramentas,
     }),
   });
   return toAgenteConfig(raw);
+}
+
+// ---------------------------------------------------------------------
+// Base de conhecimento por setor (entregue pela FILA) — conhecimentos.
+// ---------------------------------------------------------------------
+
+export async function listConhecimentos(
+  params: ListConhecimentosParams,
+): Promise<Conhecimento[]> {
+  const raw = await apiFetch<RawConhecimentosResponse>(
+    `conhecimentos${buildQuery({ setor: params.setor, ativo: params.ativo, limit: params.limit ?? 200 })}`,
+    { method: "GET" },
+  );
+  return (raw.items ?? []).map(toConhecimento);
+}
+
+export async function createConhecimento(
+  input: CreateConhecimentoInput,
+): Promise<Conhecimento> {
+  const raw = await apiFetch<RawConhecimento>("conhecimentos", {
+    method: "POST",
+    body: JSON.stringify({
+      setor: input.setor,
+      titulo: input.titulo,
+      conteudo: input.conteudo,
+      ativo: input.ativo,
+      ...(input.ordem !== undefined ? { ordem: input.ordem } : {}),
+    }),
+  });
+  return toConhecimento(raw);
+}
+
+export async function updateConhecimento(
+  input: UpdateConhecimentoInput,
+): Promise<Conhecimento> {
+  const raw = await apiFetch<RawConhecimento>(`conhecimentos/${input.id}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      titulo: input.titulo,
+      conteudo: input.conteudo,
+      ativo: input.ativo,
+      ...(input.ordem !== undefined ? { ordem: input.ordem } : {}),
+    }),
+  });
+  return toConhecimento(raw);
+}
+
+export function deleteConhecimento(id: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`conhecimentos/${id}`, { method: "DELETE" });
 }
 
 // ---------------------------------------------------------------------
