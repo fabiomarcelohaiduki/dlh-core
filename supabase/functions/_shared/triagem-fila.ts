@@ -43,6 +43,19 @@ type ServiceClient = ReturnType<typeof createServiceClient>;
 /** Limites de montagem (defense in depth contra payload inflado / SEC-4). */
 export const FILA_DEFAULT_LIMITE = 20;
 export const FILA_MAX_LIMITE = 50;
+
+/**
+ * Paginacao de itens DENTRO de um aviso. A lista de itens (descricao integral
+ * de cada item) e o campo dominante do payload (~500 bytes/item); um edital de
+ * 65 itens montava ~33KB so de itens e o retorno total cruzava o limite inline
+ * do SDK (~50KB) -> derramava para arquivo (tool-results/<id>.json) e o modelo
+ * gastava tokens parseando o spill. Limitamos a pagina a ITENS_PAGE_SIZE itens
+ * (35 itens ~= 18KB; com o envelope da pagina 1 fica < ~35KB). O subagente
+ * recebe itens_next_cursor e chama a fila de novo (itens_cursor) para a proxima
+ * pagina do MESMO aviso, sem avancar de aviso — RECALL TOTAL (cursor explicito,
+ * nada truncado em silencio). Edital comum (<35 itens) = 1 chamada, sem custo.
+ */
+export const ITENS_PAGE_SIZE = 35;
 const MAX_TRECHOS = 6;
 const MAX_TRECHO_CHARS = 600;
 const MAX_TEXTO_EXTRAIDO_TRECHOS = 2;
@@ -164,6 +177,13 @@ export interface TriagemFilaItem {
   trechos_edital: string[];
   documentos: DocumentoFila[];
   itens_licitacao: ItemLicitacao[];
+  /**
+   * Cursor da PROXIMA pagina de itens deste aviso (opaco: `<aviso_id>:<offset>`),
+   * ou null quando esta pagina ja trouxe o ultimo item. Quando != null, o
+   * subagente DEVE chamar triagem_fila(itens_cursor=...) e acumular antes de
+   * decidir — senao perde itens (viola recall total).
+   */
+  itens_next_cursor: string | null;
   few_shot: FewShotExemplo[];
   k_few_shot: number;
   regras_duras: RegrasDuras;
@@ -180,6 +200,13 @@ export interface TriagemFilaResult {
 export interface BuildTriagemFilaParams {
   limite: number;
   cursor: string | null;
+  /**
+   * Paginacao de itens de um aviso (`<aviso_id>:<offset>`). Quando presente, a
+   * fila NAO seleciona avisos novos: devolve apenas a proxima pagina de itens do
+   * aviso apontado (envelope reduzido — agente/insumos ja foram entregues na
+   * pagina 1). Ausente => modo normal (seleciona avisos elegiveis).
+   */
+  itensCursor?: string | null;
 }
 
 /** Normaliza `limite` da query: default 20, faixa [1, 50] (cap, nao rejeita). */
@@ -265,6 +292,13 @@ export async function buildTriagemFila(
 ): Promise<TriagemFilaResult> {
   const db = createServiceClient();
 
+  // 0) Modo paginacao de itens: devolve apenas a proxima pagina de itens do
+  //    aviso apontado pelo cursor, sem reabrir a selecao de avisos nem reenviar
+  //    agente/insumos (ja entregues na pagina 1). Mantem o payload pequeno.
+  if (params.itensCursor && params.itensCursor.trim() !== "") {
+    return await buildItensPagina(db, params.itensCursor.trim());
+  }
+
   // 1) Insumos globais (uma leitura cada, reusados por todos os itens).
   const [agente, conhecimentos, kFewShot, regrasDuras, fewShotBank, janela] = await Promise.all([
     loadAgente(db),
@@ -302,12 +336,12 @@ export async function buildTriagemFila(
       textoByAviso.get(aviso.id) ?? [],
     );
     const documentos = docsByAviso.get(aviso.id) ?? [];
-    const itensLicitacao: ItemLicitacao[] = [];
-    for (const doc of documentos) {
-      for (const item of itensByDocumento.get(doc.documento_id) ?? []) {
-        itensLicitacao.push(item);
-      }
-    }
+    // Lista completa e ordenada de itens; entregamos so a 1a pagina + cursor.
+    const todosItens = flattenItensOrdenados(documentos, itensByDocumento);
+    const pagina = todosItens.slice(0, ITENS_PAGE_SIZE);
+    const itensNextCursor = todosItens.length > ITENS_PAGE_SIZE
+      ? makeItensCursor(aviso.id, ITENS_PAGE_SIZE)
+      : null;
     const fewShot = selectFewShot(fewShotBank, kFewShot);
 
     itens.push({
@@ -318,7 +352,8 @@ export async function buildTriagemFila(
       data: aviso.data_publicacao ?? aviso.data_captura ?? null,
       trechos_edital: trechos,
       documentos,
-      itens_licitacao: itensLicitacao,
+      itens_licitacao: pagina,
+      itens_next_cursor: itensNextCursor,
       few_shot: fewShot,
       k_few_shot: kFewShot,
       regras_duras: regrasDuras,
@@ -329,6 +364,108 @@ export async function buildTriagemFila(
   const nextCursor = itens.length === params.limite ? itens[itens.length - 1].aviso_id : null;
 
   return { ...(agente.ativo ? { agente } : {}), conhecimentos, itens, next_cursor: nextCursor };
+}
+
+// ---------------------------------------------------------------------
+// Paginacao de itens dentro de um aviso (cursor opaco `<aviso_id>:<offset>`).
+// ---------------------------------------------------------------------
+
+function makeItensCursor(avisoId: string, offset: number): string {
+  return `${avisoId}:${offset}`;
+}
+
+function parseItensCursor(raw: string): { avisoId: string; offset: number } | null {
+  // O aviso_id e um uuid (contem '-' mas nao ':'); o separador e o ultimo ':'.
+  const idx = raw.lastIndexOf(":");
+  if (idx <= 0) return null;
+  const avisoId = raw.slice(0, idx);
+  const offset = Number(raw.slice(idx + 1));
+  if (!Number.isInteger(offset) || offset < 0) return null;
+  return { avisoId, offset };
+}
+
+/**
+ * Achata os itens dos documentos do aviso numa lista UNICA e ESTAVEL. A ordem
+ * fixa (documento_id, lista_origem, ordem) garante que a paginacao por offset
+ * seja consistente entre chamadas (a iteracao de Set dos documentos poderia
+ * variar; o sort remove essa dependencia).
+ */
+function flattenItensOrdenados(
+  documentos: DocumentoFila[],
+  itensByDocumento: Map<string, ItemLicitacao[]>,
+): ItemLicitacao[] {
+  const all: ItemLicitacao[] = [];
+  for (const doc of documentos) {
+    for (const item of itensByDocumento.get(doc.documento_id) ?? []) all.push(item);
+  }
+  all.sort((a, b) => {
+    if (a.documento_id !== b.documento_id) return a.documento_id < b.documento_id ? -1 : 1;
+    if (a.lista_origem !== b.lista_origem) return a.lista_origem < b.lista_origem ? -1 : 1;
+    return (a.ordem ?? 0) - (b.ordem ?? 0);
+  });
+  return all;
+}
+
+/**
+ * Modo paginacao: devolve apenas a proxima pagina de itens do aviso apontado.
+ * Envelope REDUZIDO (so aviso_id + itens + cursor): agente, conhecimentos,
+ * trechos, few-shot e regras ja foram entregues na pagina 1. Cursor invalido ou
+ * aviso inexistente -> resultado vazio (o subagente trata como fim da lista).
+ */
+async function buildItensPagina(
+  db: ServiceClient,
+  cursor: string,
+): Promise<TriagemFilaResult> {
+  const vazio: TriagemFilaResult = { conhecimentos: [], itens: [], next_cursor: null };
+  const parsed = parseItensCursor(cursor);
+  if (!parsed) return vazio;
+
+  const aviso = await loadAvisoById(db, parsed.avisoId);
+  if (!aviso) return vazio;
+
+  const { docsByAviso, itensByDocumento } = await loadDocumentosEItens(db, [aviso]);
+  const documentos = docsByAviso.get(aviso.id) ?? [];
+  const todosItens = flattenItensOrdenados(documentos, itensByDocumento);
+
+  const pagina = todosItens.slice(parsed.offset, parsed.offset + ITENS_PAGE_SIZE);
+  const nextOffset = parsed.offset + ITENS_PAGE_SIZE;
+  const itensNextCursor = todosItens.length > nextOffset
+    ? makeItensCursor(aviso.id, nextOffset)
+    : null;
+
+  return {
+    conhecimentos: [],
+    itens: [{
+      aviso_id: aviso.id,
+      objeto: "",
+      orgao: "",
+      uf: "",
+      data: null,
+      trechos_edital: [],
+      documentos: [],
+      itens_licitacao: pagina,
+      itens_next_cursor: itensNextCursor,
+      few_shot: [],
+      k_few_shot: 0,
+      regras_duras: { fora_de_ramo: [], termo_produto: [] },
+    }],
+    next_cursor: null,
+  };
+}
+
+async function loadAvisoById(db: ServiceClient, id: string): Promise<AvisoRow | null> {
+  const selectCols = "id, effecti_id, objeto, orgao, data_publicacao, data_captura, " +
+    "uf_direct:payload_bruto->>uf, uf_estado:payload_bruto->>estado, " +
+    "uf_sigla:payload_bruto->>siglaUf";
+  const { data, error } = await db
+    .from("avisos")
+    .select(selectCols)
+    .eq("id", id)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`falha ao ler aviso ${id}: ${error.message}`);
+  }
+  return (data ?? null) as unknown as AvisoRow | null;
 }
 
 // ---------------------------------------------------------------------

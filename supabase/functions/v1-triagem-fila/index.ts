@@ -57,13 +57,17 @@ async function handler(req: Request): Promise<Response> {
     // Nenhum insumo e montado antes deste ponto.
     const principal = await authenticateV1(req, { requiredScope: LIA_SERVICE_SCOPE });
 
-    // Query params: limite (default 20, cap 50) e cursor (uuid opcional).
+    // Query params: limite (default 20, cap 50), cursor (uuid opcional p/ keyset
+    // de avisos) e itens_cursor (opaco `<aviso_id>:<offset>` p/ paginar os itens
+    // de um aviso). Quando itens_cursor vem, a fila so devolve a proxima pagina
+    // de itens do aviso apontado — nao seleciona avisos novos.
     const url = new URL(req.url);
     const limite = normalizeFilaLimite(url.searchParams.get("limite"));
     const cursor = parseCursor(url.searchParams.get("cursor"));
+    const itensCursor = (url.searchParams.get("itens_cursor") ?? "").trim() || null;
 
     // Monta a pagina da fila (agente + itens + next_cursor) via service_role.
-    const result = await buildTriagemFila({ limite, cursor });
+    const result = await buildTriagemFila({ limite, cursor, itensCursor });
 
     // Auditoria do acesso /v1: principal + contagem; SEM conteudo de avisos.
     await logSensitiveAction({
@@ -74,6 +78,7 @@ async function handler(req: Request): Promise<Response> {
         via: principal.kind,
         limite,
         cursor,
+        itens_cursor: itensCursor,
         itens: result.itens.length,
         next_cursor: result.next_cursor,
       },
