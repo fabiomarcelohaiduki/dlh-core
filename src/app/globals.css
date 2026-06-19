@@ -2431,6 +2431,31 @@ select:focus {
   background: var(--err-bg);
   border-color: rgba(221, 107, 98, 0.22);
 }
+/* Item aprovado no cruzamento por item (match com produto do catalogo).
+   Reaproveita o verde de estado ok (mesma semantica de "util"). */
+.tag.aprovado {
+  color: var(--ok);
+  background: var(--ok-bg);
+  border-color: rgba(92, 191, 134, 0.24);
+}
+/* Linha do item que deu match: fio verde a esquerda + fundo levissimo. */
+tr.row-aprovado td {
+  background: var(--ok-bg);
+}
+tr.row-aprovado td:first-child {
+  box-shadow: inset 2px 0 0 var(--ok);
+}
+/* Sub-linha do produto, renderizada logo abaixo do item aprovado. */
+tr.row-match td {
+  padding-top: 2px;
+  padding-bottom: 8px;
+  background: var(--ok-bg);
+}
+.match-produto {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 
 /* Barra de progresso ao vivo (processados/total + pagina_atual). */
 .prog {

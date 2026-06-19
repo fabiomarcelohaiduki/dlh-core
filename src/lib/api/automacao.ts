@@ -443,6 +443,7 @@ interface RawAvisoDocumento {
 }
 
 interface RawAvisoItem {
+  id: string;
   documento_id: string;
   lista_origem: string;
   fonte_descricao: string;
@@ -455,9 +456,19 @@ interface RawAvisoItem {
   ordem: number | null;
 }
 
+interface RawAvisoItemMatch {
+  documento_item_id: string;
+  produto_id: string | null;
+  sku_id: string | null;
+  codigo_sku: string | null;
+  produto_nome: string | null;
+  score: number | null;
+}
+
 interface RawAvisoItensResponse {
   documentos: RawAvisoDocumento[];
   itens: RawAvisoItem[];
+  matches: RawAvisoItemMatch[];
 }
 
 /** Documentos + itens extraidos de um aviso (so leitura; a Lia extrai). */
@@ -473,6 +484,7 @@ export async function getAvisoItens(avisoId: string): Promise<AvisoItens> {
       itensStatus: (d.itens_status ?? "pendente") as ItensStatus,
     })),
     itens: (raw.itens ?? []).map((i) => ({
+      id: i.id,
       documentoId: i.documento_id,
       listaOrigem: i.lista_origem ?? "principal",
       fonteDescricao: i.fonte_descricao ?? "tecnica",
@@ -483,6 +495,14 @@ export async function getAvisoItens(avisoId: string): Promise<AvisoItens> {
       quantidade: i.quantidade ?? null,
       precoReferencia: i.preco_referencia ?? null,
       ordem: i.ordem ?? null,
+    })),
+    matches: (raw.matches ?? []).map((m) => ({
+      documentoItemId: m.documento_item_id,
+      produtoId: m.produto_id ?? null,
+      skuId: m.sku_id ?? null,
+      skuCodigo: m.codigo_sku ?? null,
+      produtoNome: m.produto_nome ?? null,
+      score: m.score ?? null,
     })),
   };
 }

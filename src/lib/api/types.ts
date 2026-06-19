@@ -1138,6 +1138,8 @@ export interface AvisoDocumento {
 
 /** Item literal extraido de um documento de edital (descricao integral). */
 export interface AvisoItem {
+  /** id do documento_itens — chave para correlacionar com o match. */
+  id: string;
   documentoId: string;
   /** Rotulo da lista de origem (ex.: 'principal', 'anexo TR'); listas convivem. */
   listaOrigem: string;
@@ -1153,10 +1155,24 @@ export interface AvisoItem {
   ordem: number | null;
 }
 
-/** Itens extraidos de um aviso (documentos + itens por documento). */
+/** Match item-do-edital x produto-do-catalogo (triagem da Lia), por aviso. */
+export interface AvisoItemMatch {
+  /** id do documento_itens que deu match (chave com AvisoItem.id). */
+  documentoItemId: string;
+  produtoId: string | null;
+  skuId: string | null;
+  /** Codigo legivel do SKU casado (ex: FLM-OURO-30X50), quando chegou ao nivel de SKU. */
+  skuCodigo: string | null;
+  produtoNome: string | null;
+  /** Similaridade do match (0..1). */
+  score: number | null;
+}
+
+/** Itens extraidos de um aviso (documentos + itens + matches por item). */
 export interface AvisoItens {
   documentos: AvisoDocumento[];
   itens: AvisoItem[];
+  matches: AvisoItemMatch[];
 }
 
 /** Regra dura editavel, consumida deterministicamente pela triagem (E5). */

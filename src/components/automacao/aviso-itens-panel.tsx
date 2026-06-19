@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-import type { AvisoDocumento, AvisoItem, ItensStatus } from "@/lib/api/types";
+import { Fragment, useMemo } from "react";
+import type { AvisoDocumento, AvisoItem, AvisoItemMatch, ItensStatus } from "@/lib/api/types";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { useAvisoItens } from "@/hooks/use-aviso-itens";
 
@@ -38,8 +38,22 @@ function agruparPorLista(itens: AvisoItem[]): ListaGrupo[] {
   return grupos;
 }
 
-function ListaTabela({ grupo }: { grupo: ListaGrupo }) {
+function ListaTabela({
+  grupo,
+  matchById,
+}: {
+  grupo: ListaGrupo;
+  matchById: Map<string, AvisoItemMatch>;
+}) {
   const isPortal = grupo.fonteDescricao === "portal";
+  // Itens APROVADOS (com match no catalogo) primeiro; dentro de cada grupo,
+  // preserva a ordem original da lista (estavel via [].sort).
+  const itensOrdenados = useMemo(() => {
+    return grupo.itens
+      .map((it, i) => ({ it, i, aprovado: matchById.has(it.id) }))
+      .sort((a, b) => (a.aprovado === b.aprovado ? a.i - b.i : a.aprovado ? -1 : 1));
+  }, [grupo.itens, matchById]);
+
   return (
     <div className="cell-stack">
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -59,24 +73,54 @@ function ListaTabela({ grupo }: { grupo: ListaGrupo }) {
           </tr>
         </thead>
         <tbody>
-          {grupo.itens.map((it, i) => (
-            <tr key={`${it.itemNumero ?? ""}-${it.ordem ?? i}`}>
-              <td className="sub tnum">{it.itemNumero || (it.ordem != null ? `${it.ordem}` : "—")}</td>
-              <td>{it.descricao}</td>
-              <td className="sub tnum">{it.unidade || "—"}</td>
-              <td className="sub tnum">{it.quantidade != null ? formatNumber(it.quantidade) : "—"}</td>
-              <td className="sub tnum">
-                {it.precoReferencia != null ? formatCurrency(it.precoReferencia) : "—"}
-              </td>
-            </tr>
-          ))}
+          {itensOrdenados.map(({ it, i }) => {
+            const match = matchById.get(it.id);
+            return (
+              <Fragment key={it.id || `${it.itemNumero ?? ""}-${it.ordem ?? i}`}>
+                <tr className={match ? "row-aprovado" : undefined}>
+                  <td className="sub tnum">{it.itemNumero || (it.ordem != null ? `${it.ordem}` : "—")}</td>
+                  <td>{it.descricao}</td>
+                  <td className="sub tnum">{it.unidade || "—"}</td>
+                  <td className="sub tnum">{it.quantidade != null ? formatNumber(it.quantidade) : "—"}</td>
+                  <td className="sub tnum">
+                    {it.precoReferencia != null ? formatCurrency(it.precoReferencia) : "—"}
+                  </td>
+                </tr>
+                {match && (
+                  <tr className="row-match">
+                    <td aria-hidden="true" />
+                    <td colSpan={4}>
+                      <span className="match-produto">
+                        <span className="tag aprovado">match</span>
+                        <strong>{match.produtoNome ?? "produto do catálogo"}</strong>
+                        {match.skuCodigo ? (
+                          <span className="tag">SKU {match.skuCodigo}</span>
+                        ) : null}
+                        {match.score != null ? (
+                          <span className="sub">similaridade {match.score.toFixed(2)}</span>
+                        ) : null}
+                      </span>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
 
-function DocumentoBloco({ doc, itens }: { doc: AvisoDocumento; itens: AvisoItem[] }) {
+function DocumentoBloco({
+  doc,
+  itens,
+  matchById,
+}: {
+  doc: AvisoDocumento;
+  itens: AvisoItem[];
+  matchById: Map<string, AvisoItemMatch>;
+}) {
   const grupos = useMemo(() => agruparPorLista(itens), [itens]);
   return (
     <div className="cell-stack">
@@ -85,7 +129,7 @@ function DocumentoBloco({ doc, itens }: { doc: AvisoDocumento; itens: AvisoItem[
         <span className="tag">{STATUS_LABEL[doc.itensStatus] ?? doc.itensStatus}</span>
       </div>
       {grupos.length > 0
-        ? grupos.map((g) => <ListaTabela key={g.listaOrigem} grupo={g} />)
+        ? grupos.map((g) => <ListaTabela key={g.listaOrigem} grupo={g} matchById={matchById} />)
         : (
           <span className="sub">
             {doc.itensStatus === "pendente"
@@ -119,6 +163,7 @@ export function AvisoItensPanel({ avisoId }: { avisoId: string }) {
   }
   const documentos = data?.documentos ?? [];
   const itens = data?.itens ?? [];
+  const matches = data?.matches ?? [];
   if (documentos.length === 0) {
     return <span className="sub">Nenhum documento com texto para extrair itens.</span>;
   }
@@ -130,10 +175,17 @@ export function AvisoItensPanel({ avisoId }: { avisoId: string }) {
     itensPorDoc.set(it.documentoId, list);
   }
 
+  const matchById = new Map<string, AvisoItemMatch>(matches.map((m) => [m.documentoItemId, m]));
+
   return (
     <div className="cell-stack" style={{ gap: 16 }}>
       {documentos.map((doc) => (
-        <DocumentoBloco key={doc.documentoId} doc={doc} itens={itensPorDoc.get(doc.documentoId) ?? []} />
+        <DocumentoBloco
+          key={doc.documentoId}
+          doc={doc}
+          itens={itensPorDoc.get(doc.documentoId) ?? []}
+          matchById={matchById}
+        />
       ))}
     </div>
   );
