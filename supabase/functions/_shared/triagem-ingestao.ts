@@ -21,6 +21,33 @@
 /** Veredito server-side derivado da confianca crua + regras + limiares. */
 export type Veredito = "lixo" | "duvida" | "util";
 
+/**
+ * Rotulo discreto de relevancia reportado pelo Lion. A IA escolhe entre tres
+ * niveis em vez de cravar um decimal: LLM nao calibra probabilidade continua de
+ * forma confiavel (na pratica reporta poucos valores redondos), entao o decimal
+ * dava uma falsa precisao. O rotulo casa com a granularidade real da decisao
+ * (relevante / na duvida / irrelevante).
+ */
+export type Rotulo = "alta" | "media" | "baixa";
+
+/**
+ * Confianca canonica por rotulo. Mapeamento DETERMINISTICO server-side: a IA so
+ * informa o rotulo, o servidor traduz para o numero que alimenta `classificar`
+ * (e fica persistido em `avisos.triagem_confianca`, mantendo a re-derivacao em
+ * massa, E3). Os valores sao bem separados pelos limiares padrao (0.35/0.55):
+ * baixa(0.1) -> lixo, media(0.5) -> duvida, alta(0.9) -> util.
+ */
+export function rotuloParaConfianca(rotulo: Rotulo): number {
+  switch (rotulo) {
+    case "alta":
+      return 0.9;
+    case "media":
+      return 0.5;
+    case "baixa":
+      return 0.1;
+  }
+}
+
 /** Referencia mascarada do produto candidato (apenas id + nome). */
 export interface ProdutoCandidatoRef {
   produto_id: string | null;

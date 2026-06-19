@@ -2,8 +2,10 @@
 // Edge Function: v1-triagem-veredito  (Caminho 2 - escrita do veredito cru)
 //   -> POST /v1-triagem-veredito
 //
-// Recebe o veredito CRU do Lion (confianca [0,1] + motivo + produto_candidato)
-// e o SERVIDOR classifica server-side (3.2.2 / 3.4): aplica as regras duras
+// Recebe o veredito CRU do Lion (rotulo alta/media/baixa + motivo +
+// produto_candidato). O servidor traduz o rotulo na confianca canonica
+// (rotuloParaConfianca, deterministico) e classifica server-side (3.2.2 / 3.4):
+// aplica as regras duras
 // deterministicas (E5), os limiares do `config_automacao` (fonte unica de
 // verdade) e a invariante "util tem produto" (E12), grava o historico
 // (`triagem_decisoes`) e o estado vigente (`avisos`), favorita no Effecti os
@@ -38,6 +40,7 @@ import {
   type LimiaresConfig,
   produzirEstadoVigente,
   type RegrasDuras,
+  rotuloParaConfianca,
 } from "../_shared/triagem-ingestao.ts";
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
@@ -55,7 +58,9 @@ const produtoCandidatoSchema = z.object({
 
 const veredictoBodySchema = z.object({
   aviso_id: z.string().uuid("aviso_id deve ser um uuid valido"),
-  confianca: z.number().min(0, "confianca minima 0").max(1, "confianca maxima 1"),
+  rotulo: z.enum(["alta", "media", "baixa"], {
+    errorMap: () => ({ message: "rotulo deve ser 'alta', 'media' ou 'baixa'" }),
+  }),
   motivo: z.string().max(5_000).nullish(),
   produto_candidato: produtoCandidatoSchema.nullish(),
   agente_versao: z.number().int("agente_versao deve ser inteiro").nullish(),
@@ -75,6 +80,17 @@ interface AvisoRow {
   triagem_veredito: string | null;
   reabilitado: boolean | null;
 }
+
+// Estados de extracao de TEXTO (documento_vinculos.status_extracao) com texto
+// aproveitavel para extrair itens — espelha STATUS_EXTRACAO_COM_TEXTO da fila.
+// So docs com texto entram no gate: docs sem texto nunca poderao ter itens
+// estruturados e bloquear lixo neles seria eterno.
+const STATUS_EXTRACAO_COM_TEXTO = ["extraido", "herdado", "precisa_ocr"];
+
+// itens_status NAO-terminais: a lista de itens ainda nao foi estruturada (ou
+// falhou e e reprocessavel). 'extraido'/'sem_itens'/'ignorado'/'inobtenivel'
+// sao terminais (a extracao foi conclusivamente resolvida).
+const ITENS_STATUS_NAO_TERMINAL = ["pendente", "erro"];
 
 // ---------------------------------------------------------------------
 // Leitura de insumos de classificacao (config + regras), via service_role.
@@ -173,6 +189,48 @@ async function favoritarEffectiBestEffort(db: ServiceClient, aviso: AvisoRow): P
 }
 
 // ---------------------------------------------------------------------
+// Gate de RECALL (deterministico, SOM): um aviso NUNCA pode ser classificado
+// `lixo` enquanto houver documento EXTRAIVEL (status_extracao com texto) cuja
+// lista de itens ainda nao foi estruturada (itens_status pendente/erro). Sem
+// ler a lista, a decisao de descarte e cega — risco de perder uma licitacao
+// com produto DLH escondido num edital de objeto fora do ramo (provado em
+// producao: edital de "artesanato" com item de tecido alvejado em rolo). Quando
+// o gate dispara, o lixo e rebaixado a `duvida` (validacao humana / re-extracao).
+// Espelha o filtro da FILA (status_extracao com texto): docs sem texto nunca
+// poderao ter itens e por isso nao bloqueiam (descarte permanece possivel).
+// ---------------------------------------------------------------------
+
+async function temDocExtraivelSemItens(db: ServiceClient, effectiId: string): Promise<boolean> {
+  const eid = (effectiId ?? "").trim();
+  if (eid === "") return false;
+
+  // 1) Documentos vinculados ao aviso (por effecti_id) com texto aproveitavel.
+  const { data: vinculos, error: vincErr } = await db
+    .from("documento_vinculos")
+    .select("documento_id")
+    .eq("fonte", "effecti")
+    .eq("registro_origem_id", eid)
+    .in("status_extracao", STATUS_EXTRACAO_COM_TEXTO);
+  if (vincErr) {
+    throw new Error(`falha ao ler documento_vinculos (gate de recall): ${vincErr.message}`);
+  }
+  const docIds = [...new Set((vinculos ?? []).map((v) => v.documento_id as string).filter(Boolean))];
+  if (docIds.length === 0) return false;
+
+  // 2) Algum desses docs com a lista de itens ainda nao estruturada?
+  const { data: pendentes, error: docErr } = await db
+    .from("documentos")
+    .select("id")
+    .in("id", docIds)
+    .in("itens_status", ITENS_STATUS_NAO_TERMINAL)
+    .limit(1);
+  if (docErr) {
+    throw new Error(`falha ao ler documentos (gate de recall): ${docErr.message}`);
+  }
+  return (pendentes ?? []).length > 0;
+}
+
+// ---------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------
 
@@ -215,16 +273,30 @@ async function handler(req: Request): Promise<Response> {
     // 3) Insumos de classificacao (config_automacao = fonte unica + regras duras).
     const [config, regras] = await Promise.all([loadLimiares(db), loadRegrasDuras(db)]);
 
-    // 4) Classificacao server-side determinista (E5 -> limiares -> E12).
+    // 4) Classificacao server-side determinista (E5 -> limiares -> E12). O Lion
+    //    reporta o rotulo (alta/media/baixa); o servidor o traduz na confianca
+    //    canonica que alimenta a classificacao e fica persistida em `avisos`.
+    const confianca = rotuloParaConfianca(body.rotulo);
     const texto = `${aviso.objeto ?? ""}\n${aviso.conteudo_verbatim ?? ""}`;
     const regrasCasadas = avaliarRegras(texto, regras);
     const produto = body.produto_candidato ?? null;
-    const classificacao = classificar(body.confianca, produto, regrasCasadas, config);
+    let classificacao = classificar(confianca, produto, regrasCasadas, config);
+
+    // 4.1) Gate de RECALL (deterministico): bloqueia o descarte enquanto houver
+    //      documento extraivel sem a lista de itens estruturada. Rebaixa
+    //      `lixo` -> `duvida` (nunca o contrario). Aplica-se inclusive sobre o
+    //      override `fora_de_ramo`: objeto fora do ramo NAO isenta a leitura da
+    //      lista (recall total por item). So consulta o banco quando relevante.
+    let rebaixadoPorRecall = false;
+    if (classificacao.veredito === "lixo" && await temDocExtraivelSemItens(db, aviso.effecti_id)) {
+      classificacao = { ...classificacao, veredito: "duvida" };
+      rebaixadoPorRecall = true;
+    }
 
     const agora = new Date().toISOString();
     const estado = produzirEstadoVigente({
       classificacao,
-      confiancaCrua: body.confianca,
+      confiancaCrua: confianca,
       reabilitado: aviso.reabilitado === true,
       agora,
     });
@@ -262,7 +334,7 @@ async function handler(req: Request): Promise<Response> {
     const { error: decErr } = await db.from("triagem_decisoes").insert({
       aviso_id: aviso.id,
       veredito: estado.veredito,
-      confianca: body.confianca,
+      confianca: confianca,
       motivo: body.motivo ?? null,
       produto_candidato_id: produto?.produto_id ?? null,
       produto_candidato_nome: produto?.nome ?? null,
@@ -294,9 +366,14 @@ async function handler(req: Request): Promise<Response> {
       {
         aviso_id: aviso.id,
         veredito: estado.veredito,
-        confianca: body.confianca,
+        rotulo: body.rotulo,
+        confianca: confianca,
         favoritado: estado.favoritar,
         na_lixeira: estado.naLixeira,
+        // true -> o gate de recall rebaixou um `lixo` para `duvida` (havia
+        // documento extraivel sem a lista de itens). Sinaliza a Lia/operador a
+        // extrair os itens pendentes antes de um eventual descarte.
+        rebaixado_por_recall: rebaixadoPorRecall,
       },
       200,
     );
