@@ -89,10 +89,33 @@ export function RegrasClient() {
         )}
       </div>
 
-      <p className="helper" style={{ marginTop: 2, marginBottom: 16 }}>
-        Regras duras avaliadas deterministicamente pela triagem, antes do veredito
-        da IA. As alterações valem na próxima execução da esteira.
-      </p>
+      <div className="card" style={{ marginTop: 2, marginBottom: 16, padding: 14 }}>
+        <p className="helper" style={{ margin: 0 }}>
+          <strong>Como funcionam.</strong> A triagem casa estes termos contra o
+          texto do aviso. A regra dura tem <strong>prioridade sobre o rótulo da
+          IA</strong>: regra crítica do banco vence a IA. A IA vê quais regras
+          casaram, mas quem aplica a decisão é o servidor, de forma determinística.
+        </p>
+        <ul className="helper" style={{ margin: "10px 0 0", paddingLeft: 18 }}>
+          <li>
+            <strong>Fora de ramo</strong> — se o termo aparece no aviso, força{" "}
+            <strong>lixo</strong> direto, descartando sem depender da IA. Use para
+            categorias que nunca atendemos (ex.: munição, medicamento, combustível).
+          </li>
+          <li style={{ marginTop: 6 }}>
+            <strong>Termo de produto</strong> — se o termo aparece,{" "}
+            <strong>blinda o aviso contra lixo</strong> (vira no mínimo dúvida),
+            mesmo que a IA classifique baixo. Use para seus diferenciais (ex.: mouse
+            pad, apoio de pés).
+          </li>
+        </ul>
+        <p className="helper" style={{ margin: "10px 0 0" }}>
+          <strong>Ordem no veredito:</strong> 1) Fora de ramo → força lixo. 2) Termo
+          de produto → piso (nunca lixo). 3) Limiares de confiança (lixo / dúvida /
+          útil). 4) Útil exige produto candidato. As alterações valem na próxima
+          execução da esteira.
+        </p>
+      </div>
 
       {editing && (
         <div style={{ marginBottom: 18 }}>
