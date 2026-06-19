@@ -38,6 +38,24 @@ const MAX_PENDENTES_LIMITE = 500;
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
+/**
+ * Um item de licitacao extraido DETERMINISTICAMENTE pelo runner (effecti+docx,
+ * sem LLM). Viaja junto do resultado de extracao porque o runner NAO conhece o
+ * documento_id final (o dedup so resolve aqui). MULTIPLAS listas convivem via
+ * `lista_origem`; o servidor NUNCA funde.
+ */
+interface ItemExtraido {
+  lista_origem: string;
+  fonte_descricao: "tecnica" | "portal";
+  item_numero: string | null;
+  lote: string | null;
+  descricao: string;
+  unidade: string | null;
+  quantidade: number | null;
+  preco_referencia: number | null;
+  ordem: number | null;
+}
+
 /** Resultado de extracao de um anexo, empurrado pelo runner. */
 interface ResultadoExtracao {
   vinculo_id: string;
@@ -66,6 +84,12 @@ interface ResultadoExtracao {
   inobtenivel?: boolean;
   /** Classificacao do tipo (gancho camada 2); opcional nesta fase. */
   tipo_documento?: string | null;
+  /**
+   * Lista(s) de itens extraidas deterministicamente do docx (so effecti). Ausente
+   * quando nao houve reconhecimento. Best-effort: a persistencia dos itens NUNCA
+   * derruba a gravacao do texto (item falho fica pendente -> a Lia extrai depois).
+   */
+  itens?: ItemExtraido[] | null;
 }
 
 interface IngerirInput {
@@ -144,6 +168,12 @@ function normalizeResultado(o: Record<string, unknown>): ResultadoExtracao | nul
   if (!vinculoId) return null;
   const str = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
   const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const itens = Array.isArray(o.itens)
+    ? o.itens
+      .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+      .map(normalizeItem)
+      .filter((x): x is ItemExtraido => x !== null)
+    : null;
   return {
     vinculo_id: vinculoId,
     ok: o.ok === true,
@@ -159,6 +189,32 @@ function normalizeResultado(o: Record<string, unknown>): ResultadoExtracao | nul
     precisa_ocr: o.precisa_ocr === true,
     inobtenivel: o.inobtenivel === true,
     tipo_documento: str(o.tipo_documento),
+    itens: itens && itens.length > 0 ? itens : null,
+  };
+}
+
+/**
+ * Normaliza um item vindo do runner. descricao e obrigatoria (recall: linha sem
+ * descricao = lixo, descarta). Demais campos toleram ausencia (null).
+ */
+function normalizeItem(o: Record<string, unknown>): ItemExtraido | null {
+  const descricao = typeof o.descricao === "string" ? o.descricao.trim() : "";
+  if (descricao === "") return null;
+  const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v.trim() : null);
+  const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const int = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) ? v : null);
+  const lista = str(o.lista_origem) ?? "principal";
+  const fonte = o.fonte_descricao === "portal" ? "portal" : "tecnica";
+  return {
+    lista_origem: lista.slice(0, 200),
+    fonte_descricao: fonte,
+    item_numero: str(o.item_numero),
+    lote: str(o.lote),
+    descricao: descricao.slice(0, 20_000),
+    unidade: str(o.unidade),
+    quantidade: num(o.quantidade),
+    preco_referencia: num(o.preco_referencia),
+    ordem: int(o.ordem),
   };
 }
 
@@ -301,6 +357,78 @@ async function fonteHabilitada(
   return !!data && fontes.includes((data as { fonte: string }).fonte);
 }
 
+/**
+ * Persiste a(s) lista(s) de itens extraidas deterministicamente (effecti+docx) e
+ * vira itens_status='extraido'. Idempotente: delete-then-insert por documento_id
+ * (mesma logica do v1-documento-itens-gravar). BEST-EFFORT: o chamador isola em
+ * try/catch — uma falha aqui NAO pode derrubar a gravacao do texto (o texto ja
+ * esta salvo; em caso de erro o documento fica itens_status='pendente' e a Lia
+ * extrai sob demanda). So escreve quando ha itens reconhecidos.
+ */
+async function persistirItens(
+  service: ServiceClient,
+  documentoId: string,
+  itens: ItemExtraido[],
+): Promise<void> {
+  if (itens.length === 0) return;
+  const { error: delErr } = await service
+    .from("documento_itens")
+    .delete()
+    .eq("documento_id", documentoId);
+  if (delErr) throw new Error(`falha ao limpar itens anteriores: ${delErr.message}`);
+
+  const rows = itens.map((it, i) => ({
+    documento_id: documentoId,
+    lista_origem: it.lista_origem,
+    fonte_descricao: it.fonte_descricao,
+    item_numero: it.item_numero,
+    lote: it.lote,
+    descricao: it.descricao,
+    unidade: it.unidade,
+    quantidade: it.quantidade,
+    preco_referencia: it.preco_referencia,
+    ordem: it.ordem ?? i + 1,
+  }));
+  const { error: insErr } = await service.from("documento_itens").insert(rows);
+  if (insErr) throw new Error(`falha ao inserir itens: ${insErr.message}`);
+
+  const { error: upErr } = await service
+    .from("documentos")
+    .update({ itens_status: "extraido", itens_extraido_em: new Date().toISOString() })
+    .eq("id", documentoId);
+  if (upErr) throw new Error(`falha ao virar itens_status: ${upErr.message}`);
+}
+
+/**
+ * Enriquecimento no caminho HERDADO (dedup hit): o documento ja existe. So grava
+ * itens se ele ainda estiver itens_status='pendente' (ex.: extraido primeiro por
+ * fonte sem parser de itens, e agora chega o docx effecti com a lista). NUNCA
+ * sobrescreve itens ja extraidos/decididos. BEST-EFFORT: try/catch interno — uma
+ * falha aqui nao pode derrubar o link herdado nem o lote.
+ */
+async function enriquecerItensBestEffort(
+  service: ServiceClient,
+  documentoId: string,
+  r: ResultadoExtracao,
+): Promise<void> {
+  if (!r.itens || r.itens.length === 0) return;
+  try {
+    const { data } = await service
+      .from("documentos")
+      .select("itens_status")
+      .eq("id", documentoId)
+      .maybeSingle();
+    if (data && (data as { itens_status?: string }).itens_status === "pendente") {
+      await persistirItens(service, documentoId, r.itens);
+    }
+  } catch (err) {
+    console.error("[documentos-ingerir] falha ao enriquecer itens (herdado)", {
+      documentoId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 async function processarResultado(
   service: ServiceClient,
   provider: EmbeddingProvider | undefined,
@@ -351,6 +479,7 @@ async function processarResultado(
       .from("documento_vinculos")
       .update({ documento_id: existenteId, status_extracao: "herdado", erro: null, tentativas_extracao: 0 })
       .eq("id", r.vinculo_id);
+    await enriquecerItensBestEffort(service, existenteId, r);
     return { vinculo_id: r.vinculo_id, estado: "herdado", documento_id: existenteId };
   }
 
@@ -383,6 +512,7 @@ async function processarResultado(
           .from("documento_vinculos")
           .update({ documento_id: reId, status_extracao: "herdado", erro: null, tentativas_extracao: 0 })
           .eq("id", r.vinculo_id);
+        await enriquecerItensBestEffort(service, reId, r);
         return { vinculo_id: r.vinculo_id, estado: "herdado", documento_id: reId };
       }
     }
@@ -395,6 +525,19 @@ async function processarResultado(
     .from("documento_vinculos")
     .update({ documento_id: documentoId, status_extracao: "extraido", erro: null, tentativas_extracao: 0 })
     .eq("id", r.vinculo_id);
+
+  // Itens deterministicos (effecti+docx): grava agora que o documento_id final
+  // existe. Best-effort: falha aqui nao derruba o documento ja salvo.
+  if (r.itens && r.itens.length > 0) {
+    try {
+      await persistirItens(service, documentoId, r.itens);
+    } catch (err) {
+      console.error("[documentos-ingerir] falha ao gravar itens do documento", {
+        documentoId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   // Indexacao (chunks/embeddings) reusa o motor agnostico. NAO bloqueia: se a
   // indexacao esta OFF (ou a fonte deste vinculo nao esta habilitada), o texto

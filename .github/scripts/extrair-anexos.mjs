@@ -37,6 +37,7 @@
 //                          como precisa_ocr (default 50)
 
 import { extrairTexto, ExtracaoError } from "./extrator.mjs";
+import { extrairItensDocx } from "./extrair-itens.mjs";
 import { baixarArquivoDrive, getDriveAccessToken } from "./drive.mjs";
 import { baixarAnexo, extrairConteudo, obterMensagem, NOME_CORPO } from "./gmail.mjs";
 
@@ -480,6 +481,22 @@ async function processarVinculo(vinculo, configExtrator) {
         tamanho_bytes: bytes.byteLength,
       };
     }
+    // Lista de itens DETERMINISTICA (sem LLM), so para effecti+docx: alem do
+    // texto, le a TABELA do word/document.xml celula a celula (a estrutura
+    // sobrevive no docx, ao contrario do texto plano do Tika) e emite a(s)
+    // lista(s) reconhecida(s). Anexada ao resultado; o Edge persiste pos-dedup.
+    // ISOLADA da extracao de texto: nunca derruba o vinculo (item errado/falho e
+    // pior que item nenhum -> em caso de erro fica sem itens, a Lia extrai sob
+    // demanda). So anexa quando reconhece pelo menos uma lista.
+    let itens;
+    if (fonte === "effecti" && r.ext === "docx") {
+      try {
+        const lista = await extrairItensDocx(bytes);
+        if (Array.isArray(lista) && lista.length > 0) itens = lista;
+      } catch (err) {
+        console.error(`[itens] falha ao extrair itens do vinculo ${vinculo.id}: ${err?.message ?? err}`);
+      }
+    }
     return {
       vinculo_id: vinculo.id,
       ok: true,
@@ -491,6 +508,7 @@ async function processarVinculo(vinculo, configExtrator) {
       texto: r.texto,
       usou_ocr: r.usouOcr,
       via: r.via,
+      ...(itens ? { itens } : {}),
     };
   } catch (err) {
     const code = err instanceof ExtracaoError ? `[${err.code}] ` : "";
