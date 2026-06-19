@@ -54,6 +54,10 @@ const FUNCTION_SEGMENT = "v1-triagem-veredito";
 const produtoCandidatoSchema = z.object({
   produto_id: z.string().uuid("produto_id deve ser um uuid valido").nullable(),
   nome: z.string().max(500).nullable(),
+  // Opcional: quando o subagente chegou ao SKU especifico, habilita a
+  // precedencia SKU no gate de politica (sku > produto > linha). Ausente ->
+  // o gate resolve a politica no nivel produto/linha.
+  sku_id: z.string().uuid("sku_id deve ser um uuid valido").nullish(),
 });
 
 const veredictoBodySchema = z.object({
@@ -231,6 +235,72 @@ async function temDocExtraivelSemItens(db: ServiceClient, effectiId: string): Pr
 }
 
 // ---------------------------------------------------------------------
+// Gate de POLITICA (deterministico, SOM): um aviso NUNCA pode virar `util`
+// (favoritar + bid) quando o produto candidato casado tem politica de
+// participacao `nao`. A IA IDENTIFICA o produto (probabilistico); a regra de
+// participar/nao-participar e DETERMINISTICA (vem do banco). O metodo do
+// cockpit ja instrui o subagente a nao usar produto `nao` como candidato, mas
+// esta e a rede de seguranca server-side (simetrica ao gate de recall): se o
+// candidato escapar com `nao`, o `util` e rebaixado a `duvida` (validacao
+// humana). `sim` / `condicional` (depende de criterio que a IA avaliou) / sem
+// politica cadastrada NAO bloqueiam. Precedencia de resolucao: sku > produto >
+// linha (espelha v1-politica-participacao). So consulta o banco quando relevante.
+// ---------------------------------------------------------------------
+
+async function candidatoNaoParticipa(
+  db: ServiceClient,
+  produtoId: string,
+  skuId: string | null,
+): Promise<boolean> {
+  // Resolve a linha do produto (nivel LINHA da precedencia).
+  const { data: prod, error: prodErr } = await db
+    .from("produtos")
+    .select("linha_id")
+    .eq("id", produtoId)
+    .maybeSingle();
+  if (prodErr) {
+    throw new Error(`falha ao ler produto (gate de politica): ${prodErr.message}`);
+  }
+  const linhaId = (prod?.linha_id as string | null) ?? null;
+
+  // Politicas que cobrem este candidato (sku/produto/linha). Tabela pequena;
+  // filtramos pelos escopos relevantes e aplicamos a precedencia em memoria.
+  const escoposProduto = [produtoId];
+  const escoposLinha = linhaId ? [linhaId] : [];
+  const escoposSku = skuId ? [skuId] : [];
+
+  const { data: rows, error: polErr } = await db
+    .from("politica_participacao")
+    .select("nivel, escopo_id, participa")
+    .or(
+      [
+        `and(nivel.eq.produto,escopo_id.in.(${escoposProduto.join(",")}))`,
+        escoposSku.length ? `and(nivel.eq.sku,escopo_id.in.(${escoposSku.join(",")}))` : null,
+        escoposLinha.length ? `and(nivel.eq.linha,escopo_id.in.(${escoposLinha.join(",")}))` : null,
+      ]
+        .filter(Boolean)
+        .join(","),
+    );
+  if (polErr) {
+    throw new Error(`falha ao ler politica_participacao (gate de politica): ${polErr.message}`);
+  }
+
+  const porChave = new Map<string, string>();
+  for (const r of (rows ?? []) as { nivel: string; escopo_id: string; participa: string }[]) {
+    const key = `${r.nivel}:${r.escopo_id}`;
+    if (!porChave.has(key)) porChave.set(key, r.participa);
+  }
+
+  // Precedencia sku > produto > linha (a primeira politica encontrada vence).
+  const participa = (skuId ? porChave.get(`sku:${skuId}`) : undefined) ??
+    porChave.get(`produto:${produtoId}`) ??
+    (linhaId ? porChave.get(`linha:${linhaId}`) : undefined) ??
+    null;
+
+  return participa === "nao";
+}
+
+// ---------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------
 
@@ -291,6 +361,19 @@ async function handler(req: Request): Promise<Response> {
     if (classificacao.veredito === "lixo" && await temDocExtraivelSemItens(db, aviso.effecti_id)) {
       classificacao = { ...classificacao, veredito: "duvida" };
       rebaixadoPorRecall = true;
+    }
+
+    // 4.2) Gate de POLITICA (deterministico): bloqueia `util` quando o produto
+    //      candidato tem politica de participacao `nao`. Rebaixa `util` ->
+    //      `duvida` (nunca o contrario). So consulta o banco no caso `util` com
+    //      candidato presente (util => E12 ja garante produto_id nao-nulo).
+    let rebaixadoPorPolitica = false;
+    if (
+      classificacao.veredito === "util" && produto?.produto_id &&
+      await candidatoNaoParticipa(db, produto.produto_id, produto.sku_id ?? null)
+    ) {
+      classificacao = { ...classificacao, veredito: "duvida" };
+      rebaixadoPorPolitica = true;
     }
 
     const agora = new Date().toISOString();
@@ -374,6 +457,10 @@ async function handler(req: Request): Promise<Response> {
         // documento extraivel sem a lista de itens). Sinaliza a Lia/operador a
         // extrair os itens pendentes antes de um eventual descarte.
         rebaixado_por_recall: rebaixadoPorRecall,
+        // true -> o gate de politica rebaixou um `util` para `duvida` (o produto
+        // candidato tem politica de participacao `nao`). Sinaliza que o match e
+        // real mas a DLH nao participa: validacao humana antes de favoritar.
+        rebaixado_por_politica: rebaixadoPorPolitica,
       },
       200,
     );
