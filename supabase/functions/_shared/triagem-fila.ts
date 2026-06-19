@@ -49,6 +49,15 @@ const MAX_TEXTO_EXTRAIDO_TRECHOS = 2;
 const FEWSHOT_BANK_CAP = 200;
 
 /**
+ * Setor da base de conhecimento entregue nesta fila. A triagem e do dominio
+ * de licitacao; o conhecimento e generico por `setor` (cockpit), e aqui
+ * carregamos a fatia desse setor. Outros subagentes (outros setores) reusam
+ * a mesma tabela com outra chave.
+ */
+const TRIAGEM_SETOR = "licitacao";
+const CONHECIMENTOS_CAP = 50;
+
+/**
  * Estados de extracao de TEXTO (documento_vinculos.status_extracao) que tem
  * texto aproveitavel para extracao de itens. precisa_ocr incluido de proposito:
  * editais escaneados/grandes podem ter texto parcial. pendente/erro/inobtenivel/
@@ -86,8 +95,24 @@ export interface AgentePayload {
   ativo: boolean;
   nome: string;
   persona_prompt: string;
+  /**
+   * Metodo operacional do MODO (cockpit-driven): os passos que o subagente
+   * executa. Fica no banco (versionado) e nao no shell do Lion, para ser
+   * administrado pelo cockpit sem rebuild/reboot. Vazio = sem metodo definido.
+   */
+  instrucoes_operacionais: string;
   ferramentas: string[];
   versao: number;
+}
+
+/**
+ * Item da base de conhecimento de dominio entregue no topo da FILA. Generico
+ * por setor, versionado e administrado no cockpit (sem segredo). A Lia ancora
+ * o raciocinio nestes textos.
+ */
+export interface ConhecimentoPayload {
+  titulo: string;
+  conteudo: string;
 }
 
 /** Documento vinculado ao aviso + estado da extracao de itens (lazy). */
@@ -146,6 +171,7 @@ export interface TriagemFilaItem {
 /** Resultado completo da FILA (agente omitido quando ativo = false). */
 export interface TriagemFilaResult {
   agente?: AgentePayload;
+  conhecimentos: ConhecimentoPayload[];
   itens: TriagemFilaItem[];
   next_cursor: string | null;
 }
@@ -203,6 +229,11 @@ interface VinculoRow {
   documento_id: string;
 }
 
+interface ConhecimentoRow {
+  titulo: string | null;
+  conteudo: string;
+}
+
 interface DocumentoMetaRow {
   id: string;
   nome_arquivo: string | null;
@@ -233,8 +264,9 @@ export async function buildTriagemFila(
   const db = createServiceClient();
 
   // 1) Insumos globais (uma leitura cada, reusados por todos os itens).
-  const [agente, kFewShot, regrasDuras, fewShotBank, janela] = await Promise.all([
+  const [agente, conhecimentos, kFewShot, regrasDuras, fewShotBank, janela] = await Promise.all([
     loadAgente(db),
+    loadConhecimentos(db),
     loadKFewShot(db),
     loadRegrasDuras(db),
     loadFewShotBank(db),
@@ -244,7 +276,7 @@ export async function buildTriagemFila(
   // 2) Avisos elegiveis (FIFO por data_captura asc; keyset por cursor; janela).
   const avisos = await selectAvisosElegiveis(db, params.limite, params.cursor, janela);
   if (avisos.length === 0) {
-    return { ...(agente.ativo ? { agente } : {}), itens: [], next_cursor: null };
+    return { ...(agente.ativo ? { agente } : {}), conhecimentos, itens: [], next_cursor: null };
   }
 
   const avisoIds = avisos.map((a) => a.id);
@@ -294,7 +326,7 @@ export async function buildTriagemFila(
   // 6) Cursor: aponta para o ultimo aviso quando a pagina veio cheia.
   const nextCursor = itens.length === params.limite ? itens[itens.length - 1].aviso_id : null;
 
-  return { ...(agente.ativo ? { agente } : {}), itens, next_cursor: nextCursor };
+  return { ...(agente.ativo ? { agente } : {}), conhecimentos, itens, next_cursor: nextCursor };
 }
 
 // ---------------------------------------------------------------------
@@ -304,7 +336,7 @@ export async function buildTriagemFila(
 async function loadAgente(db: ServiceClient): Promise<AgentePayload> {
   const { data, error } = await db
     .from("triagem_agente_config")
-    .select("ativo, nome, persona_prompt, ferramentas, versao")
+    .select("ativo, nome, persona_prompt, instrucoes_operacionais, ferramentas, versao")
     .limit(1)
     .maybeSingle();
   if (error) {
@@ -312,17 +344,48 @@ async function loadAgente(db: ServiceClient): Promise<AgentePayload> {
   }
   if (!data) {
     // Sem singleton (seed ausente): trata como agente inativo (omitido).
-    return { ativo: false, nome: "", persona_prompt: "", ferramentas: [], versao: 0 };
+    return {
+      ativo: false,
+      nome: "",
+      persona_prompt: "",
+      instrucoes_operacionais: "",
+      ferramentas: [],
+      versao: 0,
+    };
   }
   return {
     ativo: data.ativo === true,
     nome: String(data.nome ?? ""),
     persona_prompt: String(data.persona_prompt ?? ""),
+    instrucoes_operacionais: String(data.instrucoes_operacionais ?? ""),
     ferramentas: Array.isArray(data.ferramentas)
       ? (data.ferramentas as unknown[]).map((f) => String(f))
       : [],
     versao: typeof data.versao === "number" ? data.versao : 0,
   };
+}
+
+/**
+ * Le a base de conhecimento ativa do setor da triagem, na ordem definida no
+ * cockpit (ordem asc, depois criacao). Cap defensivo de quantidade. Conteudo
+ * de dominio (sem segredo) — entregue integral, a Lia ancora nele.
+ */
+async function loadConhecimentos(db: ServiceClient): Promise<ConhecimentoPayload[]> {
+  const { data, error } = await db
+    .from("conhecimentos")
+    .select("titulo, conteudo")
+    .eq("setor", TRIAGEM_SETOR)
+    .eq("ativo", true)
+    .order("ordem", { ascending: true })
+    .order("criado_em", { ascending: true })
+    .limit(CONHECIMENTOS_CAP);
+  if (error) {
+    throw new Error(`falha ao ler conhecimentos: ${error.message}`);
+  }
+  return ((data ?? []) as ConhecimentoRow[]).map((row) => ({
+    titulo: String(row.titulo ?? ""),
+    conteudo: row.conteudo,
+  }));
 }
 
 async function loadKFewShot(db: ServiceClient): Promise<number> {

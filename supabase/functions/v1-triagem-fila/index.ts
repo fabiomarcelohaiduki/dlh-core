@@ -6,7 +6,8 @@
 // AINDA nao triados, ja enriquecidos com os insumos que o Lion precisa para
 // decidir (trechos do edital, LISTA DE ITENS do edital + documentos com
 // itens_status, few-shot ativo, regras duras) e, no topo, o objeto `agente`
-// versionado. O servidor NAO cruza com o catalogo nem chama LLM aqui — entrega
+// versionado + `conhecimentos` (base de conhecimento de dominio do setor,
+// administrada no cockpit). O servidor NAO cruza com o catalogo nem chama LLM aqui — entrega
 // os itens literais (documento_itens) e a propria Lia cruza/decide.
 //
 // Autenticacao (RNF-01 / SEC-1 / SEC-4): authenticateV1 com requiredScope
