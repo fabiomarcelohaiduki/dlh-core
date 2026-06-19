@@ -45,6 +45,15 @@ verify_jwt = false
 [functions.v1-acervo-busca-semantica]
 verify_jwt = false
 
+# Busca semantica no CATALOGO de produtos /v1 (tool produtos_busca da Lia na
+# triagem): mesma autenticacao da busca do acervo (API key da Lia lia_sk_ no
+# Vault OU sessao do cockpit via authenticateV1). A API key NAO e JWT -> sem
+# este pin o gateway barra o Bearer lia_sk_ com {UNAUTHORIZED_INVALID_JWT_FORMAT}
+# antes do codigo. Sem o pin, deploy sem --no-verify-jwt reabre o bug e a Lia
+# nao consegue cruzar item de edital -> catalogo na triagem.
+[functions.v1-produtos-busca-semantica]
+verify_jwt = false
+
 # Leitura integral de documento do acervo /v1: mesma autenticacao da busca
 # (API key da Lia lia_sk_ no Vault OU sessao do cockpit via authenticateV1).
 # A API key NAO e JWT -> sem este pin o gateway barra o Bearer lia_sk_ com

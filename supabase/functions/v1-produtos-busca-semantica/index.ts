@@ -105,10 +105,34 @@ async function handler(req: Request): Promise<Response> {
 
     const rows = (data ?? []) as BuscaRow[];
 
-    // Contrato do dominio Produtos: registro_id, tipo (escopo fixo), verbatim,
-    // similaridade. registro_id pode ser null (defensivo).
+    // Resolve o produto_id de cada SKU candidato (registro_id = produto_skus.id).
+    // A Lia precisa do produto_id para (a) a invariante util-tem-produto do
+    // veredito (E12: util exige produto_candidato.produto_id) e (b) a
+    // politica_participacao (que exige produto_id; sku_id refina a precedencia).
+    // Sem isso o cruzamento so devolve SKU e a triagem nunca alcanca `util`.
+    const skuIds = [
+      ...new Set(rows.map((r) => r.registro_id).filter((v): v is string => Boolean(v))),
+    ];
+    const skuParaProduto = new Map<string, string>();
+    if (skuIds.length > 0) {
+      const { data: skus, error: skuErr } = await service
+        .from("produto_skus")
+        .select("id, produto_id")
+        .in("id", skuIds);
+      if (skuErr) {
+        throw new HttpError(500, "produto_lookup_failed", "falha ao resolver produto_id dos SKUs");
+      }
+      for (const s of (skus ?? []) as { id: string; produto_id: string }[]) {
+        skuParaProduto.set(s.id, s.produto_id);
+      }
+    }
+
+    // Contrato do dominio Produtos: registro_id (SKU), produto_id (resolvido),
+    // tipo (escopo fixo), verbatim, similaridade. registro_id/produto_id podem
+    // ser null (defensivo: SKU sem mapeamento nao deriva produto_id).
     const resultados = rows.map((row) => ({
       registro_id: row.registro_id ?? null,
+      produto_id: row.registro_id ? (skuParaProduto.get(row.registro_id) ?? null) : null,
       tipo: PRODUTOS_BUSCA_ESCOPO,
       verbatim: row.verbatim ?? "",
       similaridade: typeof row.similaridade === "number" ? row.similaridade : 0,
