@@ -59,10 +59,23 @@ function parseNumeroBr(s) {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Texto de um bloco XML: concatena os <w:t>, decodifica entidades, colapsa espaco. */
+/**
+ * Texto de um bloco XML: percorre o conteudo EM ORDEM concatenando os <w:t> e
+ * inserindo um espaco nas fronteiras estruturais (fim de paragrafo </w:p>,
+ * quebra de linha <w:br/>, tabulacao <w:tab/>). Runs do MESMO paragrafo ficam
+ * grudados de proposito (o Word fatia uma palavra em varios <w:r> por formatacao
+ * -> juntar sem espaco e o certo); so as quebras reais viram espaco, para uma
+ * descricao multi-linha de TR nao colar "...gelcor azul". `\b` evita casar
+ * <w:tabs> (tab stops do pPr). Decodifica entidades e colapsa espaco no fim.
+ */
 function textoDe(bloco) {
-  const ts = [...String(bloco).matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g)].map((m) => m[1]);
-  return ts.join("")
+  const re = /<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<w:tab\b[^>]*\/?>|<w:br\b[^>]*\/?>|<\/w:p>/g;
+  let out = "";
+  let m;
+  while ((m = re.exec(String(bloco)))) {
+    out += m[1] !== undefined ? m[1] : " ";
+  }
+  return out
     .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
     .replace(/\s+/g, " ")
