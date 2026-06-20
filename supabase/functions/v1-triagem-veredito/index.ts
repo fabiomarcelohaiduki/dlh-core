@@ -66,6 +66,12 @@ const produtoCandidatoSchema = z.object({
 // produto_id e obrigatorio: um match SEM produto nao e match (nao se grava).
 const itemMatchSchema = z.object({
   documento_item_id: z.string().uuid("documento_item_id deve ser um uuid valido"),
+  // Chave REDUNDANTE de cruzamento (anti off-by-one): o numero do item do edital
+  // que o subagente reportou. O LLM as vezes ecoa o UUID da linha vizinha ao
+  // preencher o match; cruzando com o item_numero real do banco o servidor
+  // detecta e auto-corrige o desalinhamento (ver persistirItemMatches). Ausente
+  // (edital sem numeracao) -> sem cruzamento, mantem o UUID como veio.
+  item_numero: z.string().max(50).nullish(),
   produto_id: z.string().uuid("produto_id deve ser um uuid valido"),
   sku_id: z.string().uuid("sku_id deve ser um uuid valido").nullish(),
   produto_nome: z.string().max(500).nullish(),
@@ -346,8 +352,64 @@ async function persistirItemMatches(
     for (const m of matches) {
       if (!porItem.has(m.documento_item_id)) porItem.set(m.documento_item_id, m);
     }
+    const lista = [...porItem.values()];
 
-    const rows = [...porItem.values()].map((m) => ({
+    // CROSS-CHECK / SELF-HEAL (anti off-by-one do LLM): o subagente raciocina
+    // sobre o item certo mas as vezes ecoa o UUID da linha VIZINHA. Cruzamos o
+    // item_numero reportado com o item_numero REAL do UUID gravado no banco;
+    // quando divergem, re-resolvemos o documento_item_id pela chave
+    // (documento_id, lista_origem, item_numero) -- exata e deterministica. Sem
+    // item_numero, UUID inexistente, ou re-resolucao ambigua/vazia: mantem o
+    // UUID como veio (degradacao graciosa). So consulta o banco quando relevante.
+    const ids = [...new Set(lista.map((m) => m.documento_item_id))];
+    const { data: itensRef, error: refErr } = await db
+      .from("documento_itens")
+      .select("id, documento_id, lista_origem, item_numero")
+      .in("id", ids);
+    if (refErr) {
+      throw new Error(`falha ao ler documento_itens (cross-check): ${refErr.message}`);
+    }
+    type ItemRef = {
+      id: string;
+      documento_id: string;
+      lista_origem: string | null;
+      item_numero: string | null;
+    };
+    const refById = new Map<string, ItemRef>(
+      ((itensRef ?? []) as ItemRef[]).map((r) => [r.id, r]),
+    );
+
+    for (const m of lista) {
+      const num = (m.item_numero ?? "").trim();
+      if (num === "") continue; // sem chave de cruzamento -> mantem o UUID
+      const ref = refById.get(m.documento_item_id);
+      if (!ref) continue; // UUID nem existe (FK barra depois) -> nao re-resolve
+      if ((ref.item_numero ?? "").trim() === num) continue; // consistente
+      // Divergencia: re-resolve no escopo (documento_id, lista_origem) do UUID
+      // enviado (que segue correto num off-by-one dentro da mesma lista).
+      let q = db
+        .from("documento_itens")
+        .select("id")
+        .eq("documento_id", ref.documento_id)
+        .eq("item_numero", num);
+      q = ref.lista_origem === null ? q.is("lista_origem", null) : q.eq("lista_origem", ref.lista_origem);
+      const { data: cand, error: candErr } = await q;
+      if (candErr) {
+        throw new Error(`falha ao re-resolver item (cross-check): ${candErr.message}`);
+      }
+      // Exatamente um candidato -> auto-corrige. 0 ou >1 -> mantem o UUID.
+      if ((cand ?? []).length === 1) {
+        m.documento_item_id = (cand as { id: string }[])[0].id;
+      }
+    }
+
+    // Re-dedup apos o self-heal (dois matches podem convergir ao mesmo item).
+    const porItemFinal = new Map<string, (typeof lista)[number]>();
+    for (const m of lista) {
+      if (!porItemFinal.has(m.documento_item_id)) porItemFinal.set(m.documento_item_id, m);
+    }
+
+    const rows = [...porItemFinal.values()].map((m) => ({
       aviso_id: avisoId,
       documento_item_id: m.documento_item_id,
       produto_id: m.produto_id,
