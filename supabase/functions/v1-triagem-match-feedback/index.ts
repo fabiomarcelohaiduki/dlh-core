@@ -4,9 +4,16 @@
 //   -> GET  /v1-triagem-match-feedback?status=pendente   lista a fila
 //
 // Canal de APRENDIZADO do match item x produto/SKU (triagem_match_feedback).
-// O humano corrige o match na tela e a correcao vira fila (padrao SOM: captura,
-// NAO age). A curadoria (promover para cotacao_regras ou metodo) e humana,
-// depois, fora deste Edge.
+// O humano corrige o match na tela; a correcao vira fila para curadoria
+// posterior (promover para cotacao_regras ou metodo, fora deste Edge).
+//
+// DOIS efeitos por chamada:
+//   1) grava na FILA (triagem_match_feedback) -> aprendizado, curadoria humana.
+//   2) aplica AO VIVO em triagem_item_matches -> a tela reflete a edicao na hora
+//      (a edicao e DECISAO DIRETA do humano no cockpit, nao acao automatica da
+//      IA -> nao fere o SOM). Atencao: uma re-triagem do aviso regrava os
+//      matches (delete-then-insert) e pode reverter; por isso a fila/curadoria
+//      ainda importa (corrige a raiz para o subagente nao repetir o erro).
 //
 // 3 acoes:
 //   'corrigir'  -> produto e/ou SKU errados (produto_correto obrigatorio)
@@ -121,6 +128,41 @@ async function postHandler(req: Request): Promise<Response> {
     throw new Error(`falha ao gravar feedback de match: ${error.message}`);
   }
   const id = (data as { id: string }).id;
+
+  // Aplica o efeito ao vivo no match exibido pelo cockpit (triagem_item_matches).
+  if (body.acao === "remover") {
+    const { error: delErr } = await db
+      .from("triagem_item_matches")
+      .delete()
+      .eq("aviso_id", body.aviso_id)
+      .eq("documento_item_id", body.documento_item_id);
+    if (delErr) throw new Error(`falha ao remover o match exibido: ${delErr.message}`);
+  } else {
+    // corrigir | adicionar -> grava/atualiza o match com o produto/SKU certos.
+    // produto_nome e snapshot (resiliencia de exibicao) -> resolve do catalogo.
+    let produtoNome: string | null = null;
+    if (body.produto_correto_id) {
+      const { data: prod } = await db
+        .from("produtos")
+        .select("nome")
+        .eq("id", body.produto_correto_id)
+        .single();
+      produtoNome = (prod as { nome: string } | null)?.nome ?? null;
+    }
+    const { error: upErr } = await db.from("triagem_item_matches").upsert(
+      {
+        aviso_id: body.aviso_id,
+        documento_item_id: body.documento_item_id,
+        produto_id: body.produto_correto_id ?? null,
+        sku_id: body.sku_correto_id ?? null,
+        produto_nome: produtoNome,
+        // Edicao humana nao tem score semantico de busca.
+        score: null,
+      },
+      { onConflict: "aviso_id,documento_item_id" },
+    );
+    if (upErr) throw new Error(`falha ao aplicar o match exibido: ${upErr.message}`);
+  }
 
   await logSensitiveAction({
     tabela: "triagem_match_feedback",
