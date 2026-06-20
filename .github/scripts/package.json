@@ -6,6 +6,7 @@
   "dependencies": {
     "adm-zip": "^0.5.16",
     "node-unrar-js": "^2.0.2",
+    "pdfjs-dist": "^4.10.38",
     "undici": "^6.21.1"
   }
 }
