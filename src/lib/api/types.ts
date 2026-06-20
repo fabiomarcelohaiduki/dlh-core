@@ -1195,6 +1195,44 @@ export interface ExemploFewShot {
   criadoEm: string;
 }
 
+/** Acao do feedback de match: corrigir produto/SKU, remover ou adicionar match. */
+export type MatchFeedbackAcao = "corrigir" | "remover" | "adicionar";
+
+/** Correcao humana de um match (item x produto/SKU) enviada ao Edge. */
+export interface MatchFeedbackInput {
+  avisoId: string;
+  documentoItemId: string;
+  acao: MatchFeedbackAcao;
+  /** Descricao do item (snapshot para a fila exibir sem join). */
+  itemDescricao?: string | null;
+  /** Match que a Lia havia cravado (snapshot; null quando acao='adicionar'). */
+  produtoSugeridoId?: string | null;
+  skuSugeridoId?: string | null;
+  produtoSugeridoNome?: string | null;
+  /** Match correto segundo o humano (null quando acao='remover'). */
+  produtoCorretoId?: string | null;
+  skuCorretoId?: string | null;
+  /** Por que o match estava errado (obrigatorio). */
+  motivo: string;
+}
+
+/** Item da fila de aprendizado de match (aba Aprendizado, read-only). */
+export interface MatchFeedbackFilaItem {
+  id: string;
+  avisoId: string;
+  documentoItemId: string;
+  itemDescricao: string | null;
+  acao: MatchFeedbackAcao;
+  produtoSugeridoNome: string | null;
+  skuSugeridoCodigo: string | null;
+  produtoCorretoNome: string | null;
+  skuCorretoCodigo: string | null;
+  motivo: string;
+  status: string;
+  autor: string | null;
+  criadoEm: string;
+}
+
 /** Config singleton da automacao (carencia, limiares, K, interruptor). */
 export interface AutomacaoConfig {
   diasCarencia: number;

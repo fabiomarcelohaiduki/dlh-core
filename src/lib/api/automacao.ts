@@ -18,6 +18,8 @@ import type {
   FeedbackHumano,
   ItensStatus,
   LixeiraItem,
+  MatchFeedbackFilaItem,
+  MatchFeedbackInput,
   RegraDura,
   TriagemItem,
   Veredito,
@@ -527,6 +529,73 @@ export async function sendFeedback(input: FeedbackInput): Promise<FeedbackResult
     exemploId: raw.exemplo_id,
     vereditoAvaliado: raw.veredito_avaliado as Veredito,
     vereditoRotulado: raw.veredito_rotulado as Veredito,
+  };
+}
+
+// ---------------------------------------------------------------------
+// Feedback de match (item x produto/SKU) — v1-triagem-match-feedback.
+// ---------------------------------------------------------------------
+
+interface RawMatchFeedbackFilaItem {
+  id: string;
+  aviso_id: string;
+  documento_item_id: string;
+  item_descricao: string | null;
+  acao: MatchFeedbackFilaItem["acao"];
+  produto_sugerido_nome: string | null;
+  sku_sugerido_codigo: string | null;
+  produto_correto_nome: string | null;
+  sku_correto_codigo: string | null;
+  motivo: string;
+  status: string;
+  autor: string | null;
+  created_at: string;
+}
+
+/** Grava/atualiza a correcao humana de um match (upsert por aviso+item). */
+export async function sendMatchFeedback(input: MatchFeedbackInput): Promise<{ id: string }> {
+  const raw = await apiFetch<{ id: string; ok: boolean }>("v1-triagem-match-feedback", {
+    method: "POST",
+    body: JSON.stringify({
+      aviso_id: input.avisoId,
+      documento_item_id: input.documentoItemId,
+      acao: input.acao,
+      item_descricao: input.itemDescricao ?? null,
+      produto_sugerido_id: input.produtoSugeridoId ?? null,
+      sku_sugerido_id: input.skuSugeridoId ?? null,
+      produto_sugerido_nome: input.produtoSugeridoNome ?? null,
+      produto_correto_id: input.produtoCorretoId ?? null,
+      sku_correto_id: input.skuCorretoId ?? null,
+      motivo: input.motivo,
+    }),
+  });
+  return { id: raw.id };
+}
+
+/** Lista a fila de feedback de match (default status=pendente). */
+export async function listMatchFeedbackFila(
+  status: string = "pendente",
+): Promise<{ itens: MatchFeedbackFilaItem[] }> {
+  const raw = await apiFetch<{ itens: RawMatchFeedbackFilaItem[] }>(
+    `v1-triagem-match-feedback${buildQuery({ status })}`,
+    { method: "GET" },
+  );
+  return {
+    itens: (raw.itens ?? []).map((i) => ({
+      id: i.id,
+      avisoId: i.aviso_id,
+      documentoItemId: i.documento_item_id,
+      itemDescricao: i.item_descricao ?? null,
+      acao: i.acao,
+      produtoSugeridoNome: i.produto_sugerido_nome ?? null,
+      skuSugeridoCodigo: i.sku_sugerido_codigo ?? null,
+      produtoCorretoNome: i.produto_correto_nome ?? null,
+      skuCorretoCodigo: i.sku_correto_codigo ?? null,
+      motivo: i.motivo,
+      status: i.status,
+      autor: i.autor ?? null,
+      criadoEm: i.created_at,
+    })),
   };
 }
 

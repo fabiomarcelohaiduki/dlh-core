@@ -11,6 +11,7 @@ import {
 } from "@/hooks/use-triagem-exemplos";
 import { cn } from "@/lib/utils";
 import { ExemplosTable } from "@/components/automacao/exemplos-table";
+import { MatchFeedbackFila } from "@/components/automacao/match-feedback-fila";
 import {
   VereditoFiltro,
   type VereditoFiltroValue,
@@ -193,6 +194,10 @@ export function AprendizadoClient() {
           }
         />
       )}
+
+      <div style={{ marginTop: 32 }}>
+        <MatchFeedbackFila />
+      </div>
 
       {toast ? (
         <div
