@@ -79,7 +79,7 @@ export function MatchFeedbackPanel({
     };
     enviar.mutate(input, {
       onSuccess: () => {
-        onSaved(temMatch ? "Correção registrada." : "Match adicionado.");
+        onSaved(temMatch ? "Match corrigido." : "Match adicionado.");
         onClose();
       },
       onError: () => onSaved("Erro ao salvar. Tente novamente."),
