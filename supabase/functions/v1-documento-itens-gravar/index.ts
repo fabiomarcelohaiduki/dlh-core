@@ -59,8 +59,8 @@ import { authenticateV1, TRIAGEM_WRITE_SCOPE } from "../_shared/service-auth.ts"
 import { parseJsonBody } from "../_shared/validation.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { errorMessage, recordIngestErro } from "../_shared/ingest-errors.ts";
-import { numeroVariantesBr } from "../_shared/numero-br.ts";
-import { normDesc } from "../_shared/normalizar.ts";
+import { numeroVariantesBr, parseNumeroBr } from "../_shared/numero-br.ts";
+import { colunaSuspeitaDoMotivo, normDesc } from "../_shared/normalizar.ts";
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
@@ -140,6 +140,23 @@ interface ItemValidacao {
   numeroSuspeito: string | null;
 }
 
+// Correcao humana CURADA na fila (status 'corrigido'), pronta para reaplicar
+// sobre a re-extracao (A2). Chave = snapshot EXATO da descricao original (como
+// gravado em documento_item_suspeitas.item_descricao, ja fatiado).
+interface CorrecaoCurada {
+  descricao_corrigida: string | null;
+  numero_corrigido: string | null;
+  motivo: string;
+}
+
+// Resultado da validacao: o veredito por item + as correcoes humanas a reaplicar.
+interface ResultadoFidelidade {
+  validacoes: ItemValidacao[];
+  // Chaveado pelo snapshot EXATO da descricao original (it.descricao fatiada em
+  // SNAPSHOT_DESC_MAX). A re-extracao reaplica a correcao no item que casar.
+  correcoes: Map<string, CorrecaoCurada>;
+}
+
 // ---------------------------------------------------------------------
 // Validacao de FIDELIDADE (pura: le o verbatim via RPC, NAO escreve nada).
 // Roda ANTES de qualquer delete (B2). Devolve, por item (na ordem recebida),
@@ -152,30 +169,56 @@ async function validarFidelidade(
   documentoId: string,
   itens: ItemBody[],
   temVerbatim: boolean,
-): Promise<ItemValidacao[]> {
+): Promise<ResultadoFidelidade> {
   const validacoes: ItemValidacao[] = itens.map(() => ({
     suspeito: false,
     motivos: [],
     numeroSuspeito: null,
   }));
+  const correcoes = new Map<string, CorrecaoCurada>();
 
   // 0) REAPLICACAO DE CURADORIA (Sprint 3): itens que o humano JA revisou na fila
   //    (status confirmado/corrigido/descartado) NAO podem voltar a 'suspeito' a
   //    cada re-extracao. documento_itens e delete-then-insert (ids mudam), entao
-  //    o casamento e pelo SNAPSHOT da descricao (normDesc). Leitura pura.
+  //    o nao-re-marcar e pelo SNAPSHOT da descricao (normDesc). Leitura pura.
+  //    Alem disso, as linhas 'corrigido' carregam o valor humano (descricao /
+  //    numero corrigido) -> a re-extracao REAPLICA esse valor sobre o item que
+  //    casar pelo snapshot EXATO da descricao (A2). Chave exata (nao normDesc)
+  //    para nao reaplicar a correcao no item errado quando prefixos colidem.
   const cleared = new Set<string>();
   const { data: curadas, error: curErr } = await db
     .from("documento_item_suspeitas")
-    .select("item_descricao")
+    .select("item_descricao, status, descricao_corrigida, numero_corrigido, motivo")
     .eq("documento_id", documentoId)
     .eq("tipo", "fidelidade")
     .in("status", ["confirmado", "corrigido", "descartado"]);
   if (curErr) {
     throw new Error(`falha ao ler curadoria de suspeitas: ${curErr.message}`);
   }
-  for (const c of (curadas ?? []) as { item_descricao: string | null }[]) {
+  for (
+    const c of (curadas ?? []) as {
+      item_descricao: string | null;
+      status: string;
+      descricao_corrigida: string | null;
+      numero_corrigido: string | null;
+      motivo: string;
+    }[]
+  ) {
     const d = normDesc(c.item_descricao);
     if (d.length > 0) cleared.add(d);
+    // Correcao reaplicavel: precisa do snapshot exato (chave de casamento) e de
+    // ao menos um valor corrigido. So a ultima vence se houver snapshot repetido.
+    if (
+      c.status === "corrigido" &&
+      c.item_descricao &&
+      ((c.descricao_corrigida ?? "").trim() || (c.numero_corrigido ?? "").trim())
+    ) {
+      correcoes.set(c.item_descricao, {
+        descricao_corrigida: c.descricao_corrigida,
+        numero_corrigido: c.numero_corrigido,
+        motivo: c.motivo,
+      });
+    }
   }
 
   // 1) Monta as agulhas do grep (preco sempre; quantidade so se grande) e o
@@ -254,7 +297,7 @@ async function validarFidelidade(
     }
   });
 
-  return validacoes;
+  return { validacoes, correcoes };
 }
 
 // ---------------------------------------------------------------------
@@ -372,9 +415,12 @@ async function handler(req: Request): Promise<Response> {
     // 3) FIDELIDADE — validacao PURA (le verbatim via RPC; NAO escreve), ANTES
     //    de qualquer delete (B2). Se a RPC falhar, propaga 500 com os itens
     //    anteriores intactos (nada foi apagado).
-    const validacoes = body.status === "extraido" && body.itens.length > 0
+    const { validacoes, correcoes } = body.status === "extraido" && body.itens.length > 0
       ? await validarFidelidade(db, body.documento_id, body.itens, temVerbatim)
-      : body.itens.map(() => ({ suspeito: false, motivos: [], numeroSuspeito: null }));
+      : {
+        validacoes: body.itens.map(() => ({ suspeito: false, motivos: [], numeroSuspeito: null })),
+        correcoes: new Map<string, CorrecaoCurada>(),
+      };
 
     // 4) extraido / sem_itens / ignorado: idempotente — zera os itens do
     //    documento e regrava o conjunto recem-extraido (so AGORA, pos-validacao).
@@ -394,23 +440,47 @@ async function handler(req: Request): Promise<Response> {
     // run (ex.: PDF extraido na primeira triagem, que nao retorna a fila depois).
     let itensInseridos: { id: string; lista_origem: string; ordem: number | null }[] = [];
     if (body.itens.length > 0) {
-      const rows = body.itens.map((it, i) => ({
-        documento_id: body.documento_id,
-        lista_origem: it.lista_origem,
-        fonte_descricao: it.fonte_descricao,
-        item_numero: it.item_numero ?? null,
-        lote: it.lote ?? null,
-        descricao: it.descricao,
-        unidade: it.unidade ?? null,
-        quantidade: it.quantidade ?? null,
-        preco_referencia: it.preco_referencia ?? null,
-        ordem: it.ordem ?? i + 1,
-        // FIDELIDADE server-side (decisao 3/4): uma POST da Lia = revisao
-        // concluida -> 'revisado'; item reprovado -> 'suspeito' + motivo.
-        item_estado: validacoes[i].suspeito ? "suspeito" : "revisado",
-        item_origem: it.item_origem ?? null,
-        suspeito_motivo: validacoes[i].suspeito ? validacoes[i].motivos.join("; ") : null,
-      }));
+      const rows = body.itens.map((it, i) => {
+        // A2: reaplica a correcao humana CURADA (status 'corrigido') sobre a
+        // re-extracao. Casamento por snapshot EXATO da descricao original (a
+        // mesma que a Lia re-extrai a cada run) -> nao reaplica no item errado
+        // quando prefixos colidem. A coluna do numero corrigido vem do motivo.
+        const correcao = correcoes.get(it.descricao.slice(0, SNAPSHOT_DESC_MAX));
+        let descricao = it.descricao;
+        let quantidade = it.quantidade ?? null;
+        let precoReferencia = it.preco_referencia ?? null;
+        if (correcao) {
+          const descCorr = (correcao.descricao_corrigida ?? "").trim();
+          if (descCorr) descricao = descCorr;
+          const numCorr = (correcao.numero_corrigido ?? "").trim();
+          if (numCorr) {
+            const valor = parseNumeroBr(numCorr);
+            const coluna = colunaSuspeitaDoMotivo(correcao.motivo);
+            if (valor !== null && coluna === "preco_referencia") precoReferencia = valor;
+            if (valor !== null && coluna === "quantidade") quantidade = valor;
+          }
+        }
+        return {
+          documento_id: body.documento_id,
+          lista_origem: it.lista_origem,
+          fonte_descricao: it.fonte_descricao,
+          item_numero: it.item_numero ?? null,
+          lote: it.lote ?? null,
+          descricao,
+          unidade: it.unidade ?? null,
+          quantidade,
+          preco_referencia: precoReferencia,
+          ordem: it.ordem ?? i + 1,
+          // FIDELIDADE server-side (decisao 3/4): uma POST da Lia = revisao
+          // concluida -> 'revisado'; item reprovado -> 'suspeito' + motivo. Item
+          // com correcao humana curada (A2) e sempre 'revisado' (nunca suspeito).
+          item_estado: correcao ? "revisado" : (validacoes[i].suspeito ? "suspeito" : "revisado"),
+          item_origem: it.item_origem ?? null,
+          suspeito_motivo: !correcao && validacoes[i].suspeito
+            ? validacoes[i].motivos.join("; ")
+            : null,
+        };
+      });
       const { data: ins, error: insErr } = await db
         .from("documento_itens")
         .insert(rows)

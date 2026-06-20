@@ -25,3 +25,20 @@ export function normDesc(s: string | null | undefined): string {
     .replace(/[^a-z0-9]/g, "")
     .slice(0, 30);
 }
+
+/**
+ * Mapeia o MOTIVO de uma suspeita de fidelidade (texto gerado pelo servidor em
+ * v1-documento-itens-gravar/validarFidelidade) para a COLUNA numerica de
+ * documento_itens que a correcao humana (numero_corrigido) deve ajustar. Os
+ * prefixos sao deterministicos: "preco ... ausente" / "quantidade ... ausente".
+ * Soma divergente nao aponta uma coluna unica (qtd/unitario/total) -> null.
+ * Manter em sincronia com os motivos gerados em validarFidelidade.
+ */
+export function colunaSuspeitaDoMotivo(
+  motivo: string | null | undefined,
+): "preco_referencia" | "quantidade" | null {
+  const m = (motivo ?? "").toLowerCase();
+  if (m.includes("preco")) return "preco_referencia";
+  if (m.includes("quantidade")) return "quantidade";
+  return null;
+}

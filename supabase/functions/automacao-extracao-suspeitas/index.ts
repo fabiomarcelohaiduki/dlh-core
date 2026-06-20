@@ -27,6 +27,9 @@ import { requireAuthorizedUser } from "../_shared/auth.ts";
 import { parseJsonBody } from "../_shared/validation.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
+import { errorMessage, recordIngestErro } from "../_shared/ingest-errors.ts";
+import { parseNumeroBr } from "../_shared/numero-br.ts";
+import { colunaSuspeitaDoMotivo } from "../_shared/normalizar.ts";
 
 const FUNCTION_SEGMENT = "automacao-extracao-suspeitas";
 
@@ -99,13 +102,55 @@ async function postHandler(req: Request): Promise<Response> {
     .from("documento_item_suspeitas")
     .update(patch)
     .eq("id", body.id)
-    .select("id")
+    .select("id, tipo, documento_item_id, motivo")
     .maybeSingle();
   if (error) {
     throw new Error(`falha ao curar a suspeita: ${error.message}`);
   }
   if (!data) {
     throw new HttpError(404, "suspeita_nao_encontrada", "suspeita inexistente");
+  }
+
+  // A1: propaga a correcao para documento_itens (a tabela que a TRIAGEM le; a
+  // fila de suspeitas e so curadoria). So 'corrigir' de fidelidade com link vivo
+  // ao item (documento_item_id pode ter virado null numa re-extracao — nesse
+  // caso A2 reaplica pelo snapshot na proxima extracao). Best-effort: a cura ja
+  // foi gravada; falhar aqui nao derruba a curadoria nem o 200 ao cockpit.
+  const row = data as {
+    id: string;
+    tipo: string;
+    documento_item_id: string | null;
+    motivo: string;
+  };
+  if (body.acao === "corrigir" && row.tipo === "fidelidade" && row.documento_item_id) {
+    try {
+      const itemPatch: Record<string, unknown> = {
+        item_estado: "revisado",
+        suspeito_motivo: null,
+      };
+      const descCorr = (body.descricao_corrigida ?? "").trim();
+      if (descCorr) itemPatch.descricao = descCorr;
+      const numCorr = (body.numero_corrigido ?? "").trim();
+      if (numCorr) {
+        const valor = parseNumeroBr(numCorr);
+        // O motivo determina QUAL coluna o numero corrigido ajusta (preco/qtd).
+        // Soma divergente nao aponta coluna unica -> null -> nao toca o numero.
+        const coluna = colunaSuspeitaDoMotivo(row.motivo);
+        if (valor !== null && coluna) itemPatch[coluna] = valor;
+      }
+      const { error: itemErr } = await db
+        .from("documento_itens")
+        .update(itemPatch)
+        .eq("id", row.documento_item_id);
+      if (itemErr) throw new Error(itemErr.message);
+    } catch (err) {
+      await recordIngestErro(db, {
+        severidade: "media",
+        etapa: "Persistencia",
+        registroId: row.documento_item_id,
+        mensagem: `correcao de fidelidade nao propagada ao item: ${errorMessage(err)}`,
+      });
+    }
   }
 
   await logSensitiveAction({
