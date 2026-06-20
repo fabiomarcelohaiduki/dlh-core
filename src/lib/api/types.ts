@@ -1135,6 +1135,8 @@ export interface AvisoDocumento {
   documentoId: string;
   nomeArquivo: string | null;
   itensStatus: ItensStatus;
+  /** OCR de baixa confiança (Sprint 4): documento marcado para revisão humana. */
+  ocrBaixaConfianca: boolean;
 }
 
 /** Item literal extraido de um documento de edital (descricao integral). */

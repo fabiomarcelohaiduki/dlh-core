@@ -133,6 +133,8 @@ export interface DocumentoFila {
   nome_arquivo: string | null;
   /** pendente | pendente_revisao | extraido | sem_itens | erro | inobtenivel | ignorado. */
   itens_status: string;
+  /** OCR de baixa confianca (Sprint 4): nao confie nos numeros deste documento. */
+  ocr_baixa_confianca: boolean;
 }
 
 /** Item de licitacao literal (documento_itens) — recall total, sem fusao. */
@@ -347,6 +349,7 @@ interface DocumentoMetaRow {
   id: string;
   nome_arquivo: string | null;
   itens_status: string | null;
+  ocr_baixa_confianca: boolean | null;
 }
 
 interface ItemRow {
@@ -983,6 +986,7 @@ async function loadDocumentosEItens(
         documento_id: docId,
         nome_arquivo: meta?.nome_arquivo ?? null,
         itens_status: meta?.itens_status ?? "pendente",
+        ocr_baixa_confianca: meta?.ocr_baixa_confianca === true,
       });
     }
     for (const a of avisosDoEffecti) docsByAviso.set(a.id, documentos);
@@ -997,7 +1001,7 @@ async function loadDocumentosMeta(
 ): Promise<Map<string, DocumentoMetaRow>> {
   const { data, error } = await db
     .from("documentos")
-    .select("id, nome_arquivo, itens_status")
+    .select("id, nome_arquivo, itens_status, ocr_baixa_confianca")
     .in("id", docIds);
   if (error) {
     throw new Error(`falha ao ler documentos: ${error.message}`);

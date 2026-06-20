@@ -220,6 +220,14 @@ function DocumentoBloco({
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <strong>{doc.nomeArquivo || doc.documentoId}</strong>
         <span className="tag">{STATUS_LABEL[doc.itensStatus] ?? doc.itensStatus}</span>
+        {doc.ocrBaixaConfianca ? (
+          <span
+            className="tag lixo"
+            title="OCR de baixa confiança: o texto pode estar corrompido; revise os números."
+          >
+            OCR baixa confiança
+          </span>
+        ) : null}
       </div>
       {grupos.length > 0
         ? grupos.map((g) => (

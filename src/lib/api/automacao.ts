@@ -444,6 +444,7 @@ interface RawAvisoDocumento {
   documento_id: string;
   nome_arquivo: string | null;
   itens_status: string;
+  ocr_baixa_confianca?: boolean;
 }
 
 interface RawAvisoItem {
@@ -496,6 +497,7 @@ export async function getAvisoItens(avisoId: string): Promise<AvisoItens> {
       documentoId: d.documento_id,
       nomeArquivo: d.nome_arquivo ?? null,
       itensStatus: (d.itens_status ?? "pendente") as ItensStatus,
+      ocrBaixaConfianca: d.ocr_baixa_confianca ?? false,
     })),
     itens: (raw.itens ?? []).map((i) => ({
       id: i.id,

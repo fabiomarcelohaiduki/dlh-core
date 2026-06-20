@@ -334,7 +334,7 @@ async function handler(req: Request): Promise<Response> {
     //    reverso SEM puxar o verbatim (B5): > 0 = ha texto-fonte para conferir.
     const { data: docRaw, error: docErr } = await db
       .from("documentos")
-      .select("id, itens_tentativas, texto_chars")
+      .select("id, itens_tentativas, texto_chars, ocr_baixa_confianca")
       .eq("id", body.documento_id)
       .maybeSingle();
     if (docErr) {
@@ -343,7 +343,11 @@ async function handler(req: Request): Promise<Response> {
     if (!docRaw) {
       throw new HttpError(404, "documento_nao_encontrado", "documento inexistente");
     }
-    const temVerbatim = Number(docRaw.texto_chars ?? 0) > 0;
+    // Grep reverso da fidelidade exige verbatim CONFIAVEL. OCR de baixa confianca
+    // (Sprint 4) corrompe o numero -> desliga o grep (gate de qualidade precede o
+    // grep); a conferencia de soma e o flag de revisao humana seguem valendo.
+    const ocrBaixa = docRaw.ocr_baixa_confianca === true;
+    const temVerbatim = Number(docRaw.texto_chars ?? 0) > 0 && !ocrBaixa;
 
     const agora = new Date().toISOString();
 

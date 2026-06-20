@@ -65,6 +65,8 @@ interface DocumentoFila {
   documento_id: string;
   nome_arquivo: string | null;
   itens_status: string;
+  /** OCR de baixa confianca (Sprint 4): sinaliza revisao humana no cockpit. */
+  ocr_baixa_confianca: boolean;
 }
 
 interface ItemLicitacao {
@@ -115,6 +117,7 @@ interface DocumentoMetaRow {
   id: string;
   nome_arquivo: string | null;
   itens_status: string | null;
+  ocr_baixa_confianca: boolean | null;
 }
 
 interface ItemRow {
@@ -213,7 +216,7 @@ async function loadDocIds(db: ServiceClient, effectiId: string): Promise<string[
 async function loadDocumentos(db: ServiceClient, docIds: string[]): Promise<DocumentoFila[]> {
   const { data, error } = await db
     .from("documentos")
-    .select("id, nome_arquivo, itens_status")
+    .select("id, nome_arquivo, itens_status, ocr_baixa_confianca")
     .in("id", docIds);
   if (error) {
     throw new Error(`falha ao ler documentos: ${error.message}`);
@@ -223,6 +226,7 @@ async function loadDocumentos(db: ServiceClient, docIds: string[]): Promise<Docu
       documento_id: row.id,
       nome_arquivo: row.nome_arquivo ?? null,
       itens_status: row.itens_status ?? "pendente",
+      ocr_baixa_confianca: row.ocr_baixa_confianca === true,
     }))
     .sort((a, b) => (a.nome_arquivo ?? "").localeCompare(b.nome_arquivo ?? ""));
 }

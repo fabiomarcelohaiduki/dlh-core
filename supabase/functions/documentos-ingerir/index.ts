@@ -32,6 +32,7 @@ import { timingSafeEqual } from "../_shared/crypto.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { type EmbeddingProvider, generateAndStoreMemoriaChunks } from "../_shared/embeddings.ts";
 import { loadConfigIndexacao, resolveEmbeddingProvider } from "../_shared/indexacao.ts";
+import { estimarConfiancaOcr } from "../_shared/ocr-confianca.ts";
 
 const DEFAULT_PENDENTES_LIMITE = 50;
 const MAX_PENDENTES_LIMITE = 500;
@@ -503,6 +504,10 @@ async function processarResultado(
     return { vinculo_id: r.vinculo_id, estado: "herdado", documento_id: existenteId };
   }
 
+  // Portao de qualidade do OCR (Sprint 4): so quando usou OCR, mede a confianca
+  // do texto; baixa -> rotear ao humano e a fidelidade nao confia no grep.
+  const ocr = (r.usou_ocr ?? false) ? estimarConfiancaOcr(r.texto) : null;
+
   // Documento novo: grava o texto (status_indexacao='pendente' ate indexar).
   let documentoId: string;
   const { data: ins, error: insError } = await service
@@ -515,6 +520,8 @@ async function processarResultado(
       hash_texto_normalizado: r.hash_texto_normalizado,
       texto: r.texto,
       usou_ocr: r.usou_ocr ?? false,
+      ocr_confianca: ocr ? ocr.confianca : null,
+      ocr_baixa_confianca: ocr ? ocr.baixa : false,
       via: r.via,
       tipo_documento: r.tipo_documento,
       status_indexacao: "pendente",
