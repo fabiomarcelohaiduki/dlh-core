@@ -153,6 +153,13 @@ export interface ItemLicitacao {
   /** Preco de referencia UNITARIO (nullable). */
   preco_referencia: number | null;
   ordem: number | null;
+  /**
+   * Estado do item (Sprint 2): 'rascunho' = palpite deterministico de PDF a
+   * CONFERIR contra o verbatim (estagio 2); 'revisado' = lista final; 'suspeito'
+   * = reprovou a fidelidade no servidor. A Lia trata 'rascunho' como hipotese,
+   * nunca como verdade (guardrail anti-ancoragem).
+   */
+  item_estado: string;
 }
 
 /** Exemplo few-shot rotulado (sem embedding nem ids internos). */
@@ -354,6 +361,7 @@ interface ItemRow {
   quantidade: number | null;
   preco_referencia: number | null;
   ordem: number | null;
+  item_estado: string | null;
 }
 
 /**
@@ -1014,7 +1022,7 @@ async function loadItensByDocumento(
       .from("documento_itens")
       .select(
         "id, documento_id, lista_origem, fonte_descricao, item_numero, lote, " +
-          "descricao, unidade, quantidade, preco_referencia, ordem",
+          "descricao, unidade, quantidade, preco_referencia, ordem, item_estado",
       )
       .in("documento_id", docIds)
       .order("documento_id", { ascending: true })
@@ -1036,6 +1044,7 @@ async function loadItensByDocumento(
       quantidade: typeof row.quantidade === "number" ? row.quantidade : null,
       preco_referencia: typeof row.preco_referencia === "number" ? row.preco_referencia : null,
       ordem: typeof row.ordem === "number" ? row.ordem : null,
+      item_estado: row.item_estado ?? "revisado",
     });
     map.set(row.documento_id, list);
   }

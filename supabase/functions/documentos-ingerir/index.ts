@@ -85,11 +85,19 @@ interface ResultadoExtracao {
   /** Classificacao do tipo (gancho camada 2); opcional nesta fase. */
   tipo_documento?: string | null;
   /**
-   * Lista(s) de itens extraidas deterministicamente do docx (so effecti). Ausente
-   * quando nao houve reconhecimento. Best-effort: a persistencia dos itens NUNCA
-   * derruba a gravacao do texto (item falho fica pendente -> a Lia extrai depois).
+   * Lista(s) de itens extraidas deterministicamente (so effecti). Ausente quando
+   * nao houve reconhecimento. Best-effort: a persistencia dos itens NUNCA derruba
+   * a gravacao do texto (item falho fica pendente -> a Lia extrai depois).
    */
   itens?: ItemExtraido[] | null;
+  /**
+   * true quando os itens sao um RASCUNHO deterministico de PDF (estagio 1): a
+   * descricao por coordenada pode sair infiel, entao a lista entra como
+   * item_estado='rascunho' + itens_status='pendente_revisao' e a Lia REVISA
+   * contra o verbatim antes de virar 'extraido'. false/ausente = docx estavel
+   * (entra direto 'extraido'). Decisao 5 do plano: dois estagios so para PDF.
+   */
+  itens_rascunho?: boolean;
 }
 
 interface IngerirInput {
@@ -190,6 +198,7 @@ function normalizeResultado(o: Record<string, unknown>): ResultadoExtracao | nul
     inobtenivel: o.inobtenivel === true,
     tipo_documento: str(o.tipo_documento),
     itens: itens && itens.length > 0 ? itens : null,
+    itens_rascunho: o.itens_rascunho === true,
   };
 }
 
@@ -358,17 +367,25 @@ async function fonteHabilitada(
 }
 
 /**
- * Persiste a(s) lista(s) de itens extraidas deterministicamente (effecti+docx) e
- * vira itens_status='extraido'. Idempotente: delete-then-insert por documento_id
- * (mesma logica do v1-documento-itens-gravar). BEST-EFFORT: o chamador isola em
- * try/catch — uma falha aqui NAO pode derrubar a gravacao do texto (o texto ja
- * esta salvo; em caso de erro o documento fica itens_status='pendente' e a Lia
- * extrai sob demanda). So escreve quando ha itens reconhecidos.
+ * Persiste a(s) lista(s) de itens extraidas deterministicamente (effecti) e vira
+ * o itens_status. Idempotente: delete-then-insert por documento_id (mesma logica
+ * do v1-documento-itens-gravar). BEST-EFFORT: o chamador isola em try/catch — uma
+ * falha aqui NAO pode derrubar a gravacao do texto (o texto ja esta salvo; em
+ * caso de erro o documento fica itens_status='pendente' e a Lia extrai sob
+ * demanda). So escreve quando ha itens reconhecidos.
+ *
+ * DOIS ESTAGIOS (Sprint 2, decisao 5):
+ *   rascunho=false (docx) -> item_estado='revisado', itens_status='extraido'
+ *     (parser estavel; nao passa por revisao da Lia).
+ *   rascunho=true  (pdf)  -> item_estado='rascunho', itens_status='pendente_revisao'
+ *     (a Lia revisa contra o verbatim antes de virar 'extraido', estagio 2).
+ * Em ambos item_origem='deterministico' (proveniencia do parser, nao da Lia).
  */
 async function persistirItens(
   service: ServiceClient,
   documentoId: string,
   itens: ItemExtraido[],
+  rascunho: boolean,
 ): Promise<void> {
   if (itens.length === 0) return;
   const { error: delErr } = await service
@@ -388,13 +405,16 @@ async function persistirItens(
     quantidade: it.quantidade,
     preco_referencia: it.preco_referencia,
     ordem: it.ordem ?? i + 1,
+    item_estado: rascunho ? "rascunho" : "revisado",
+    item_origem: "deterministico",
   }));
   const { error: insErr } = await service.from("documento_itens").insert(rows);
   if (insErr) throw new Error(`falha ao inserir itens: ${insErr.message}`);
 
+  const novoStatus = rascunho ? "pendente_revisao" : "extraido";
   const { error: upErr } = await service
     .from("documentos")
-    .update({ itens_status: "extraido", itens_extraido_em: new Date().toISOString() })
+    .update({ itens_status: novoStatus, itens_extraido_em: new Date().toISOString() })
     .eq("id", documentoId);
   if (upErr) throw new Error(`falha ao virar itens_status: ${upErr.message}`);
 }
@@ -419,7 +439,7 @@ async function enriquecerItensBestEffort(
       .eq("id", documentoId)
       .maybeSingle();
     if (data && (data as { itens_status?: string }).itens_status === "pendente") {
-      await persistirItens(service, documentoId, r.itens);
+      await persistirItens(service, documentoId, r.itens, r.itens_rascunho === true);
     }
   } catch (err) {
     console.error("[documentos-ingerir] falha ao enriquecer itens (herdado)", {
@@ -526,11 +546,12 @@ async function processarResultado(
     .update({ documento_id: documentoId, status_extracao: "extraido", erro: null, tentativas_extracao: 0 })
     .eq("id", r.vinculo_id);
 
-  // Itens deterministicos (effecti+docx): grava agora que o documento_id final
-  // existe. Best-effort: falha aqui nao derruba o documento ja salvo.
+  // Itens deterministicos (effecti): grava agora que o documento_id final existe.
+  // docx -> extraido; pdf -> rascunho/pendente_revisao (estagio 1). Best-effort:
+  // falha aqui nao derruba o documento ja salvo.
   if (r.itens && r.itens.length > 0) {
     try {
-      await persistirItens(service, documentoId, r.itens);
+      await persistirItens(service, documentoId, r.itens, r.itens_rascunho === true);
     } catch (err) {
       console.error("[documentos-ingerir] falha ao gravar itens do documento", {
         documentoId,

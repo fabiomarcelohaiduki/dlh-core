@@ -126,10 +126,12 @@ const SNAPSHOT_DESC_MAX = 2000;
 // estruturados e bloquear lixo neles seria eterno.
 const STATUS_EXTRACAO_COM_TEXTO = ["extraido", "herdado", "precisa_ocr"];
 
-// itens_status NAO-terminais: a lista de itens ainda nao foi estruturada (ou
-// falhou e e reprocessavel). 'extraido'/'sem_itens'/'ignorado'/'inobtenivel'
-// sao terminais (a extracao foi conclusivamente resolvida).
-const ITENS_STATUS_NAO_TERMINAL = ["pendente", "erro"];
+// itens_status NAO-terminais: a lista de itens ainda nao foi estruturada/revisada
+// (ou falhou e e reprocessavel). 'pendente_revisao' (rascunho deterministico de
+// PDF aguardando a revisao da Lia, Sprint 2) entra aqui: o rascunho NAO e
+// extracao final, entao um aviso com doc em revisao nao pode ser descartado antes
+// da Lia revisar. 'extraido'/'sem_itens'/'ignorado'/'inobtenivel' sao terminais.
+const ITENS_STATUS_NAO_TERMINAL = ["pendente", "pendente_revisao", "erro"];
 
 // ---------------------------------------------------------------------
 // Leitura de insumos de classificacao (config + regras), via service_role.

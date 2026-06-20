@@ -38,6 +38,7 @@
 
 import { extrairTexto, ExtracaoError } from "./extrator.mjs";
 import { extrairItensDocx } from "./extrair-itens.mjs";
+import { extrairItensPdfBytes } from "./extrair-itens-pdf.mjs";
 import { baixarArquivoDrive, getDriveAccessToken } from "./drive.mjs";
 import { baixarAnexo, extrairConteudo, obterMensagem, NOME_CORPO } from "./gmail.mjs";
 
@@ -481,22 +482,40 @@ async function processarVinculo(vinculo, configExtrator) {
         tamanho_bytes: bytes.byteLength,
       };
     }
-    // Lista de itens DETERMINISTICA (sem LLM), so para effecti DOCX: reconstroi
-    // a(s) tabela(s) de itens na ESTRUTURA (que o texto plano do Tika achata),
-    // celula a celula do word/document.xml (adm-zip). PDF NAO entra aqui: o parser
-    // por coordenada (pdfjs) acerta a numeracao mas a descricao sai infiel em
-    // tabela com coluna de codigo / multi-linha, e a descricao precisa ser FIEL
-    // -> PDF fica sem itens (itens_status pendente) e a LLM extrai na triagem.
-    // Anexada ao resultado; o Edge persiste pos-dedup. ISOLADA da extracao de
-    // texto: nunca derruba o vinculo (item errado/falho e pior que item nenhum).
-    // So anexa quando reconhece ao menos uma lista que passa nos portoes de recall.
+    // Lista de itens DETERMINISTICA (sem LLM), so para effecti: reconstroi a(s)
+    // tabela(s) de itens na ESTRUTURA (que o texto plano do Tika achata). Dois
+    // extratores por formato:
+    //   docx -> word/document.xml celula a celula (adm-zip). Estavel -> entra como
+    //           EXTRAIDO direto (item errado e raro; nao passa por revisao).
+    //   pdf  -> coordenadas dos text-items (pdfjs). A descricao pode sair infiel
+    //           em tabela com coluna de codigo / multi-linha (motivo do baab507);
+    //           por isso entra como RASCUNHO (estagio 1): a Lia REVISA contra o
+    //           verbatim antes de virar extraido (estagio 2). So tabela limpa que
+    //           passa nos portoes de recall vira rascunho; o caso dificil cai fora
+    //           (gates retornam []) e a LLM extrai do zero. PDF imagem ja foi
+    //           desviado p/ precisa_ocr antes e nunca chega aqui.
+    // Anexada ao resultado; o Edge persiste pos-dedup (rascunho -> pendente_revisao,
+    // docx -> extraido). ISOLADA da extracao de texto: nunca derruba o vinculo
+    // (item errado/falho e pior que item nenhum). So anexa quando reconhece ao
+    // menos uma lista que passa nos portoes de recall.
     let itens;
+    let itensRascunho = false;
     if (fonte === "effecti" && r.ext === "docx") {
       try {
         const lista = await extrairItensDocx(bytes);
         if (Array.isArray(lista) && lista.length > 0) itens = lista;
       } catch (err) {
         console.error(`[itens] falha ao extrair itens do vinculo ${vinculo.id}: ${err?.message ?? err}`);
+      }
+    } else if (fonte === "effecti" && r.ext === "pdf") {
+      try {
+        const lista = await extrairItensPdfBytes(bytes);
+        if (Array.isArray(lista) && lista.length > 0) {
+          itens = lista;
+          itensRascunho = true; // estagio 1: rascunho a revisar contra o verbatim
+        }
+      } catch (err) {
+        console.error(`[itens] falha ao extrair itens (pdf) do vinculo ${vinculo.id}: ${err?.message ?? err}`);
       }
     }
     return {
@@ -510,7 +529,7 @@ async function processarVinculo(vinculo, configExtrator) {
       texto: r.texto,
       usou_ocr: r.usouOcr,
       via: r.via,
-      ...(itens ? { itens } : {}),
+      ...(itens ? { itens, itens_rascunho: itensRascunho } : {}),
     };
   } catch (err) {
     const code = err instanceof ExtracaoError ? `[${err.code}] ` : "";
