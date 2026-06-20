@@ -1153,6 +1153,9 @@ export interface AvisoItem {
   /** Preco de referencia UNITARIO (nullable). */
   precoReferencia: number | null;
   ordem: number | null;
+  /** true se o Effecti destacou este item (casou palavra-chave do perfil). Hint
+   *  de prioridade no cockpit; cruzamento best-effort por numero OU descricao. */
+  effecti: boolean;
 }
 
 /** Match item-do-edital x produto-do-catalogo (triagem da Lia), por aviso. */

@@ -56,12 +56,14 @@ function ListaTabela({
   onSaved: (msg: string) => void;
 }) {
   const isPortal = grupo.fonteDescricao === "portal";
-  // Itens APROVADOS (com match no catalogo) primeiro; dentro de cada grupo,
-  // preserva a ordem original da lista (estavel via [].sort).
+  // Prioridade tri-nivel: match no catalogo (0) > destacado pelo Effecti sem
+  // match (1) > restante (2). Dentro de cada nivel preserva a ordem original da
+  // lista (estavel via [].sort).
   const itensOrdenados = useMemo(() => {
+    const rank = (it: AvisoItem) => (matchById.has(it.id) ? 0 : it.effecti ? 1 : 2);
     return grupo.itens
-      .map((it, i) => ({ it, i, aprovado: matchById.has(it.id) }))
-      .sort((a, b) => (a.aprovado === b.aprovado ? a.i - b.i : a.aprovado ? -1 : 1));
+      .map((it, i) => ({ it, i, r: rank(it) }))
+      .sort((a, b) => (a.r === b.r ? a.i - b.i : a.r - b.r));
   }, [grupo.itens, matchById]);
 
   return (
@@ -89,7 +91,15 @@ function ListaTabela({
               <Fragment key={it.id || `${it.itemNumero ?? ""}-${it.ordem ?? i}`}>
                 <tr className={match ? "row-aprovado" : undefined}>
                   <td className="sub tnum">{it.itemNumero || (it.ordem != null ? `${it.ordem}` : "—")}</td>
-                  <td>{it.descricao}</td>
+                  <td>
+                    {it.descricao}
+                    {it.effecti ? (
+                      <>
+                        {" "}
+                        <span className="tag effecti">Effecti</span>
+                      </>
+                    ) : null}
+                  </td>
                   <td className="sub tnum">{it.unidade || "—"}</td>
                   <td className="sub tnum">{it.quantidade != null ? formatNumber(it.quantidade) : "—"}</td>
                   <td className="sub tnum">

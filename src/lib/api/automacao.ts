@@ -456,6 +456,7 @@ interface RawAvisoItem {
   quantidade: number | null;
   preco_referencia: number | null;
   ordem: number | null;
+  effecti?: boolean;
 }
 
 interface RawAvisoItemMatch {
@@ -497,6 +498,7 @@ export async function getAvisoItens(avisoId: string): Promise<AvisoItens> {
       quantidade: i.quantidade ?? null,
       precoReferencia: i.preco_referencia ?? null,
       ordem: i.ordem ?? null,
+      effecti: i.effecti ?? false,
     })),
     matches: (raw.matches ?? []).map((m) => ({
       documentoItemId: m.documento_item_id,
