@@ -78,6 +78,14 @@ interface ItemLicitacao {
   quantidade: number | null;
   preco_referencia: number | null;
   ordem: number | null;
+  /**
+   * true quando este item casa com um dos itens destacados pelo Effecti
+   * (avisos.payload_bruto->itensEdital, o subconjunto que bateu as palavras-chave
+   * do perfil). Hint de prioridade no cockpit, NAO decisao. Cruzamento best-effort
+   * por numero de item OU por descricao normalizada (a numeracao do portal nem
+   * sempre coincide com a numeracao da extracao -> a descricao recupera parte).
+   */
+  effecti: boolean;
 }
 
 /** Match item x produto (triagem_item_matches), por aviso. */
@@ -115,18 +123,76 @@ interface ItemRow {
   ordem: number | null;
 }
 
-/** Resolve o effecti_id do aviso (chave do vinculo de documentos). */
-async function loadEffectiId(db: ServiceClient, avisoId: string): Promise<string | null> {
+/** itensEdital do payload Effecti = subconjunto que casou as palavras-chave. */
+interface ItensEditalRow {
+  item?: number | string | null;
+  produtoLicitadoSemTags?: string | null;
+}
+
+interface AvisoMeta {
+  effectiId: string;
+  itensEffecti: ItensEditalRow[];
+}
+
+/**
+ * Resolve effecti_id (chave do vinculo de documentos) + o itensEdital do
+ * payload Effecti (so o sub-campo, via JSON path, para nao trafegar o payload
+ * inteiro). itensEdital ausente => lista vazia (aviso sem destaque).
+ */
+async function loadAvisoMeta(db: ServiceClient, avisoId: string): Promise<AvisoMeta | null> {
   const { data, error } = await db
     .from("avisos")
-    .select("effecti_id")
+    .select("effecti_id, itens_effecti:payload_bruto->itensEdital")
     .eq("id", avisoId)
     .maybeSingle();
   if (error) {
     throw new Error(`falha ao ler aviso: ${error.message}`);
   }
   const eid = (data?.effecti_id ?? "").trim();
-  return eid === "" ? null : eid;
+  if (eid === "") return null;
+  const raw = (data as { itens_effecti?: unknown }).itens_effecti;
+  const itensEffecti = Array.isArray(raw) ? (raw as ItensEditalRow[]) : [];
+  return { effectiId: eid, itensEffecti };
+}
+
+/**
+ * Normaliza descricao para cruzamento tolerante (acento/caixa/pontuacao):
+ * lower + remove diacriticos + so [a-z0-9], prefixo de 30 chars. Mesma chave do
+ * lado Effecti e do lado documento_itens.
+ */
+function normDesc(s: string | null | undefined): string {
+  return (s ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "")
+    .slice(0, 30);
+}
+
+/**
+ * Marca cada item com `effecti` cruzando contra os itens destacados pelo Effecti.
+ * Best-effort: por numero de item OU por descricao normalizada. O destaque do
+ * Effecti usa a numeracao do portal, que nem sempre coincide com a extracao; a
+ * descricao recupera os casos de numero divergente.
+ */
+function marcarEffecti(itens: ItemLicitacao[], itensEffecti: ItensEditalRow[]): void {
+  if (itensEffecti.length === 0) return;
+  const numSet = new Set<number>();
+  const descSet = new Set<string>();
+  for (const e of itensEffecti) {
+    const n = typeof e.item === "number" ? e.item : Number(e.item);
+    if (Number.isInteger(n)) numSet.add(n);
+    const d = normDesc(e.produtoLicitadoSemTags);
+    if (d.length > 0) descSet.add(d);
+  }
+  for (const it of itens) {
+    const num = it.item_numero && /^[0-9]+$/.test(it.item_numero)
+      ? Number(it.item_numero)
+      : null;
+    const porNumero = num !== null && numSet.has(num);
+    const porDescricao = descSet.has(normDesc(it.descricao));
+    it.effecti = porNumero || porDescricao;
+  }
 }
 
 /** documento_ids com texto aproveitavel vinculados ao effecti_id (dedup). */
@@ -190,6 +256,7 @@ async function loadItens(db: ServiceClient, docIds: string[]): Promise<ItemLicit
     quantidade: typeof row.quantidade === "number" ? row.quantidade : null,
     preco_referencia: typeof row.preco_referencia === "number" ? row.preco_referencia : null,
     ordem: typeof row.ordem === "number" ? row.ordem : null,
+    effecti: false,
   }));
 }
 
@@ -249,13 +316,13 @@ async function handler(req: Request): Promise<Response> {
 
     const db = createServiceClient();
 
-    const effectiId = await loadEffectiId(db, avisoId);
-    if (effectiId === null) {
+    const meta = await loadAvisoMeta(db, avisoId);
+    if (meta === null) {
       // Aviso sem effecti_id (ou inexistente): sem documentos vinculados.
       return jsonResponse({ documentos: [], itens: [], matches: [] }, 200);
     }
 
-    const docIds = await loadDocIds(db, effectiId);
+    const docIds = await loadDocIds(db, meta.effectiId);
     if (docIds.length === 0) {
       return jsonResponse({ documentos: [], itens: [], matches: [] }, 200);
     }
@@ -265,6 +332,9 @@ async function handler(req: Request): Promise<Response> {
       loadItens(db, docIds),
       loadMatches(db, avisoId),
     ]);
+
+    // Marca quais itens o Effecti destacou (hint de prioridade no cockpit).
+    marcarEffecti(itens, meta.itensEffecti);
 
     return jsonResponse({ documentos, itens, matches }, 200);
   } catch (err) {
