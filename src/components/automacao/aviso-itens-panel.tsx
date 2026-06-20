@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Check, PencilLine, Plus, TriangleAlert } from "lucide-react";
+import { Check, Info, PencilLine, Plus, TriangleAlert } from "lucide-react";
 import type { AvisoDocumento, AvisoItem, AvisoItemMatch, ItensStatus } from "@/lib/api/types";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { useAvisoItens } from "@/hooks/use-aviso-itens";
@@ -256,6 +256,16 @@ export function AvisoItensPanel({ avisoId }: { avisoId: string }) {
 
   return (
     <div className="cell-stack" style={{ gap: 16 }}>
+      <div className="banner">
+        <Info aria-hidden="true" />
+        <div>
+          <b>O veredito (Útil/Dúvida/Lixo) responde: vale participar do aviso?</b>
+          <p>
+            Basta 1 item cotável para o aviso ser Útil. Os itens com match errado você
+            corrige aqui embaixo, item a item, sem mudar o veredito.
+          </p>
+        </div>
+      </div>
       {documentos.map((doc) => (
         <DocumentoBloco
           key={doc.documentoId}
