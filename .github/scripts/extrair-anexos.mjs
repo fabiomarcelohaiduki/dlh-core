@@ -38,7 +38,6 @@
 
 import { extrairTexto, ExtracaoError } from "./extrator.mjs";
 import { extrairItensDocx } from "./extrair-itens.mjs";
-import { extrairItensPdfBytes } from "./extrair-itens-pdf.mjs";
 import { baixarArquivoDrive, getDriveAccessToken } from "./drive.mjs";
 import { baixarAnexo, extrairConteudo, obterMensagem, NOME_CORPO } from "./gmail.mjs";
 
@@ -482,22 +481,19 @@ async function processarVinculo(vinculo, configExtrator) {
         tamanho_bytes: bytes.byteLength,
       };
     }
-    // Lista de itens DETERMINISTICA (sem LLM), so para effecti: alem do texto,
-    // reconstroi a(s) tabela(s) de itens na ESTRUTURA (que o texto plano do Tika
-    // achata) e emite a(s) lista(s) reconhecida(s). Dois extratores por formato:
-    //   docx -> word/document.xml celula a celula (adm-zip);
-    //   pdf  -> coordenadas dos text-items (pdfjs); PDF imagem ja foi desviado p/
-    //           precisa_ocr antes e nunca chega aqui (sem camada de texto -> []).
+    // Lista de itens DETERMINISTICA (sem LLM), so para effecti DOCX: reconstroi
+    // a(s) tabela(s) de itens na ESTRUTURA (que o texto plano do Tika achata),
+    // celula a celula do word/document.xml (adm-zip). PDF NAO entra aqui: o parser
+    // por coordenada (pdfjs) acerta a numeracao mas a descricao sai infiel em
+    // tabela com coluna de codigo / multi-linha, e a descricao precisa ser FIEL
+    // -> PDF fica sem itens (itens_status pendente) e a LLM extrai na triagem.
     // Anexada ao resultado; o Edge persiste pos-dedup. ISOLADA da extracao de
-    // texto: nunca derruba o vinculo (item errado/falho e pior que item nenhum ->
-    // em caso de erro/duvida fica sem itens, a Lia extrai sob demanda). So anexa
-    // quando reconhece pelo menos uma lista que passa nos portoes de recall.
+    // texto: nunca derruba o vinculo (item errado/falho e pior que item nenhum).
+    // So anexa quando reconhece ao menos uma lista que passa nos portoes de recall.
     let itens;
-    if (fonte === "effecti" && (r.ext === "docx" || r.ext === "pdf")) {
+    if (fonte === "effecti" && r.ext === "docx") {
       try {
-        const lista = r.ext === "docx"
-          ? await extrairItensDocx(bytes)
-          : await extrairItensPdfBytes(bytes);
+        const lista = await extrairItensDocx(bytes);
         if (Array.isArray(lista) && lista.length > 0) itens = lista;
       } catch (err) {
         console.error(`[itens] falha ao extrair itens do vinculo ${vinculo.id}: ${err?.message ?? err}`);
