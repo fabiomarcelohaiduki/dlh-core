@@ -14,6 +14,8 @@ import type {
   BacktestRecall,
   Conhecimento,
   ExemploFewShot,
+  ExtracaoSuspeitaCurarInput,
+  ExtracaoSuspeitaFilaItem,
   FalsoDescarteAmostra,
   FeedbackHumano,
   ItensStatus,
@@ -456,6 +458,9 @@ interface RawAvisoItem {
   quantidade: number | null;
   preco_referencia: number | null;
   ordem: number | null;
+  item_estado?: string | null;
+  item_origem?: string | null;
+  suspeito_motivo?: string | null;
   effecti?: boolean;
 }
 
@@ -468,10 +473,16 @@ interface RawAvisoItemMatch {
   score: number | null;
 }
 
+interface RawRecallEffecti {
+  numero_suspeito: string | null;
+  item_descricao: string | null;
+}
+
 interface RawAvisoItensResponse {
   documentos: RawAvisoDocumento[];
   itens: RawAvisoItem[];
   matches: RawAvisoItemMatch[];
+  recall_effecti?: RawRecallEffecti[];
 }
 
 /** Documentos + itens extraidos de um aviso (so leitura; a Lia extrai). */
@@ -498,6 +509,9 @@ export async function getAvisoItens(avisoId: string): Promise<AvisoItens> {
       quantidade: i.quantidade ?? null,
       precoReferencia: i.preco_referencia ?? null,
       ordem: i.ordem ?? null,
+      itemEstado: i.item_estado ?? "revisado",
+      itemOrigem: i.item_origem ?? null,
+      suspeitoMotivo: i.suspeito_motivo ?? null,
       effecti: i.effecti ?? false,
     })),
     matches: (raw.matches ?? []).map((m) => ({
@@ -507,6 +521,10 @@ export async function getAvisoItens(avisoId: string): Promise<AvisoItens> {
       skuCodigo: m.codigo_sku ?? null,
       produtoNome: m.produto_nome ?? null,
       score: m.score ?? null,
+    })),
+    recallEffecti: (raw.recall_effecti ?? []).map((r) => ({
+      numeroSuspeito: r.numero_suspeito ?? null,
+      itemDescricao: r.item_descricao ?? null,
     })),
   };
 }
@@ -599,6 +617,80 @@ export async function listMatchFeedbackFila(
       criadoEm: i.created_at,
     })),
   };
+}
+
+// ---------------------------------------------------------------------
+// Fila de revisao de EXTRACAO (fidelidade / recall) — automacao-extracao-suspeitas.
+// ---------------------------------------------------------------------
+
+interface RawExtracaoSuspeitaFilaItem {
+  id: string;
+  aviso_id: string | null;
+  documento_id: string | null;
+  documento_item_id: string | null;
+  tipo: ExtracaoSuspeitaFilaItem["tipo"];
+  item_descricao: string | null;
+  numero_suspeito: string | null;
+  motivo: string;
+  status: string;
+  autor: string | null;
+  descricao_corrigida: string | null;
+  numero_corrigido: string | null;
+  curado_por: string | null;
+  curado_em: string | null;
+  created_at: string;
+  aviso_objeto: string | null;
+  documento_nome: string | null;
+}
+
+/** Lista a fila de suspeitas de extracao (default status=pendente). */
+export async function listExtracaoSuspeitasFila(
+  status: string = "pendente",
+): Promise<{ itens: ExtracaoSuspeitaFilaItem[] }> {
+  const raw = await apiFetch<{ itens: RawExtracaoSuspeitaFilaItem[] }>(
+    `automacao-extracao-suspeitas${buildQuery({ status })}`,
+    { method: "GET" },
+  );
+  return {
+    itens: (raw.itens ?? []).map((i) => ({
+      id: i.id,
+      avisoId: i.aviso_id ?? null,
+      documentoId: i.documento_id ?? null,
+      documentoItemId: i.documento_item_id ?? null,
+      tipo: i.tipo,
+      itemDescricao: i.item_descricao ?? null,
+      numeroSuspeito: i.numero_suspeito ?? null,
+      motivo: i.motivo,
+      status: i.status,
+      autor: i.autor ?? null,
+      descricaoCorrigida: i.descricao_corrigida ?? null,
+      numeroCorrigido: i.numero_corrigido ?? null,
+      curadoPor: i.curado_por ?? null,
+      curadoEm: i.curado_em ?? null,
+      criadoEm: i.created_at,
+      avisoObjeto: i.aviso_objeto ?? null,
+      documentoNome: i.documento_nome ?? null,
+    })),
+  };
+}
+
+/** Cura uma suspeita de extracao (confirmar / corrigir / descartar). */
+export async function curarExtracaoSuspeita(
+  input: ExtracaoSuspeitaCurarInput,
+): Promise<{ id: string; status: string }> {
+  const raw = await apiFetch<{ id: string; status: string; ok: boolean }>(
+    "automacao-extracao-suspeitas",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        id: input.id,
+        acao: input.acao,
+        descricao_corrigida: input.descricaoCorrigida ?? null,
+        numero_corrigido: input.numeroCorrigido ?? null,
+      }),
+    },
+  );
+  return { id: raw.id, status: raw.status };
 }
 
 // ---------------------------------------------------------------------

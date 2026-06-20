@@ -80,6 +80,12 @@ interface ItemLicitacao {
   quantidade: number | null;
   preco_referencia: number | null;
   ordem: number | null;
+  /** Estado do item (Sprint 1/2): rascunho | revisado | suspeito. */
+  item_estado: string;
+  /** Proveniencia (Sprint 1/2): deterministico | llm | effecti | null. */
+  item_origem: string | null;
+  /** Motivo da suspeita de fidelidade (quando item_estado='suspeito'). */
+  suspeito_motivo: string | null;
   /**
    * true quando este item casa com um dos itens destacados pelo Effecti
    * (avisos.payload_bruto->itensEdital, o subconjunto que bateu as palavras-chave
@@ -123,6 +129,9 @@ interface ItemRow {
   quantidade: number | null;
   preco_referencia: number | null;
   ordem: number | null;
+  item_estado: string | null;
+  item_origem: string | null;
+  suspeito_motivo: string | null;
 }
 
 /** itensEdital do payload Effecti = subconjunto que casou as palavras-chave. */
@@ -225,7 +234,8 @@ async function loadItens(db: ServiceClient, docIds: string[]): Promise<ItemLicit
       .from("documento_itens")
       .select(
         "id, documento_id, lista_origem, fonte_descricao, item_numero, lote, " +
-          "descricao, unidade, quantidade, preco_referencia, ordem",
+          "descricao, unidade, quantidade, preco_referencia, ordem, " +
+          "item_estado, item_origem, suspeito_motivo",
       )
       .in("documento_id", docIds)
       .order("documento_id", { ascending: true })
@@ -244,6 +254,9 @@ async function loadItens(db: ServiceClient, docIds: string[]): Promise<ItemLicit
     quantidade: typeof row.quantidade === "number" ? row.quantidade : null,
     preco_referencia: typeof row.preco_referencia === "number" ? row.preco_referencia : null,
     ordem: typeof row.ordem === "number" ? row.ordem : null,
+    item_estado: row.item_estado ?? "revisado",
+    item_origem: row.item_origem ?? null,
+    suspeito_motivo: row.suspeito_motivo ?? null,
     effecti: false,
   }));
 }
@@ -286,6 +299,31 @@ async function loadMatches(db: ServiceClient, avisoId: string): Promise<ItemMatc
   }));
 }
 
+/** Item do piso Effecti pendente de recall (rebaixou o veredito do aviso). */
+interface RecallEffecti {
+  numero_suspeito: string | null;
+  item_descricao: string | null;
+}
+
+/**
+ * Sinal de recall do Effecti per-aviso (documento_item_suspeitas, recall_effecti
+ * pendente): itens do piso ausentes da extracao que rebaixaram o veredito. O
+ * cockpit mostra um aviso para o operador completar/revisar.
+ */
+async function loadRecallEffecti(db: ServiceClient, avisoId: string): Promise<RecallEffecti[]> {
+  const { data, error } = await db
+    .from("documento_item_suspeitas")
+    .select("numero_suspeito, item_descricao")
+    .eq("aviso_id", avisoId)
+    .eq("tipo", "recall_effecti")
+    .eq("status", "pendente")
+    .order("created_at", { ascending: false });
+  if (error) {
+    throw new Error(`falha ao ler recall do Effecti: ${error.message}`);
+  }
+  return (data ?? []) as RecallEffecti[];
+}
+
 async function handler(req: Request): Promise<Response> {
   const preflight = handleCorsPreflight(req);
   if (preflight) return preflight;
@@ -307,24 +345,25 @@ async function handler(req: Request): Promise<Response> {
     const meta = await loadAvisoMeta(db, avisoId);
     if (meta === null) {
       // Aviso sem effecti_id (ou inexistente): sem documentos vinculados.
-      return jsonResponse({ documentos: [], itens: [], matches: [] }, 200);
+      return jsonResponse({ documentos: [], itens: [], matches: [], recall_effecti: [] }, 200);
     }
 
     const docIds = await loadDocIds(db, meta.effectiId);
     if (docIds.length === 0) {
-      return jsonResponse({ documentos: [], itens: [], matches: [] }, 200);
+      return jsonResponse({ documentos: [], itens: [], matches: [], recall_effecti: [] }, 200);
     }
 
-    const [documentos, itens, matches] = await Promise.all([
+    const [documentos, itens, matches, recallEffecti] = await Promise.all([
       loadDocumentos(db, docIds),
       loadItens(db, docIds),
       loadMatches(db, avisoId),
+      loadRecallEffecti(db, avisoId),
     ]);
 
     // Marca quais itens o Effecti destacou (hint de prioridade no cockpit).
     marcarEffecti(itens, meta.itensEffecti);
 
-    return jsonResponse({ documentos, itens, matches }, 200);
+    return jsonResponse({ documentos, itens, matches, recall_effecti: recallEffecti }, 200);
   } catch (err) {
     return await errorResponse(err, { fn: FUNCTION_SEGMENT });
   }

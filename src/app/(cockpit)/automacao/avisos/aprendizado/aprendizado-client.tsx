@@ -12,6 +12,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ExemplosTable } from "@/components/automacao/exemplos-table";
 import { MatchFeedbackFila } from "@/components/automacao/match-feedback-fila";
+import { ExtracaoSuspeitasFila } from "@/components/automacao/extracao-suspeitas-fila";
 import {
   VereditoFiltro,
   type VereditoFiltroValue,
@@ -197,6 +198,10 @@ export function AprendizadoClient() {
 
       <div style={{ marginTop: 32 }}>
         <MatchFeedbackFila />
+      </div>
+
+      <div style={{ marginTop: 32 }}>
+        <ExtracaoSuspeitasFila />
       </div>
 
       {toast ? (

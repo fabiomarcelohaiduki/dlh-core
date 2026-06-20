@@ -10,11 +10,19 @@ import { MatchFeedbackPanel } from "@/components/automacao/match-feedback-panel"
 /** Rotulo legivel do estado de extracao de itens de um documento. */
 const STATUS_LABEL: Record<ItensStatus, string> = {
   pendente: "Aguardando a Lia",
+  pendente_revisao: "Rascunho a revisar",
   extraido: "Itens extraídos",
   sem_itens: "Sem itens",
   erro: "Erro na extração",
   inobtenivel: "Texto indisponível",
   ignorado: "Ignorado",
+};
+
+/** Rotulo legivel da proveniencia do item. */
+const ORIGEM_LABEL: Record<string, string> = {
+  deterministico: "determinístico",
+  llm: "LLM",
+  effecti: "Effecti",
 };
 
 /** Grupo de itens de uma mesma lista (listas convivem; nunca fundidas). */
@@ -97,6 +105,26 @@ function ListaTabela({
                       <>
                         {" "}
                         <span className="tag effecti">Effecti</span>
+                      </>
+                    ) : null}
+                    {it.itemEstado === "rascunho" ? (
+                      <>
+                        {" "}
+                        <span className="tag duvida">rascunho</span>
+                      </>
+                    ) : null}
+                    {it.itemEstado === "suspeito" ? (
+                      <>
+                        {" "}
+                        <span className="tag lixo" title={it.suspeitoMotivo ?? undefined}>
+                          suspeito
+                        </span>
+                      </>
+                    ) : null}
+                    {it.itemOrigem ? (
+                      <>
+                        {" "}
+                        <span className="sub">· {ORIGEM_LABEL[it.itemOrigem] ?? it.itemOrigem}</span>
                       </>
                     ) : null}
                   </td>
@@ -251,6 +279,7 @@ export function AvisoItensPanel({ avisoId }: { avisoId: string }) {
   const documentos = data?.documentos ?? [];
   const itens = data?.itens ?? [];
   const matches = data?.matches ?? [];
+  const recallEffecti = data?.recallEffecti ?? [];
   if (documentos.length === 0) {
     return <span className="sub">Nenhum documento com texto para extrair itens.</span>;
   }
@@ -276,6 +305,25 @@ export function AvisoItensPanel({ avisoId }: { avisoId: string }) {
           </p>
         </div>
       </div>
+      {recallEffecti.length > 0 ? (
+        <div className="banner">
+          <TriangleAlert aria-hidden="true" />
+          <div>
+            <b>
+              Recall do Effecti: {recallEffecti.length}{" "}
+              {recallEffecti.length === 1 ? "item do piso" : "itens do piso"} não apareceram na
+              extração.
+            </b>
+            <p>
+              O veredito foi rebaixado: a extração pode estar incompleta. Revise na fila de
+              extração (Aprendizado).{" "}
+              {recallEffecti
+                .map((r) => r.itemDescricao || r.numeroSuspeito || "—")
+                .join("; ")}
+            </p>
+          </div>
+        </div>
+      ) : null}
       {documentos.map((doc) => (
         <DocumentoBloco
           key={doc.documentoId}

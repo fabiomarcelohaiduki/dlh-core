@@ -1123,6 +1123,7 @@ export type LixeiraItem = TriagemItem;
 /** Estado da extracao de itens de um documento (recall por item). */
 export type ItensStatus =
   | "pendente"
+  | "pendente_revisao"
   | "extraido"
   | "sem_itens"
   | "erro"
@@ -1153,6 +1154,13 @@ export interface AvisoItem {
   /** Preco de referencia UNITARIO (nullable). */
   precoReferencia: number | null;
   ordem: number | null;
+  /** Estado do item (Sprint 1/2): 'rascunho' (palpite determinístico de PDF a
+   *  revisar), 'revisado' (lista final) ou 'suspeito' (reprovou a fidelidade). */
+  itemEstado: string;
+  /** Proveniência: 'deterministico' | 'llm' | 'effecti' | null. */
+  itemOrigem: string | null;
+  /** Motivo da suspeita de fidelidade (quando itemEstado='suspeito'). */
+  suspeitoMotivo: string | null;
   /** true se o Effecti destacou este item (casou palavra-chave do perfil). Hint
    *  de prioridade no cockpit; cruzamento best-effort por numero OU descricao. */
   effecti: boolean;
@@ -1171,11 +1179,20 @@ export interface AvisoItemMatch {
   score: number | null;
 }
 
+/** Item do piso Effecti ausente da extracao (rebaixou o veredito per-aviso). */
+export interface RecallEffectiItem {
+  numeroSuspeito: string | null;
+  itemDescricao: string | null;
+}
+
 /** Itens extraidos de um aviso (documentos + itens + matches por item). */
 export interface AvisoItens {
   documentos: AvisoDocumento[];
   itens: AvisoItem[];
   matches: AvisoItemMatch[];
+  /** Itens do piso Effecti ausentes (recall_effecti pendente): sinal de extracao
+   *  incompleta que rebaixou o veredito do aviso. Vazio = sem buraco de recall. */
+  recallEffecti: RecallEffectiItem[];
 }
 
 /** Regra dura editavel, consumida deterministicamente pela triagem (E5). */
@@ -1234,6 +1251,44 @@ export interface MatchFeedbackFilaItem {
   status: string;
   autor: string | null;
   criadoEm: string;
+}
+
+/** Acao de curadoria de uma suspeita de extracao. */
+export type ExtracaoSuspeitaAcao = "confirmar" | "corrigir" | "descartar";
+
+/** Item da fila de revisao de EXTRACAO (fidelidade / recall do Effecti). */
+export interface ExtracaoSuspeitaFilaItem {
+  id: string;
+  avisoId: string | null;
+  documentoId: string | null;
+  documentoItemId: string | null;
+  /** 'fidelidade' (numero nao bate / soma) ou 'recall_effecti' (item do piso ausente). */
+  tipo: "fidelidade" | "recall_effecti";
+  /** Snapshot da descricao do item suspeito. */
+  itemDescricao: string | null;
+  /** Numero que nao bateu (fidelidade) ou numero do item do piso (recall). */
+  numeroSuspeito: string | null;
+  motivo: string;
+  status: string;
+  autor: string | null;
+  descricaoCorrigida: string | null;
+  numeroCorrigido: string | null;
+  curadoPor: string | null;
+  curadoEm: string | null;
+  criadoEm: string;
+  /** Objeto do aviso (recall_effecti) — resolvido para exibir sem join. */
+  avisoObjeto: string | null;
+  /** Nome do arquivo do documento (fidelidade) — resolvido para exibir sem join. */
+  documentoNome: string | null;
+}
+
+/** Curadoria de uma suspeita de extracao enviada ao Edge. */
+export interface ExtracaoSuspeitaCurarInput {
+  id: string;
+  acao: ExtracaoSuspeitaAcao;
+  /** Valor correto (obrigatorio em 'corrigir': descricao OU numero). */
+  descricaoCorrigida?: string | null;
+  numeroCorrigido?: string | null;
 }
 
 /** Config singleton da automacao (carencia, limiares, K, interruptor). */

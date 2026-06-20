@@ -60,6 +60,7 @@ import { parseJsonBody } from "../_shared/validation.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { errorMessage, recordIngestErro } from "../_shared/ingest-errors.ts";
 import { numeroVariantesBr } from "../_shared/numero-br.ts";
+import { normDesc } from "../_shared/normalizar.ts";
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
@@ -158,6 +159,25 @@ async function validarFidelidade(
     numeroSuspeito: null,
   }));
 
+  // 0) REAPLICACAO DE CURADORIA (Sprint 3): itens que o humano JA revisou na fila
+  //    (status confirmado/corrigido/descartado) NAO podem voltar a 'suspeito' a
+  //    cada re-extracao. documento_itens e delete-then-insert (ids mudam), entao
+  //    o casamento e pelo SNAPSHOT da descricao (normDesc). Leitura pura.
+  const cleared = new Set<string>();
+  const { data: curadas, error: curErr } = await db
+    .from("documento_item_suspeitas")
+    .select("item_descricao")
+    .eq("documento_id", documentoId)
+    .eq("tipo", "fidelidade")
+    .in("status", ["confirmado", "corrigido", "descartado"]);
+  if (curErr) {
+    throw new Error(`falha ao ler curadoria de suspeitas: ${curErr.message}`);
+  }
+  for (const c of (curadas ?? []) as { item_descricao: string | null }[]) {
+    const d = normDesc(c.item_descricao);
+    if (d.length > 0) cleared.add(d);
+  }
+
   // 1) Monta as agulhas do grep (preco sempre; quantidade so se grande) e o
   //    conjunto unico a procurar no verbatim. Grafias pt-BR por numero.
   const agulhasPorItem: { precos: string[]; qtds: string[] }[] = itens.map((it) => {
@@ -196,6 +216,9 @@ async function validarFidelidade(
   // 3) Decisao por item: grep (preco / qtd grande) + conferencia de soma.
   itens.forEach((it, i) => {
     const v = validacoes[i];
+    // Item ja curado pelo humano (reaplicacao): nao re-marca suspeito nem
+    // reenfileira — respeita a revisao anterior atraves da re-extracao.
+    if (cleared.has(normDesc(it.descricao))) return;
     const { precos, qtds } = agulhasPorItem[i];
 
     // Preco: so reprova quando HA verbatim para conferir (senao nao da para
