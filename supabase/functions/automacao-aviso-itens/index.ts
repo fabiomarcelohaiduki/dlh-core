@@ -5,8 +5,9 @@
 // Da VISIBILIDADE no cockpit do que a Lia extraiu de um edital (recall por
 // item). Por aviso, resolve os documentos vinculados (via effecti_id +
 // documento_vinculos, dedup global) e devolve:
-//   - documentos[]: nome_arquivo + itens_status (pendente|extraido|sem_itens|
-//                   erro|inobtenivel|ignorado) — o estado da extracao de ITENS
+//   - documentos[]: nome_arquivo + itens_status (pendente|pendente_revisao|
+//                   extraido|sem_itens|erro|inobtenivel|ignorado) — estado da
+//                   extracao de ITENS
 //   - itens[]:      as linhas literais de documento_itens (descricao integral,
 //                   unidade, qtd, preco_referencia, lista_origem, fonte_descricao)
 //

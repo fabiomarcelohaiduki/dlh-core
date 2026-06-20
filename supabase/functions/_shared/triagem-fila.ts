@@ -131,7 +131,7 @@ export interface ConhecimentoPayload {
 export interface DocumentoFila {
   documento_id: string;
   nome_arquivo: string | null;
-  /** pendente | extraido | sem_itens | erro | inobtenivel | ignorado. */
+  /** pendente | pendente_revisao | extraido | sem_itens | erro | inobtenivel | ignorado. */
   itens_status: string;
 }
 
