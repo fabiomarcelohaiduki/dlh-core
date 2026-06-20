@@ -23,6 +23,7 @@ import { assertMethod, errorResponse, jsonResponse } from "../_shared/http.ts";
 import { getEnv } from "../_shared/env.ts";
 import { requireAuthorizedUser } from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
+import { normDesc } from "../_shared/normalizar.ts";
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
@@ -153,20 +154,6 @@ async function loadAvisoMeta(db: ServiceClient, avisoId: string): Promise<AvisoM
   const raw = (data as { itens_effecti?: unknown }).itens_effecti;
   const itensEffecti = Array.isArray(raw) ? (raw as ItensEditalRow[]) : [];
   return { effectiId: eid, itensEffecti };
-}
-
-/**
- * Normaliza descricao para cruzamento tolerante (acento/caixa/pontuacao):
- * lower + remove diacriticos + so [a-z0-9], prefixo de 30 chars. Mesma chave do
- * lado Effecti e do lado documento_itens.
- */
-function normDesc(s: string | null | undefined): string {
-  return (s ?? "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]/g, "")
-    .slice(0, 30);
 }
 
 /**

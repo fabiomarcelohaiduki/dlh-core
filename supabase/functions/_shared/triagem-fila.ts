@@ -161,6 +161,18 @@ export interface FewShotExemplo {
   veredito_rotulado: string | null;
 }
 
+/**
+ * Item do PISO Effecti (avisos.payload_bruto->itensEdital): o subconjunto que
+ * casou a palavra-chave do perfil — itens que SABIDAMENTE existem no edital. NAO
+ * e a lista completa (essa vem da extracao do PDF/TR pela Lia). E o piso de
+ * RECALL: todo item daqui tem que aparecer na extracao do aviso. So os dois
+ * campos uteis (item + descricao do portal), sem trafegar o resto do payload.
+ */
+export interface PisoEffectiItem {
+  item: number | string | null;
+  produto: string | null;
+}
+
 /** Regras duras ativas agrupadas por tipo. */
 export interface RegrasDuras {
   fora_de_ramo: string[];
@@ -177,6 +189,13 @@ export interface TriagemFilaItem {
   trechos_edital: string[];
   documentos: DocumentoFila[];
   itens_licitacao: ItemLicitacao[];
+  /**
+   * Piso de RECALL do Effecti (itensEdital): itens que casaram a palavra do
+   * perfil e SABIDAMENTE existem no edital. A Lia garante que todos aparecam na
+   * extracao antes de postar (defesa em profundidade; a trava dura e per-aviso
+   * no veredito). So na pagina 1 do aviso (contexto de aviso, nao de item).
+   */
+  piso_effecti: PisoEffectiItem[];
   /**
    * Cursor da PROXIMA pagina de itens deste aviso (opaco: `<aviso_id>:<offset>`),
    * ou null quando esta pagina ja trouxe o ultimo item. Quando != null, o
@@ -195,7 +214,16 @@ export interface TriagemFilaResult {
   conhecimentos: ConhecimentoPayload[];
   itens: TriagemFilaItem[];
   next_cursor: string | null;
+  /**
+   * Lista LEVE de ids de avisos pendentes (so no modo idsOnly). O orquestrador
+   * da triagem paralela usa esta lista para montar o lote e despachar cada
+   * aviso por id; sem envelope/insumos, payload minimo (so uuids).
+   */
+  aviso_ids?: string[];
 }
+
+/** Cap do modo idsOnly: uuids sao leves, um lote grande nao derrama. */
+export const FILA_IDS_ONLY_MAX_LIMITE = 500;
 
 export interface BuildTriagemFilaParams {
   limite: number;
@@ -207,6 +235,20 @@ export interface BuildTriagemFilaParams {
    * pagina 1). Ausente => modo normal (seleciona avisos elegiveis).
    */
   itensCursor?: string | null;
+  /**
+   * Triagem PARALELA por id (E15+): id de UM aviso especifico. Quando presente,
+   * a fila NAO seleciona avisos pelo topo FIFO — devolve o ENVELOPE COMPLETO
+   * (agente + insumos + trechos + documentos + itens pagina 1 + cursor) so desse
+   * aviso. Cada subagente (extrator/analista) puxa o SEU aviso por id, sem
+   * colidir no topo da fila. aviso inexistente/ja triado -> itens vazio.
+   */
+  avisoId?: string | null;
+  /**
+   * Triagem PARALELA por id: quando true, devolve apenas a LISTA LEVE de ids de
+   * avisos elegiveis (campo aviso_ids) + next_cursor, SEM montar insumos. O
+   * orquestrador usa para obter o lote a despachar. Cap FILA_IDS_ONLY_MAX_LIMITE.
+   */
+  idsOnly?: boolean;
 }
 
 /** Normaliza `limite` da query: default 20, faixa [1, 50] (cap, nao rejeita). */
@@ -217,6 +259,20 @@ export function normalizeFilaLimite(raw: string | null): number {
     return FILA_DEFAULT_LIMITE;
   }
   return Math.min(parsed, FILA_MAX_LIMITE);
+}
+
+/**
+ * Normaliza `limite` no modo idsOnly: default = cap maximo (lote inteiro de uma
+ * vez), faixa [1, FILA_IDS_ONLY_MAX_LIMITE]. uuids sao leves -> cap alto e
+ * seguro (sem spill). O orquestrador costuma querer todos os ids pendentes.
+ */
+export function normalizeIdsOnlyLimite(raw: string | null): number {
+  if (raw === null) return FILA_IDS_ONLY_MAX_LIMITE;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 1) {
+    return FILA_IDS_ONLY_MAX_LIMITE;
+  }
+  return Math.min(parsed, FILA_IDS_ONLY_MAX_LIMITE);
 }
 
 // ---------------------------------------------------------------------
@@ -232,6 +288,24 @@ interface AvisoRow {
   uf_direct: string | null;
   uf_estado: string | null;
   uf_sigla: string | null;
+  // Piso Effecti via JSON path (sub-campo, NAO o payload inteiro — SEC-4).
+  piso_effecti: unknown;
+}
+
+/**
+ * Extrai o piso Effecti cru (payload_bruto->itensEdital) na forma minima
+ * {item, produto}. Nao-array -> vazio. So os dois campos uteis (recall por
+ * numero OU descricao), sem trafegar o restante do payload.
+ */
+function resolvePisoEffecti(raw: unknown): PisoEffectiItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((e) => {
+    const o = (e ?? {}) as { item?: unknown; produtoLicitadoSemTags?: unknown };
+    return {
+      item: (typeof o.item === "number" || typeof o.item === "string") ? o.item : null,
+      produto: typeof o.produtoLicitadoSemTags === "string" ? o.produtoLicitadoSemTags : null,
+    };
+  });
 }
 
 interface ChunkRow {
@@ -299,36 +373,90 @@ export async function buildTriagemFila(
     return await buildItensPagina(db, params.itensCursor.trim());
   }
 
+  // 0b) Modo idsOnly: lista LEVE de ids elegiveis (sem insumos) para o
+  //     orquestrador da triagem paralela montar o lote. Payload minimo.
+  if (params.idsOnly) {
+    return await buildIdsOnly(db, params.limite, params.cursor);
+  }
+
+  // 0c) Modo avisoId: ENVELOPE COMPLETO de UM aviso especifico (triagem
+  //     paralela por id). Cada subagente puxa o SEU aviso, sem colidir no topo.
+  if (params.avisoId && params.avisoId.trim() !== "") {
+    return await buildAvisoUnico(db, params.avisoId.trim());
+  }
+
   // 1) Insumos globais (uma leitura cada, reusados por todos os itens).
-  const [agente, conhecimentos, kFewShot, regrasDuras, fewShotBank, janela] = await Promise.all([
-    loadAgente(db),
-    loadConhecimentos(db),
-    loadKFewShot(db),
-    loadRegrasDuras(db),
-    loadFewShotBank(db),
+  const [insumos, janela] = await Promise.all([
+    loadInsumos(db),
     loadJanelaTriagem(db),
   ]);
 
   // 2) Avisos elegiveis (FIFO por data_captura asc; keyset por cursor; janela).
   const avisos = await selectAvisosElegiveis(db, params.limite, params.cursor, janela);
   if (avisos.length === 0) {
-    return { ...(agente.ativo ? { agente } : {}), conhecimentos, itens: [], next_cursor: null };
+    return {
+      ...(insumos.agente.ativo ? { agente: insumos.agente } : {}),
+      conhecimentos: insumos.conhecimentos,
+      itens: [],
+      next_cursor: null,
+    };
   }
 
+  // 3-5) Monta cada item (trechos + documentos + itens pagina 1) em lote.
+  const itens = await montarItensDaFila(db, avisos, insumos);
+
+  // 6) Cursor: aponta para o ultimo aviso quando a pagina veio cheia.
+  const nextCursor = itens.length === params.limite ? itens[itens.length - 1].aviso_id : null;
+
+  return {
+    ...(insumos.agente.ativo ? { agente: insumos.agente } : {}),
+    conhecimentos: insumos.conhecimentos,
+    itens,
+    next_cursor: nextCursor,
+  };
+}
+
+/** Insumos globais da fila (reusados por todos os itens de uma pagina). */
+interface InsumosFila {
+  agente: AgentePayload;
+  conhecimentos: ConhecimentoPayload[];
+  kFewShot: number;
+  regrasDuras: RegrasDuras;
+  fewShotBank: ExemploRow[];
+}
+
+async function loadInsumos(db: ServiceClient): Promise<InsumosFila> {
+  const [agente, conhecimentos, kFewShot, regrasDuras, fewShotBank] = await Promise.all([
+    loadAgente(db),
+    loadConhecimentos(db),
+    loadKFewShot(db),
+    loadRegrasDuras(db),
+    loadFewShotBank(db),
+  ]);
+  return { agente, conhecimentos, kFewShot, regrasDuras, fewShotBank };
+}
+
+/**
+ * Monta os itens da fila (trechos + documentos + itens pagina 1 + cursor) para
+ * um conjunto de avisos, usando os insumos globais ja carregados. Compartilhado
+ * pelo modo normal (N avisos) e pelo modo avisoId (1 aviso).
+ */
+async function montarItensDaFila(
+  db: ServiceClient,
+  avisos: AvisoRow[],
+  insumos: InsumosFila,
+): Promise<TriagemFilaItem[]> {
   const avisoIds = avisos.map((a) => a.id);
 
-  // 3) Trechos por aviso (segmentos indexados + texto extraido), em lote.
+  // Trechos por aviso (segmentos indexados + texto extraido), em lote.
   const [chunksByAviso, textoByAviso] = await Promise.all([
     loadChunksByAviso(db, avisoIds),
     loadTextoExtraidoByAviso(db, avisoIds),
   ]);
 
-  // 4) Documentos vinculados (por effecti_id) e seus itens extraidos, em lote.
-  //    A Lia recebe a lista de itens (documento_itens) e os documentos com
-  //    itens_status para extrair os 'pendente' sob demanda. SEM cross-join.
+  // Documentos vinculados (por effecti_id) e seus itens extraidos, em lote.
   const { docsByAviso, itensByDocumento } = await loadDocumentosEItens(db, avisos);
 
-  // 5) Monta cada item.
   const itens: TriagemFilaItem[] = [];
   for (const aviso of avisos) {
     const trechos = buildTrechos(
@@ -342,7 +470,7 @@ export async function buildTriagemFila(
     const itensNextCursor = todosItens.length > ITENS_PAGE_SIZE
       ? makeItensCursor(aviso.id, ITENS_PAGE_SIZE)
       : null;
-    const fewShot = selectFewShot(fewShotBank, kFewShot);
+    const fewShot = selectFewShot(insumos.fewShotBank, insumos.kFewShot);
 
     itens.push({
       aviso_id: aviso.id,
@@ -353,17 +481,61 @@ export async function buildTriagemFila(
       trechos_edital: trechos,
       documentos,
       itens_licitacao: pagina,
+      piso_effecti: resolvePisoEffecti(aviso.piso_effecti),
       itens_next_cursor: itensNextCursor,
       few_shot: fewShot,
-      k_few_shot: kFewShot,
-      regras_duras: regrasDuras,
+      k_few_shot: insumos.kFewShot,
+      regras_duras: insumos.regrasDuras,
     });
   }
+  return itens;
+}
 
-  // 6) Cursor: aponta para o ultimo aviso quando a pagina veio cheia.
-  const nextCursor = itens.length === params.limite ? itens[itens.length - 1].aviso_id : null;
+/**
+ * Modo idsOnly: devolve apenas a lista de ids de avisos elegiveis (FIFO + janela
+ * + keyset), SEM montar insumos. Para o orquestrador da triagem paralela montar
+ * o lote a despachar. next_cursor permite paginar lotes grandes.
+ */
+async function buildIdsOnly(
+  db: ServiceClient,
+  limite: number,
+  cursor: string | null,
+): Promise<TriagemFilaResult> {
+  const janela = await loadJanelaTriagem(db);
+  const avisos = await selectAvisosElegiveis(db, limite, cursor, janela);
+  const avisoIds = avisos.map((a) => a.id);
+  const nextCursor = avisos.length === limite ? avisos[avisos.length - 1].id : null;
+  return { conhecimentos: [], itens: [], next_cursor: nextCursor, aviso_ids: avisoIds };
+}
 
-  return { ...(agente.ativo ? { agente } : {}), conhecimentos, itens, next_cursor: nextCursor };
+/**
+ * Modo avisoId: ENVELOPE COMPLETO de UM aviso especifico (triagem paralela por
+ * id). Reusa o build por-aviso do modo normal. So entrega se o aviso ainda for
+ * elegivel (indexado, nao reabilitado, sem veredito); aviso inexistente ou ja
+ * triado -> itens vazio (o subagente trata como nada a fazer).
+ */
+async function buildAvisoUnico(
+  db: ServiceClient,
+  avisoId: string,
+): Promise<TriagemFilaResult> {
+  const insumos = await loadInsumos(db);
+  const vazio: TriagemFilaResult = {
+    ...(insumos.agente.ativo ? { agente: insumos.agente } : {}),
+    conhecimentos: insumos.conhecimentos,
+    itens: [],
+    next_cursor: null,
+  };
+
+  const aviso = await loadAvisoElegivelById(db, avisoId);
+  if (!aviso) return vazio;
+
+  const itens = await montarItensDaFila(db, [aviso], insumos);
+  return {
+    ...(insumos.agente.ativo ? { agente: insumos.agente } : {}),
+    conhecimentos: insumos.conhecimentos,
+    itens,
+    next_cursor: null,
+  };
 }
 
 // ---------------------------------------------------------------------
@@ -444,6 +616,9 @@ async function buildItensPagina(
       trechos_edital: [],
       documentos: [],
       itens_licitacao: pagina,
+      // Envelope reduzido (pagina 2+): o piso e contexto de aviso, ja entregue
+      // na pagina 1. Vazio aqui de proposito.
+      piso_effecti: [],
       itens_next_cursor: itensNextCursor,
       few_shot: [],
       k_few_shot: 0,
@@ -456,7 +631,7 @@ async function buildItensPagina(
 async function loadAvisoById(db: ServiceClient, id: string): Promise<AvisoRow | null> {
   const selectCols = "id, effecti_id, objeto, orgao, data_publicacao, data_captura, " +
     "uf_direct:payload_bruto->>uf, uf_estado:payload_bruto->>estado, " +
-    "uf_sigla:payload_bruto->>siglaUf";
+    "uf_sigla:payload_bruto->>siglaUf, piso_effecti:payload_bruto->itensEdital";
   const { data, error } = await db
     .from("avisos")
     .select(selectCols)
@@ -464,6 +639,31 @@ async function loadAvisoById(db: ServiceClient, id: string): Promise<AvisoRow | 
     .maybeSingle();
   if (error) {
     throw new Error(`falha ao ler aviso ${id}: ${error.message}`);
+  }
+  return (data ?? null) as unknown as AvisoRow | null;
+}
+
+/**
+ * Le UM aviso por id SE ainda for elegivel para triagem (mesmos predicados de
+ * selectAvisosElegiveis: indexado, nao reabilitado, sem veredito). Usado pelo
+ * modo avisoId (triagem paralela) para nao reentregar um aviso ja triado por
+ * outra onda. NAO aplica a janela de datas: o orquestrador ja filtrou no lote
+ * (idsOnly aplica a janela); aqui so confirmamos que segue por triar.
+ */
+async function loadAvisoElegivelById(db: ServiceClient, id: string): Promise<AvisoRow | null> {
+  const selectCols = "id, effecti_id, objeto, orgao, data_publicacao, data_captura, " +
+    "uf_direct:payload_bruto->>uf, uf_estado:payload_bruto->>estado, " +
+    "uf_sigla:payload_bruto->>siglaUf, piso_effecti:payload_bruto->itensEdital";
+  const { data, error } = await db
+    .from("avisos")
+    .select(selectCols)
+    .eq("id", id)
+    .eq("status_indexacao", "indexado")
+    .eq("reabilitado", false)
+    .is("triagem_veredito", null)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`falha ao ler aviso elegivel ${id}: ${error.message}`);
   }
   return (data ?? null) as unknown as AvisoRow | null;
 }
@@ -581,7 +781,7 @@ async function selectAvisosElegiveis(
   // trafegar o payload inteiro). data_captura ordena a FIFO.
   const selectCols = "id, effecti_id, objeto, orgao, data_publicacao, data_captura, " +
     "uf_direct:payload_bruto->>uf, uf_estado:payload_bruto->>estado, " +
-    "uf_sigla:payload_bruto->>siglaUf";
+    "uf_sigla:payload_bruto->>siglaUf, piso_effecti:payload_bruto->itensEdital";
 
   let query = db
     .from("avisos")

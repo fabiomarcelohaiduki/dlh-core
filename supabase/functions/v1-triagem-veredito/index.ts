@@ -34,6 +34,7 @@ import { logSensitiveAction } from "../_shared/audit.ts";
 import { errorMessage, recordIngestErro } from "../_shared/ingest-errors.ts";
 import { EffectiConnector } from "../_shared/effecti-connector.ts";
 import { getFonteByTipo, getFonteSecret } from "../_shared/vault.ts";
+import { normDesc } from "../_shared/normalizar.ts";
 import {
   avaliarRegras,
   classificar,
@@ -104,7 +105,20 @@ interface AvisoRow {
   conteudo_verbatim: string | null;
   triagem_veredito: string | null;
   reabilitado: boolean | null;
+  // PISO Effecti: o subconjunto itensEdital (que casou as palavras-chave do
+  // perfil) extraido do payload_bruto via JSON path (sub-campo, NAO o payload
+  // inteiro — SEC-4). Validador de recall do Effecti (gate 4.3).
+  itens_effecti: unknown;
 }
+
+/** itensEdital do payload Effecti = subconjunto que casou as palavras-chave. */
+interface ItensEditalRow {
+  item?: number | string | null;
+  produtoLicitadoSemTags?: string | null;
+}
+
+// Snapshot da descricao na fila de suspeitas: limita para a fila ficar leve.
+const SNAPSHOT_DESC_MAX = 2000;
 
 // Estados de extracao de TEXTO (documento_vinculos.status_extracao) com texto
 // aproveitavel para extrair itens — espelha STATUS_EXTRACAO_COM_TEXTO da fila.
@@ -253,6 +267,134 @@ async function temDocExtraivelSemItens(db: ServiceClient, effectiId: string): Pr
     throw new Error(`falha ao ler documentos (gate de recall): ${docErr.message}`);
   }
   return (pendentes ?? []).length > 0;
+}
+
+// ---------------------------------------------------------------------
+// Validador de RECALL DO EFFECTI (deterministico, per-AVISO — B1). O piso
+// itensEdital sao os itens que SABIDAMENTE existem no edital (casaram a palavra
+// do perfil). Se algum nao aparece em NENHUM documento do aviso, a extracao
+// esta incompleta -> rebaixa o veredito + enfileira. Roda AQUI (e nao na Edge
+// per-documento de gravar) porque o piso e por aviso e um item pode estar em
+// qualquer documento do aviso (T7b): agrega TODOS os docs por effecti_id, como
+// temDocExtraivelSemItens. So consulta o banco quando ha piso a validar.
+// ---------------------------------------------------------------------
+
+/** Indice dos itens JA extraidos do aviso (numero + descricao normalizada). */
+interface ItensIndex {
+  numeros: Set<number>;
+  descs: Set<string>;
+  total: number;
+}
+
+async function loadItensIndexDoAviso(db: ServiceClient, effectiId: string): Promise<ItensIndex> {
+  const vazio: ItensIndex = { numeros: new Set(), descs: new Set(), total: 0 };
+  const eid = (effectiId ?? "").trim();
+  if (eid === "") return vazio;
+
+  // Documentos do aviso (por effecti_id) com texto aproveitavel.
+  const { data: vinculos, error: vincErr } = await db
+    .from("documento_vinculos")
+    .select("documento_id")
+    .eq("fonte", "effecti")
+    .eq("registro_origem_id", eid)
+    .in("status_extracao", STATUS_EXTRACAO_COM_TEXTO);
+  if (vincErr) {
+    throw new Error(`falha ao ler documento_vinculos (recall effecti): ${vincErr.message}`);
+  }
+  const docIds = [
+    ...new Set((vinculos ?? []).map((v) => v.documento_id as string).filter(Boolean)),
+  ];
+  if (docIds.length === 0) return vazio;
+
+  // Itens de TODOS esses documentos, paginado (recall total: o teto de 1000 do
+  // PostgREST truncaria itens em silencio e geraria faltante falso).
+  const numeros = new Set<number>();
+  const descs = new Set<string>();
+  let total = 0;
+  const PAGE = 1000;
+  for (let from = 0;; from += PAGE) {
+    const { data, error } = await db
+      .from("documento_itens")
+      .select("item_numero, descricao")
+      .in("documento_id", docIds)
+      .range(from, from + PAGE - 1);
+    if (error) {
+      throw new Error(`falha ao ler documento_itens (recall effecti): ${error.message}`);
+    }
+    const batch = (data ?? []) as { item_numero: string | null; descricao: string }[];
+    for (const it of batch) {
+      total++;
+      const raw = (it.item_numero ?? "").trim();
+      if (/^[0-9]+$/.test(raw)) numeros.add(Number(raw));
+      const d = normDesc(it.descricao);
+      if (d.length > 0) descs.add(d);
+    }
+    if (batch.length < PAGE) break;
+  }
+  return { numeros, descs, total };
+}
+
+/**
+ * Itens do piso Effecti que NAO casam (nem por numero nem por descricao
+ * normalizada) com nenhum item extraido do aviso. Casamento tolerante (mesma
+ * chave de normDesc do badge do cockpit) para nao gerar falso negativo por
+ * diferenca de redacao (decisao 2).
+ */
+function faltantesDoEffecti(itensEdital: ItensEditalRow[], idx: ItensIndex): ItensEditalRow[] {
+  const faltantes: ItensEditalRow[] = [];
+  for (const e of itensEdital) {
+    const n = typeof e.item === "number" ? e.item : Number(e.item);
+    const porNumero = Number.isInteger(n) && idx.numeros.has(n);
+    const d = normDesc(e.produtoLicitadoSemTags);
+    const porDescricao = d.length > 0 && idx.descs.has(d);
+    if (!porNumero && !porDescricao) faltantes.push(e);
+  }
+  return faltantes;
+}
+
+/**
+ * Enfileira os itens do piso ausentes em documento_item_suspeitas(recall_effecti)
+ * — delete-then-insert por aviso das pendentes (reconciliacao: uma re-triagem que
+ * agora recupera o item limpa a suspeita antiga; curadas sobrevivem). Best-effort:
+ * NUNCA derruba o veredito ja gravado.
+ */
+async function enfileirarRecallEffecti(
+  db: ServiceClient,
+  avisoId: string,
+  faltantes: ItensEditalRow[],
+): Promise<void> {
+  try {
+    const { error: delErr } = await db
+      .from("documento_item_suspeitas")
+      .delete()
+      .eq("aviso_id", avisoId)
+      .eq("tipo", "recall_effecti")
+      .eq("status", "pendente");
+    if (delErr) {
+      throw new Error(`falha ao limpar recall pendente: ${delErr.message}`);
+    }
+    if (faltantes.length === 0) return;
+    const rows = faltantes.map((e) => ({
+      aviso_id: avisoId,
+      documento_id: null,
+      documento_item_id: null,
+      tipo: "recall_effecti",
+      item_descricao: String(e.produtoLicitadoSemTags ?? "").slice(0, SNAPSHOT_DESC_MAX),
+      numero_suspeito: e.item != null ? String(e.item) : null,
+      motivo: "item do piso Effecti (itensEdital) ausente da extracao do aviso",
+    }));
+    const { error: insErr } = await db.from("documento_item_suspeitas").insert(rows);
+    if (insErr) {
+      throw new Error(`falha ao enfileirar recall effecti: ${insErr.message}`);
+    }
+  } catch (err) {
+    await recordIngestErro(db, {
+      avisoId,
+      severidade: "media",
+      etapa: "Persistencia",
+      mensagem: `recall do Effecti nao enfileirado: ${errorMessage(err)}`,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -455,7 +597,10 @@ async function handler(req: Request): Promise<Response> {
     // 1) Carrega o aviso (404 quando inexistente).
     const { data: avisoRaw, error: avisoErr } = await db
       .from("avisos")
-      .select("id, effecti_id, objeto, conteudo_verbatim, triagem_veredito, reabilitado")
+      .select(
+        "id, effecti_id, objeto, conteudo_verbatim, triagem_veredito, reabilitado, " +
+          "itens_effecti:payload_bruto->itensEdital",
+      )
       .eq("id", body.aviso_id)
       .maybeSingle();
     if (avisoErr) {
@@ -464,7 +609,9 @@ async function handler(req: Request): Promise<Response> {
     if (!avisoRaw) {
       throw new HttpError(404, "aviso_nao_encontrado", "aviso inexistente");
     }
-    const aviso = avisoRaw as AvisoRow;
+    // O alias por arrow-operator (payload_bruto->itensEdital) impede a inferencia
+    // estatica do PostgREST (GenericStringError); cast via unknown.
+    const aviso = avisoRaw as unknown as AvisoRow;
 
     // 2) Rede de seguranca anti-duplicidade: aviso ja triado para o conteudo
     //    vigente. `triagem_veredito` so volta a NULL quando o `conteudo_hash`
@@ -508,6 +655,34 @@ async function handler(req: Request): Promise<Response> {
     ) {
       classificacao = { ...classificacao, veredito: "duvida" };
       rebaixadoPorPolitica = true;
+    }
+
+    // 4.3) Validador de RECALL DO EFFECTI (deterministico, per-aviso — B1):
+    //      todo item do piso itensEdital tem que aparecer em ALGUM documento do
+    //      aviso. Faltante (buraco real) -> rebaixa o veredito para `duvida`
+    //      (nao favoritar/avancar um aviso com piso furado) e enfileira para
+    //      confirmacao humana. So roda quando ha piso E ja ha itens extraidos:
+    //      "ainda nao extraido" e tratado pelo gate de recall 4.1 (nao gera
+    //      faltante falso). Casamento tolerante (numero OU normDesc). So consulta
+    //      o banco quando ha piso a validar.
+    let rebaixadoPorRecallEffecti = false;
+    let recallAvaliado = false;
+    let faltantesEffecti: ItensEditalRow[] = [];
+    const itensEdital = Array.isArray(aviso.itens_effecti)
+      ? (aviso.itens_effecti as ItensEditalRow[])
+      : [];
+    if (itensEdital.length > 0) {
+      const idx = await loadItensIndexDoAviso(db, aviso.effecti_id);
+      if (idx.total > 0) {
+        recallAvaliado = true;
+        faltantesEffecti = faltantesDoEffecti(itensEdital, idx);
+        if (faltantesEffecti.length > 0) {
+          if (classificacao.veredito !== "duvida") {
+            classificacao = { ...classificacao, veredito: "duvida" };
+          }
+          rebaixadoPorRecallEffecti = true;
+        }
+      }
     }
 
     const agora = new Date().toISOString();
@@ -568,6 +743,13 @@ async function handler(req: Request): Promise<Response> {
     //      nao derruba o veredito ja gravado.
     const matchesPersistidos = await persistirItemMatches(db, aviso.id, body.itens_matches);
 
+    // 7.2) Recall do Effecti (per-aviso): enfileira os itens do piso ausentes
+    //      (e reconcilia as pendentes obsoletas). So quando o recall foi avaliado
+    //      (ha piso e itens extraidos). Best-effort: nao derruba o veredito.
+    if (recallAvaliado) {
+      await enfileirarRecallEffecti(db, aviso.id, faltantesEffecti);
+    }
+
     // 8) Auditoria das acoes sensiveis (favoritar/lixeira). `duvida` nao audita.
     //    Sem conteudo sensivel: apenas principal + veredito + flags de efeito.
     if (estado.favoritar || estado.naLixeira) {
@@ -601,6 +783,11 @@ async function handler(req: Request): Promise<Response> {
         // candidato tem politica de participacao `nao`). Sinaliza que o match e
         // real mas a DLH nao participa: validacao humana antes de favoritar.
         rebaixado_por_politica: rebaixadoPorPolitica,
+        // true -> o validador de recall do Effecti rebaixou o veredito para
+        // `duvida`: ha item do piso itensEdital ausente da extracao do aviso
+        // (buraco de recall). Enfileirado em documento_item_suspeitas
+        // (recall_effecti) para confirmacao humana.
+        rebaixado_por_recall_effecti: rebaixadoPorRecallEffecti,
         // false -> os matches por item nao foram persistidos (erro registrado em
         // erros_ingestao). O veredito vale; so o detalhamento por item faltou.
         matches_persistidos: matchesPersistidos,

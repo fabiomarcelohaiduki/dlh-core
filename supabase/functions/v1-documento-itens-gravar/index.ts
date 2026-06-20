@@ -16,6 +16,26 @@
 // conjunto). MULTIPLAS LISTAS convivem no mesmo documento via `lista_origem`
 // (NUNCA fundir); a descricao de portal vem marcada fonte_descricao='portal'.
 //
+// FIDELIDADE (Sprint 1, per-documento): antes de gravar `extraido`, o servidor
+// VALIDA cada item contra o texto-fonte (documentos.texto, verbatim):
+//   - GREP REVERSO: o numero (preco / quantidade grande) precisa ocorrer
+//     LITERALMENTE no verbatim, em alguma grafia pt-BR. Roda na RPC
+//     documento_verbatim_contem (o verbatim ~4,4M chars NUNCA cruza a rede, B5).
+//   - CONFERENCIA DE SOMA: se vier qtd + unitario + total, |qtd*unit - total|
+//     tem que ficar dentro de epsilon. (Dormente ate a Lia/MCP enviarem o total;
+//     o campo preco_total e opcional e hoje nao chega — ver nota no schema.)
+// Item que reprova e gravado MARCADO item_estado='suspeito' (+ suspeito_motivo)
+// e enfileirado em documento_item_suspeitas (aceite parcial, recall total —
+// NUNCA dropado). A fidelidade NAO trava o documento (segue `extraido`).
+//
+// O RECALL do Effecti (todo item do piso itensEdital aparece) e per-AVISO e vive
+// em v1-triagem-veredito (B1) — NAO aqui (a Edge so conhece o documento_id).
+//
+// ATOMICIDADE (B2): a validacao e PURA (le verbatim via RPC, sem efeito
+// colateral) e roda ANTES de qualquer delete. So depois de decidida a lista
+// (com as marcas de suspeito) ocorre delete -> insert -> enfileira -> update.
+// Um aborto na validacao nunca deixa o documento vazio.
+//
 // Status (a Lia define; teto -> inobtenivel e server-side):
 //   extraido  -> >=1 item gravado.
 //   sem_itens -> documento processado, sem lista de itens (terminal).
@@ -38,6 +58,8 @@ import { getEnv } from "../_shared/env.ts";
 import { authenticateV1, TRIAGEM_WRITE_SCOPE } from "../_shared/service-auth.ts";
 import { parseJsonBody } from "../_shared/validation.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
+import { errorMessage, recordIngestErro } from "../_shared/ingest-errors.ts";
+import { numeroVariantesBr } from "../_shared/numero-br.ts";
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
@@ -45,6 +67,15 @@ const FUNCTION_SEGMENT = "v1-documento-itens-gravar";
 
 // Teto de tentativas de extracao antes de marcar o documento como inobtenivel.
 const TETO_TENTATIVAS = 3;
+
+// Quantidade minima para o grep reverso por NUMERO SOLTO. Abaixo disso o inteiro
+// e trivial (item 1, qtd 2, 10 caixas) e casa em qualquer lugar do verbatim ->
+// validar por numero solto so geraria ruido (T2 do plano). Precos sao sempre
+// conferidos (sao especificos). Quantidades pequenas nao bloqueiam.
+const QTD_MIN_GREP = 1000;
+
+// Snapshot da descricao na fila de suspeitas: limita para a fila ficar leve.
+const SNAPSHOT_DESC_MAX = 2000;
 
 // ---------------------------------------------------------------------
 // Validacao do corpo (zod). Body invalido -> 400 (parseJsonBody).
@@ -64,6 +95,14 @@ const itemSchema = z.object({
   quantidade: z.number().finite().nullish(),
   // Preco UNITARIO de referencia (nullable: nem toda lista traz preco).
   preco_referencia: z.number().finite().nullish(),
+  // Preco TOTAL declarado (qtd * unitario), quando o edital o traz. Opcional e
+  // FORWARD-COMPATIVEL: habilita a conferencia de soma. Hoje o MCP acervo-triagem
+  // nao encaminha este campo (zod do MCP descartaria a chave desconhecida) -> a
+  // conferencia de soma fica dormente ate o MCP/Lia passarem a enviar o total.
+  preco_total: z.number().finite().nullish(),
+  // Proveniencia reportada PELA Lia (opcional). Sem ela -> null nesta Sprint
+  // (o MCP ainda nao encaminha o campo). item_estado e SEMPRE server-side.
+  item_origem: z.enum(["deterministico", "llm", "effecti"]).nullish(),
   ordem: z.number().int().nullish(),
 });
 
@@ -90,6 +129,166 @@ const bodySchema = z.object({
 });
 
 type GravarBody = z.infer<typeof bodySchema>;
+type ItemBody = z.infer<typeof itemSchema>;
+
+// Veredito de fidelidade por item (puro, sem efeito colateral).
+interface ItemValidacao {
+  suspeito: boolean;
+  motivos: string[];
+  // Numero que falhou (preco/qtd) para o snapshot da fila; null em soma.
+  numeroSuspeito: string | null;
+}
+
+// ---------------------------------------------------------------------
+// Validacao de FIDELIDADE (pura: le o verbatim via RPC, NAO escreve nada).
+// Roda ANTES de qualquer delete (B2). Devolve, por item (na ordem recebida),
+// se ele e suspeito e por que. NUNCA marca suspeito quando nao da para validar
+// (sem verbatim, ou numero pequeno trivial) — suspeito so para reprovacao real.
+// ---------------------------------------------------------------------
+
+async function validarFidelidade(
+  db: ServiceClient,
+  documentoId: string,
+  itens: ItemBody[],
+  temVerbatim: boolean,
+): Promise<ItemValidacao[]> {
+  const validacoes: ItemValidacao[] = itens.map(() => ({
+    suspeito: false,
+    motivos: [],
+    numeroSuspeito: null,
+  }));
+
+  // 1) Monta as agulhas do grep (preco sempre; quantidade so se grande) e o
+  //    conjunto unico a procurar no verbatim. Grafias pt-BR por numero.
+  const agulhasPorItem: { precos: string[]; qtds: string[] }[] = itens.map((it) => {
+    const precos = typeof it.preco_referencia === "number"
+      ? numeroVariantesBr(it.preco_referencia)
+      : [];
+    const qtds = typeof it.quantidade === "number" && it.quantidade >= QTD_MIN_GREP
+      ? numeroVariantesBr(it.quantidade)
+      : [];
+    return { precos, qtds };
+  });
+
+  // 2) Grep reverso (so quando ha verbatim e ao menos uma agulha). O verbatim
+  //    fica no banco; a RPC devolve apenas as agulhas presentes (B5).
+  let presentes = new Set<string>();
+  if (temVerbatim) {
+    const todas = new Set<string>();
+    for (const a of agulhasPorItem) {
+      for (const n of a.precos) todas.add(n);
+      for (const n of a.qtds) todas.add(n);
+    }
+    if (todas.size > 0) {
+      const { data, error } = await db.rpc("documento_verbatim_contem", {
+        p_documento_id: documentoId,
+        p_agulhas: [...todas],
+      });
+      if (error) {
+        // Validacao e pre-delete: propagar o erro mantem a atomicidade (nada
+        // foi apagado ainda). 500 -> a Lia re-tenta sem perder itens anteriores.
+        throw new Error(`falha no grep reverso (documento_verbatim_contem): ${error.message}`);
+      }
+      presentes = new Set<string>((data ?? []) as string[]);
+    }
+  }
+
+  // 3) Decisao por item: grep (preco / qtd grande) + conferencia de soma.
+  itens.forEach((it, i) => {
+    const v = validacoes[i];
+    const { precos, qtds } = agulhasPorItem[i];
+
+    // Preco: so reprova quando HA verbatim para conferir (senao nao da para
+    // afirmar ausencia). Nenhuma grafia presente -> suspeito.
+    if (temVerbatim && precos.length > 0 && !precos.some((n) => presentes.has(n))) {
+      v.suspeito = true;
+      v.motivos.push(`preco ${it.preco_referencia} ausente no texto-fonte`);
+      v.numeroSuspeito = v.numeroSuspeito ?? String(it.preco_referencia);
+    }
+
+    // Quantidade grande: idem (pequenas nao entram em agulhasPorItem -> T2).
+    if (temVerbatim && qtds.length > 0 && !qtds.some((n) => presentes.has(n))) {
+      v.suspeito = true;
+      v.motivos.push(`quantidade ${it.quantidade} ausente no texto-fonte`);
+      v.numeroSuspeito = v.numeroSuspeito ?? String(it.quantidade);
+    }
+
+    // Conferencia de soma (independe do verbatim): qtd * unitario == total.
+    if (
+      typeof it.quantidade === "number" &&
+      typeof it.preco_referencia === "number" &&
+      typeof it.preco_total === "number"
+    ) {
+      const esperado = it.quantidade * it.preco_referencia;
+      const tol = Math.max(0.02, Math.abs(it.preco_total) * 0.005);
+      if (Math.abs(esperado - it.preco_total) > tol) {
+        v.suspeito = true;
+        v.motivos.push(
+          `soma diverge (qtd ${it.quantidade} x unitario ${it.preco_referencia} = ` +
+            `${esperado.toFixed(2)} != total ${it.preco_total})`,
+        );
+      }
+    }
+  });
+
+  return validacoes;
+}
+
+// ---------------------------------------------------------------------
+// Reconciliacao + enfileiramento das suspeitas de FIDELIDADE (best-effort).
+// delete-then-insert das pendentes do documento: re-extracao que corrigiu o
+// numero limpa a suspeita antiga; as ja curadas (status != pendente) sobrevivem.
+// NUNCA derruba a gravacao (os itens ja foram persistidos, marcados).
+// ---------------------------------------------------------------------
+
+async function reconciliarSuspeitasFidelidade(
+  db: ServiceClient,
+  documentoId: string,
+  suspeitas: {
+    documento_item_id: string | null;
+    item_descricao: string;
+    numero_suspeito: string | null;
+    motivo: string;
+  }[],
+): Promise<void> {
+  try {
+    // Limpa as pendentes deste documento (reconciliacao: nao duplica linha
+    // pendente para o mesmo conteudo; curadas permanecem).
+    const { error: delErr } = await db
+      .from("documento_item_suspeitas")
+      .delete()
+      .eq("documento_id", documentoId)
+      .eq("tipo", "fidelidade")
+      .eq("status", "pendente");
+    if (delErr) {
+      throw new Error(`falha ao limpar suspeitas pendentes: ${delErr.message}`);
+    }
+
+    if (suspeitas.length === 0) return;
+
+    const rows = suspeitas.map((s) => ({
+      aviso_id: null,
+      documento_id: documentoId,
+      documento_item_id: s.documento_item_id,
+      tipo: "fidelidade",
+      item_descricao: s.item_descricao.slice(0, SNAPSHOT_DESC_MAX),
+      numero_suspeito: s.numero_suspeito,
+      motivo: s.motivo,
+    }));
+    const { error: insErr } = await db.from("documento_item_suspeitas").insert(rows);
+    if (insErr) {
+      throw new Error(`falha ao enfileirar suspeitas: ${insErr.message}`);
+    }
+  } catch (err) {
+    // Best-effort: o item ja esta marcado em documento_itens (item_estado).
+    await recordIngestErro(db, {
+      severidade: "media",
+      etapa: "Persistencia",
+      registroId: documentoId,
+      mensagem: `suspeitas de fidelidade nao enfileiradas: ${errorMessage(err)}`,
+    });
+  }
+}
 
 // ---------------------------------------------------------------------
 // Handler
@@ -108,10 +307,11 @@ async function handler(req: Request): Promise<Response> {
     const body: GravarBody = await parseJsonBody(req, bodySchema);
     const db: ServiceClient = createServiceClient();
 
-    // 1) Documento existe? (404 quando inexistente).
+    // 1) Documento existe? (404 quando inexistente). texto_chars gate o grep
+    //    reverso SEM puxar o verbatim (B5): > 0 = ha texto-fonte para conferir.
     const { data: docRaw, error: docErr } = await db
       .from("documentos")
-      .select("id, itens_tentativas")
+      .select("id, itens_tentativas, texto_chars")
       .eq("id", body.documento_id)
       .maybeSingle();
     if (docErr) {
@@ -120,6 +320,7 @@ async function handler(req: Request): Promise<Response> {
     if (!docRaw) {
       throw new HttpError(404, "documento_nao_encontrado", "documento inexistente");
     }
+    const temVerbatim = Number(docRaw.texto_chars ?? 0) > 0;
 
     const agora = new Date().toISOString();
 
@@ -141,8 +342,15 @@ async function handler(req: Request): Promise<Response> {
       );
     }
 
-    // 3) extraido / sem_itens / ignorado: idempotente — zera os itens do
-    //    documento e regrava o conjunto recem-extraido.
+    // 3) FIDELIDADE — validacao PURA (le verbatim via RPC; NAO escreve), ANTES
+    //    de qualquer delete (B2). Se a RPC falhar, propaga 500 com os itens
+    //    anteriores intactos (nada foi apagado).
+    const validacoes = body.status === "extraido" && body.itens.length > 0
+      ? await validarFidelidade(db, body.documento_id, body.itens, temVerbatim)
+      : body.itens.map(() => ({ suspeito: false, motivos: [], numeroSuspeito: null }));
+
+    // 4) extraido / sem_itens / ignorado: idempotente — zera os itens do
+    //    documento e regrava o conjunto recem-extraido (so AGORA, pos-validacao).
     const { error: delErr } = await db
       .from("documento_itens")
       .delete()
@@ -152,6 +360,7 @@ async function handler(req: Request): Promise<Response> {
     }
 
     let gravados = 0;
+    let suspeitosCount = 0;
     // Itens recem-inseridos (id + chaves de correlacao). Permite ao chamador
     // referenciar o documento_item_id de itens que ELE acabou de extrair (ainda
     // nao estavam na fila) — necessario para persistir match por item no mesmo
@@ -169,6 +378,11 @@ async function handler(req: Request): Promise<Response> {
         quantidade: it.quantidade ?? null,
         preco_referencia: it.preco_referencia ?? null,
         ordem: it.ordem ?? i + 1,
+        // FIDELIDADE server-side (decisao 3/4): uma POST da Lia = revisao
+        // concluida -> 'revisado'; item reprovado -> 'suspeito' + motivo.
+        item_estado: validacoes[i].suspeito ? "suspeito" : "revisado",
+        item_origem: it.item_origem ?? null,
+        suspeito_motivo: validacoes[i].suspeito ? validacoes[i].motivos.join("; ") : null,
       }));
       const { data: ins, error: insErr } = await db
         .from("documento_itens")
@@ -179,7 +393,23 @@ async function handler(req: Request): Promise<Response> {
       }
       itensInseridos = (ins ?? []) as typeof itensInseridos;
       gravados = rows.length;
+      suspeitosCount = validacoes.filter((v) => v.suspeito).length;
     }
+
+    // 5) Suspeitas de fidelidade: reconcilia (sempre, p/ limpar pendentes
+    //    obsoletas pos re-extracao) e enfileira as desta rodada (best-effort).
+    //    O link documento_item_id e por posicao (insert preserva a ordem);
+    //    o snapshot e a fonte de verdade resiliente.
+    const suspeitas = body.itens
+      .map((it, i) => ({ it, i, v: validacoes[i] }))
+      .filter(({ v }) => v.suspeito)
+      .map(({ it, i, v }) => ({
+        documento_item_id: itensInseridos[i]?.id ?? null,
+        item_descricao: it.descricao,
+        numero_suspeito: v.numeroSuspeito,
+        motivo: v.motivos.join("; "),
+      }));
+    await reconciliarSuspeitasFidelidade(db, body.documento_id, suspeitas);
 
     const { error: upErr } = await db
       .from("documentos")
@@ -194,6 +424,9 @@ async function handler(req: Request): Promise<Response> {
         documento_id: body.documento_id,
         status: body.status,
         itens_gravados: gravados,
+        // Quantos itens foram gravados MARCADOS como suspeitos de fidelidade
+        // (recall total — nenhum foi dropado). 0 = lista integra.
+        itens_suspeitos: suspeitosCount,
         itens: itensInseridos,
       },
       200,
