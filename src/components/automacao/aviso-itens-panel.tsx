@@ -308,17 +308,85 @@ function loteEfetivo(it: AvisoItem): string {
   return m ? String(Number(m[1])) : "";
 }
 
-/** Grupo de aparicoes de um mesmo numero (aparicoes[0] = prevalente). */
+// SINAL de "mesmo numero, descricoes divergentes" (NAO acao). A chave de
+// agrupamento e LITERAL: o numero do item. Nunca fundimos nem separamos por
+// similaridade. Mas o mesmo numero pode aparecer em LISTAS INDEPENDENTES (ETP x
+// TR x modelo) para produtos DIFERENTES; nesse caso marcamos um SINAL via
+// Jaccard de tokens (>=3 chars) para o operador conferir CADA descricao literal.
+// Threshold medido no substrato: mesmo-item mediana 0.58, diferentes 0.00.
+const SIM_MIN = 0.3;
+
+/** Tokens significativos (>=3 chars) de uma descricao, para similaridade. */
+function tokensDescricao(desc: string): Set<string> {
+  const out = new Set<string>();
+  for (const t of desc.toLowerCase().split(/[^a-z0-9]+/)) {
+    if (t.length >= 3) out.add(t);
+  }
+  return out;
+}
+
+/** Similaridade de Jaccard entre dois conjuntos de tokens. */
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let inter = 0;
+  for (const t of a) if (b.has(t)) inter++;
+  const union = a.size + b.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+
+/** Ordem de prevalencia: peso da fonte desc, depois revisado, depois descricao
+ *  mais longa (mais informativa). aparicoes[0] = prevalente. */
+function cmpAparicao(a: AvisoItem, b: AvisoItem): number {
+  const dp = pesoFonteItem(b) - pesoFonteItem(a);
+  if (dp !== 0) return dp;
+  const ra = a.itemEstado === "revisado" ? 0 : 1;
+  const rb = b.itemEstado === "revisado" ? 0 : 1;
+  if (ra !== rb) return ra - rb;
+  return b.descricao.length - a.descricao.length;
+}
+
+/** SINAL: alguma aparicao diverge demais da prevalente (Jaccard < SIM_MIN).
+ *  aps ja ordenado por prevalencia (indice 0 = prevalente). */
+function divergenciaDescricao(aps: AvisoItem[]): boolean {
+  if (aps.length <= 1) return false;
+  const rep = tokensDescricao(aps[0].descricao);
+  for (let i = 1; i < aps.length; i++) {
+    if (jaccard(rep, tokensDescricao(aps[i].descricao)) < SIM_MIN) return true;
+  }
+  return false;
+}
+
+/** Grupo de aparicoes do mesmo item (aparicoes[0] = prevalente). */
 interface GrupoNumero {
   chave: string;
   itemNumero: string | null;
   aparicoes: AvisoItem[];
   divergenciaUnidade: boolean;
   divergenciaQuantidade: boolean;
+  divergenciaDescricao: boolean;
 }
 
-/** Agrupa os itens (de todos os documentos) por (lote, item_numero). Itens sem
- *  numero viram grupo unitario (recall-safe: nenhum item some). */
+/** Monta o grupo a partir das aparicoes ja ordenadas por prevalencia. */
+function montarGrupo(aps: AvisoItem[]): GrupoNumero {
+  const unidades = new Set(
+    aps.map((a) => (a.unidade ?? "").trim().toLowerCase()).filter(Boolean),
+  );
+  const quantidades = new Set(
+    aps.filter((a) => a.quantidade != null).map((a) => a.quantidade),
+  );
+  return {
+    chave: aps[0].id,
+    itemNumero: aps[0].itemNumero,
+    aparicoes: aps,
+    divergenciaUnidade: unidades.size > 1,
+    divergenciaQuantidade: quantidades.size > 1,
+    divergenciaDescricao: divergenciaDescricao(aps),
+  };
+}
+
+/** Agrupa os itens (de todos os documentos) por chave LITERAL (lote, item_numero),
+ *  reunindo TODAS as aparicoes do mesmo numero. Chave deterministica: nunca funde
+ *  nem separa por similaridade. Itens sem numero viram grupo unitario (recall-safe). */
 function agruparPorNumero(itens: AvisoItem[]): GrupoNumero[] {
   const porChave = new Map<string, AvisoItem[]>();
   const ordem: string[] = [];
@@ -333,29 +401,12 @@ function agruparPorNumero(itens: AvisoItem[]): GrupoNumero[] {
     }
     arr.push(it);
   }
-  return ordem.map((chave) => {
-    const aps = (porChave.get(chave) as AvisoItem[]).slice().sort((a, b) => {
-      const dp = pesoFonteItem(b) - pesoFonteItem(a);
-      if (dp !== 0) return dp;
-      const ra = a.itemEstado === "revisado" ? 0 : 1;
-      const rb = b.itemEstado === "revisado" ? 0 : 1;
-      if (ra !== rb) return ra - rb;
-      return b.descricao.length - a.descricao.length;
-    });
-    const unidades = new Set(
-      aps.map((a) => (a.unidade ?? "").trim().toLowerCase()).filter(Boolean),
-    );
-    const quantidades = new Set(
-      aps.filter((a) => a.quantidade != null).map((a) => a.quantidade),
-    );
-    return {
-      chave,
-      itemNumero: aps[0].itemNumero,
-      aparicoes: aps,
-      divergenciaUnidade: unidades.size > 1,
-      divergenciaQuantidade: quantidades.size > 1,
-    };
-  });
+  const grupos: GrupoNumero[] = [];
+  for (const chave of ordem) {
+    const aps = (porChave.get(chave) as AvisoItem[]).slice().sort(cmpAparicao);
+    grupos.push(montarGrupo(aps));
+  }
+  return grupos;
 }
 
 function GrupoNumeroLinha({
@@ -431,6 +482,17 @@ function GrupoNumeroLinha({
               {" "}
               <span className="tag duvida" title="Quantidade diverge entre as fontes">
                 qtd. diverge
+              </span>
+            </>
+          ) : null}
+          {grupo.divergenciaDescricao ? (
+            <>
+              {" "}
+              <span
+                className="tag duvida"
+                title="Descricoes divergem entre as fontes deste numero: possiveis produtos diferentes. Confira cada descricao."
+              >
+                descr. diverge
               </span>
             </>
           ) : null}
