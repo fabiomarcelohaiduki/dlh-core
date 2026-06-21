@@ -110,6 +110,15 @@ verify_jwt = false
 [functions.v1-documento-itens-gravar]
 verify_jwt = false
 
+# Diagnostico read-only de recall do Effecti (modo lion): o orquestrador de
+# triagem chama para saber se a extracao do aviso esta completa (faltantes do
+# piso) e decidir re-despachar o Extrator ANTES do veredito, via authenticateV1
+# (API key read-only LIA_SERVICE_API_KEY, escopo read-only:busca-semantica). A
+# API key NAO e JWT -> sem este pin o gateway barra o Bearer com
+# {UNAUTHORIZED_INVALID_JWT_FORMAT} antes do codigo.
+[functions.v1-triagem-recall-check]
+verify_jwt = false
+
 # Consulta de politica de participacao (modo lion): a Lia identifica os produtos
 # nos itens do edital e consulta a politica deterministica de cada um via
 # authenticateV1 (API key read-only LIA_SERVICE_API_KEY, escopo

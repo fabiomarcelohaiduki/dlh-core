@@ -34,8 +34,14 @@ import { logSensitiveAction } from "../_shared/audit.ts";
 import { errorMessage, recordIngestErro } from "../_shared/ingest-errors.ts";
 import { EffectiConnector } from "../_shared/effecti-connector.ts";
 import { getFonteByTipo, getFonteSecret } from "../_shared/vault.ts";
-import { normDesc } from "../_shared/normalizar.ts";
-import { coletarItensPainel } from "../_shared/effecti-painel.ts";
+import {
+  enfileirarRecallEffecti,
+  faltantesDoEffecti,
+  type ItensEditalRow,
+  loadItensIndexDoAviso,
+  resolverAncoraEffecti,
+  STATUS_EXTRACAO_COM_TEXTO,
+} from "../_shared/triagem-recall.ts";
 import {
   avaliarRegras,
   classificar,
@@ -112,20 +118,20 @@ interface AvisoRow {
   itens_effecti: unknown;
 }
 
-/** itensEdital do payload Effecti = subconjunto que casou as palavras-chave. */
-interface ItensEditalRow {
-  item?: number | string | null;
-  produtoLicitadoSemTags?: string | null;
-}
+// ItensEditalRow, STATUS_EXTRACAO_COM_TEXTO e o nucleo do recall do Effecti
+// (loadItensIndexDoAviso, faltantesDoEffecti, resolverAncoraEffecti,
+// enfileirarRecallEffecti) agora vivem em ../_shared/triagem-recall.ts —
+// compartilhados com a Edge read-only de diagnostico de recall.
 
-// Snapshot da descricao na fila de suspeitas: limita para a fila ficar leve.
-const SNAPSHOT_DESC_MAX = 2000;
-
-// Estados de extracao de TEXTO (documento_vinculos.status_extracao) com texto
-// aproveitavel para extrair itens — espelha STATUS_EXTRACAO_COM_TEXTO da fila.
-// So docs com texto entram no gate: docs sem texto nunca poderao ter itens
-// estruturados e bloquear lixo neles seria eterno.
-const STATUS_EXTRACAO_COM_TEXTO = ["extraido", "herdado", "precisa_ocr"];
+// Estados de extracao TRANSITORIOS (documento_vinculos.status_extracao): o anexo
+// EXISTE mas ainda nao foi lido com sucesso, e a falha NAO e terminal. 'pendente'
+// = ainda na fila de extracao; 'erro' = falha reprocessavel (rede/5xx/Tika
+// transitorio) que o runner reenfileira (o 4xx/"excluido" vira 'inobtenivel',
+// terminal, e por isso fica de fora). Bloqueiam lixo enquanto in-flight: descartar
+// um aviso cujo unico edital ainda nao baixou e cego (viola recall). NAO e eterno
+// — o status resolve para 'extraido' (entra no gate de texto) ou 'inobtenivel'
+// (terminal, libera o descarte). 'inobtenivel'/'ignorado' continuam terminais.
+const STATUS_EXTRACAO_TRANSITORIO = ["pendente", "erro"];
 
 // itens_status NAO-terminais: a lista de itens ainda nao foi estruturada/revisada
 // (ou falhou e e reprocessavel). 'pendente_revisao' (rascunho deterministico de
@@ -240,11 +246,33 @@ async function favoritarEffectiBestEffort(db: ServiceClient, aviso: AvisoRow): P
 // o gate dispara, o lixo e rebaixado a `duvida` (validacao humana / re-extracao).
 // Espelha o filtro da FILA (status_extracao com texto): docs sem texto nunca
 // poderao ter itens e por isso nao bloqueiam (descarte permanece possivel).
+//
+// Alem do caso "tem texto, falta estruturar itens", o gate tambem dispara quando
+// ha anexo em estado TRANSITORIO (pendente/erro): o edital existe mas ainda nao
+// foi lido com sucesso e a falha e reprocessavel. Sem isso, um aviso cujo unico
+// anexo falhou o download transitoriamente (ex.: rede/5xx) chega com documentos=[]
+// e pode ser descartado como lixo so pela descricao do portal (nao confiavel),
+// perdendo a licitacao. Estados terminais sem texto ('inobtenivel'/'ignorado')
+// continuam NAO bloqueando (descarte possivel) para nao prender o aviso eternamente.
 // ---------------------------------------------------------------------
 
 async function temDocExtraivelSemItens(db: ServiceClient, effectiId: string): Promise<boolean> {
   const eid = (effectiId ?? "").trim();
   if (eid === "") return false;
+
+  // 0) Anexo em estado transitorio (pendente/erro): existe mas ainda nao foi lido
+  //    e a falha e reprocessavel -> bloqueia lixo ate resolver (texto ou terminal).
+  const { data: transitorios, error: transErr } = await db
+    .from("documento_vinculos")
+    .select("id")
+    .eq("fonte", "effecti")
+    .eq("registro_origem_id", eid)
+    .in("status_extracao", STATUS_EXTRACAO_TRANSITORIO)
+    .limit(1);
+  if (transErr) {
+    throw new Error(`falha ao ler documento_vinculos transitorios (gate de recall): ${transErr.message}`);
+  }
+  if ((transitorios ?? []).length > 0) return true;
 
   // 1) Documentos vinculados ao aviso (por effecti_id) com texto aproveitavel.
   const { data: vinculos, error: vincErr } = await db
@@ -272,161 +300,10 @@ async function temDocExtraivelSemItens(db: ServiceClient, effectiId: string): Pr
   return (pendentes ?? []).length > 0;
 }
 
-// ---------------------------------------------------------------------
-// Validador de RECALL DO EFFECTI (deterministico, per-AVISO — B1). O piso
-// itensEdital sao os itens que SABIDAMENTE existem no edital (casaram a palavra
-// do perfil). Se algum nao aparece em NENHUM documento do aviso, a extracao
-// esta incompleta -> rebaixa o veredito + enfileira. Roda AQUI (e nao na Edge
-// per-documento de gravar) porque o piso e por aviso e um item pode estar em
-// qualquer documento do aviso (T7b): agrega TODOS os docs por effecti_id, como
-// temDocExtraivelSemItens. So consulta o banco quando ha piso a validar.
-// ---------------------------------------------------------------------
-
-/** Indice dos itens JA extraidos do aviso (numero + descricao normalizada). */
-interface ItensIndex {
-  numeros: Set<number>;
-  descs: Set<string>;
-  total: number;
-}
-
-async function loadItensIndexDoAviso(db: ServiceClient, effectiId: string): Promise<ItensIndex> {
-  const vazio: ItensIndex = { numeros: new Set(), descs: new Set(), total: 0 };
-  const eid = (effectiId ?? "").trim();
-  if (eid === "") return vazio;
-
-  // Documentos do aviso (por effecti_id) com texto aproveitavel.
-  const { data: vinculos, error: vincErr } = await db
-    .from("documento_vinculos")
-    .select("documento_id")
-    .eq("fonte", "effecti")
-    .eq("registro_origem_id", eid)
-    .in("status_extracao", STATUS_EXTRACAO_COM_TEXTO);
-  if (vincErr) {
-    throw new Error(`falha ao ler documento_vinculos (recall effecti): ${vincErr.message}`);
-  }
-  const docIds = [
-    ...new Set((vinculos ?? []).map((v) => v.documento_id as string).filter(Boolean)),
-  ];
-  if (docIds.length === 0) return vazio;
-
-  // Itens de TODOS esses documentos, paginado (recall total: o teto de 1000 do
-  // PostgREST truncaria itens em silencio e geraria faltante falso).
-  const numeros = new Set<number>();
-  const descs = new Set<string>();
-  let total = 0;
-  const PAGE = 1000;
-  for (let from = 0;; from += PAGE) {
-    const { data, error } = await db
-      .from("documento_itens")
-      .select("item_numero, descricao")
-      .in("documento_id", docIds)
-      .range(from, from + PAGE - 1);
-    if (error) {
-      throw new Error(`falha ao ler documento_itens (recall effecti): ${error.message}`);
-    }
-    const batch = (data ?? []) as { item_numero: string | null; descricao: string }[];
-    for (const it of batch) {
-      total++;
-      const raw = (it.item_numero ?? "").trim();
-      if (/^[0-9]+$/.test(raw)) numeros.add(Number(raw));
-      const d = normDesc(it.descricao);
-      if (d.length > 0) descs.add(d);
-    }
-    if (batch.length < PAGE) break;
-  }
-  return { numeros, descs, total };
-}
-
-/**
- * Itens do piso Effecti que NAO casam (nem por numero nem por descricao
- * normalizada) com nenhum item extraido do aviso. Casamento tolerante (mesma
- * chave de normDesc do badge do cockpit) para nao gerar falso negativo por
- * diferenca de redacao (decisao 2).
- */
-function faltantesDoEffecti(itensEdital: ItensEditalRow[], idx: ItensIndex): ItensEditalRow[] {
-  const faltantes: ItensEditalRow[] = [];
-  for (const e of itensEdital) {
-    const n = typeof e.item === "number" ? e.item : Number(e.item);
-    const porNumero = Number.isInteger(n) && idx.numeros.has(n);
-    const d = normDesc(e.produtoLicitadoSemTags);
-    const porDescricao = d.length > 0 && idx.descs.has(d);
-    if (!porNumero && !porDescricao) faltantes.push(e);
-  }
-  return faltantes;
-}
-
-/**
- * Enfileira os itens do piso ausentes em documento_item_suspeitas(recall_effecti)
- * — delete-then-insert por aviso das pendentes (reconciliacao: uma re-triagem que
- * agora recupera o item limpa a suspeita antiga; curadas sobrevivem). Best-effort:
- * NUNCA derruba o veredito ja gravado.
- */
-async function enfileirarRecallEffecti(
-  db: ServiceClient,
-  avisoId: string,
-  faltantes: ItensEditalRow[],
-): Promise<void> {
-  try {
-    const { error: delErr } = await db
-      .from("documento_item_suspeitas")
-      .delete()
-      .eq("aviso_id", avisoId)
-      .eq("tipo", "recall_effecti")
-      .eq("status", "pendente");
-    if (delErr) {
-      throw new Error(`falha ao limpar recall pendente: ${delErr.message}`);
-    }
-    if (faltantes.length === 0) return;
-    const rows = faltantes.map((e) => ({
-      aviso_id: avisoId,
-      documento_id: null,
-      documento_item_id: null,
-      tipo: "recall_effecti",
-      item_descricao: String(e.produtoLicitadoSemTags ?? "").slice(0, SNAPSHOT_DESC_MAX),
-      numero_suspeito: e.item != null ? String(e.item) : null,
-      motivo: "item do piso Effecti (itensEdital) ausente da extracao do aviso",
-    }));
-    const { error: insErr } = await db.from("documento_item_suspeitas").insert(rows);
-    if (insErr) {
-      throw new Error(`falha ao enfileirar recall effecti: ${insErr.message}`);
-    }
-  } catch (err) {
-    await recordIngestErro(db, {
-      avisoId,
-      severidade: "media",
-      etapa: "Persistencia",
-      mensagem: `recall do Effecti nao enfileirado: ${errorMessage(err)}`,
-    });
-  }
-}
-
-/**
- * Resolve a lista-ANCORA de recall do Effecti. A API de integracao (token) so
- * devolve o SUBSET itensEdital (os itens que casaram a palavra-chave do perfil);
- * a lista COMPLETA numerada por edital vem do PAINEL WEB (/all). Quando a
- * credencial do painel esta configurada, a lista do /all SUBSTITUI o subset
- * (recall total). Fail-open: qualquer falha do painel (cred ausente, login
- * recusado, indisponibilidade, edital sem itens) cai de volta no subset — o
- * gate degrada para o comportamento anterior, NUNCA derruba o veredito.
- */
-async function resolverAncoraEffecti(
-  effectiId: string | null,
-  subset: ItensEditalRow[],
-): Promise<{ itens: ItensEditalRow[]; origem: "painel" | "subset" }> {
-  const eid = (effectiId ?? "").trim();
-  if (eid === "") return { itens: subset, origem: "subset" };
-  try {
-    const coleta = await coletarItensPainel(eid);
-    if (coleta.itens.length === 0) return { itens: subset, origem: "subset" };
-    const itens: ItensEditalRow[] = coleta.itens.map((i) => ({
-      item: i.item_numero,
-      produtoLicitadoSemTags: i.descricao,
-    }));
-    return { itens, origem: "painel" };
-  } catch {
-    return { itens: subset, origem: "subset" };
-  }
-}
+// O nucleo do validador de RECALL DO EFFECTI (B1) — loadItensIndexDoAviso,
+// faltantesDoEffecti, resolverAncoraEffecti e enfileirarRecallEffecti — vive em
+// ../_shared/triagem-recall.ts (compartilhado com a Edge read-only de
+// diagnostico). O gate 4.3 abaixo apenas orquestra a aplicacao desse nucleo.
 
 // ---------------------------------------------------------------------
 // Gate de POLITICA (deterministico, SOM): um aviso NUNCA pode virar `util`
