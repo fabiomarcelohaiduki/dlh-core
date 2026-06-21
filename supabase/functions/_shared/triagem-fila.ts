@@ -176,6 +176,9 @@ export interface ItemLicitacao {
   divergencia_unidade?: boolean;
   /** Quantidade diverge entre as fontes deste numero (sinal de cadastro/edital). */
   divergencia_quantidade?: boolean;
+  /** Descricoes deste numero divergem demais (SINAL de possiveis produtos
+   *  DIFERENTES com o mesmo numero em listas independentes): cruzar CADA uma. */
+  divergencia_descricao?: boolean;
 }
 
 /**
@@ -217,6 +220,11 @@ export interface ItemAgrupado {
   divergencia_unidade: boolean;
   /** Quantidades divergem entre aparicoes com quantidade preenchida. */
   divergencia_quantidade: boolean;
+  /** SINAL (nao acao): as descricoes deste numero divergem demais (Jaccard <
+   *  SIM_MIN entre alguma aparicao e a prevalente). Pode indicar produtos
+   *  DIFERENTES com o mesmo numero em listas independentes — o Analista cruza
+   *  CADA descricao literal. Nunca funde nem separa: so alerta. */
+  divergencia_descricao: boolean;
 }
 
 /** Exemplo few-shot rotulado (sem embedding nem ids internos). */
@@ -658,6 +666,44 @@ function calcDivergencias(aps: AparicaoItem[]): { unidade: boolean; quantidade: 
   return { unidade: unidades.size > 1, quantidade: qtds.size > 1 };
 }
 
+// SINAL de "mesmo numero, descricoes divergentes" (NAO acao). A chave de
+// agrupamento e LITERAL: o numero do item. Nunca fundimos nem separamos por
+// similaridade (decisao probabilistica fica fora da chave). Mas o mesmo numero
+// pode aparecer em LISTAS INDEPENDENTES (ETP x TR x modelo) para produtos
+// DIFERENTES; nesse caso calculamos um SINAL via Jaccard de tokens (>=3 chars)
+// para o Analista cruzar CADA descricao literal. Threshold medido sobre o
+// substrato real: mesmo-item mediana 0.58, descricoes diferentes mediana 0.00.
+const SIM_MIN = 0.3;
+
+/** Tokens significativos (>=3 chars) de uma descricao, para similaridade. */
+function tokensDescricao(desc: string): Set<string> {
+  const out = new Set<string>();
+  for (const t of (desc ?? "").toLowerCase().split(/[^a-z0-9]+/)) {
+    if (t.length >= 3) out.add(t);
+  }
+  return out;
+}
+
+/** Similaridade de Jaccard entre dois conjuntos de tokens. */
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let inter = 0;
+  for (const t of a) if (b.has(t)) inter++;
+  const union = a.size + b.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+
+/** SINAL: alguma aparicao diverge demais da prevalente (Jaccard < SIM_MIN).
+ *  aps deve vir ja ordenado por peso (indice 0 = prevalente). */
+function calcDivergenciaDescricao(aps: AparicaoItem[]): boolean {
+  if (aps.length <= 1) return false;
+  const rep = tokensDescricao(aps[0].descricao);
+  for (let i = 1; i < aps.length; i++) {
+    if (jaccard(rep, tokensDescricao(aps[i].descricao)) < SIM_MIN) return true;
+  }
+  return false;
+}
+
 interface ResultadoAgrupamento {
   /** Grupos por (lote, item_numero); aparicoes ordenadas por peso desc. */
   grupos: ItemAgrupado[];
@@ -680,8 +726,12 @@ function agruparPorNumero(
   const arquivoPorDoc = new Map<string, string>();
   for (const d of documentos) arquivoPorDoc.set(d.documento_id, d.nome_arquivo ?? d.documento_id);
 
-  const porChave = new Map<string, ItemAgrupado>();
+  // 1) Agrupa por chave LITERAL (lote, numero), reunindo TODAS as aparicoes do
+  //    mesmo numero. Chave deterministica: nunca funde nem separa por
+  //    similaridade. Item sem numero -> grupo unitario (recall-safe).
+  const grupos: ItemAgrupado[] = [];
   const grupoPorItemId = new Map<string, ItemAgrupado>();
+  const porChave = new Map<string, ItemAgrupado>();
   const porNumero = new Map<string, ItemAgrupado[]>();
 
   for (const item of todosItens) {
@@ -696,8 +746,10 @@ function agruparPorNumero(
         aparicoes: [],
         divergencia_unidade: false,
         divergencia_quantidade: false,
+        divergencia_descricao: false,
       };
       porChave.set(chave, grupo);
+      grupos.push(grupo);
       if (numero !== null) {
         const arr = porNumero.get(numero) ?? [];
         arr.push(grupo);
@@ -712,13 +764,13 @@ function agruparPorNumero(
     const numero = normNumero(piso.item);
     const produto = (piso.produto ?? "").trim();
     if (numero === null || produto === "") continue;
-    const grupos = porNumero.get(numero);
-    if (!grupos || grupos.length === 0) continue; // numero so no Effecti -> piso_effecti separado ja cobre recall.
+    const gruposDoNumero = porNumero.get(numero);
+    if (!gruposDoNumero || gruposDoNumero.length === 0) continue; // numero so no Effecti -> piso_effecti separado ja cobre recall.
     // Effecti (itensEdital) NAO traz lote: o numero e ambiguo em aviso multi-lote.
     // So anexa quando ha UM unico grupo para o numero (lote inequivoco); com
     // varios grupos (lotes distintos) pular evita espalhar o produto errado.
-    if (grupos.length !== 1) continue;
-    grupos[0].aparicoes.push({
+    if (gruposDoNumero.length !== 1) continue;
+    gruposDoNumero[0].aparicoes.push({
       item_id: null,
       arquivo: "Effecti (itensEdital)",
       lista_origem: "effecti",
@@ -732,8 +784,7 @@ function agruparPorNumero(
     });
   }
 
-  const grupos: ItemAgrupado[] = [];
-  for (const grupo of porChave.values()) {
+  for (const grupo of grupos) {
     // Ordena por peso desc; desempate deterministico: lista final (revisado)
     // antes de rascunho/suspeito, depois a descricao mais completa (maior) — para
     // que `prevalece` aponte sempre a mesma aparicao quando os pesos empatam.
@@ -747,7 +798,7 @@ function agruparPorNumero(
     const div = calcDivergencias(grupo.aparicoes);
     grupo.divergencia_unidade = div.unidade;
     grupo.divergencia_quantidade = div.quantidade;
-    grupos.push(grupo);
+    grupo.divergencia_descricao = calcDivergenciaDescricao(grupo.aparicoes);
   }
   return { grupos, grupoPorItemId };
 }
@@ -766,6 +817,7 @@ function enriquecerItem(item: ItemLicitacao, grupo: ItemAgrupado | undefined): I
     prevalece: grupo.aparicoes[0].item_id === item.id,
     divergencia_unidade: grupo.divergencia_unidade,
     divergencia_quantidade: grupo.divergencia_quantidade,
+    divergencia_descricao: grupo.divergencia_descricao,
   };
 }
 
