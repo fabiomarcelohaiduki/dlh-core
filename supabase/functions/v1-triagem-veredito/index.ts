@@ -35,6 +35,7 @@ import { errorMessage, recordIngestErro } from "../_shared/ingest-errors.ts";
 import { EffectiConnector } from "../_shared/effecti-connector.ts";
 import { getFonteByTipo, getFonteSecret } from "../_shared/vault.ts";
 import { normDesc } from "../_shared/normalizar.ts";
+import { coletarItensPainel } from "../_shared/effecti-painel.ts";
 import {
   avaliarRegras,
   classificar,
@@ -399,6 +400,34 @@ async function enfileirarRecallEffecti(
   }
 }
 
+/**
+ * Resolve a lista-ANCORA de recall do Effecti. A API de integracao (token) so
+ * devolve o SUBSET itensEdital (os itens que casaram a palavra-chave do perfil);
+ * a lista COMPLETA numerada por edital vem do PAINEL WEB (/all). Quando a
+ * credencial do painel esta configurada, a lista do /all SUBSTITUI o subset
+ * (recall total). Fail-open: qualquer falha do painel (cred ausente, login
+ * recusado, indisponibilidade, edital sem itens) cai de volta no subset — o
+ * gate degrada para o comportamento anterior, NUNCA derruba o veredito.
+ */
+async function resolverAncoraEffecti(
+  effectiId: string | null,
+  subset: ItensEditalRow[],
+): Promise<{ itens: ItensEditalRow[]; origem: "painel" | "subset" }> {
+  const eid = (effectiId ?? "").trim();
+  if (eid === "") return { itens: subset, origem: "subset" };
+  try {
+    const coleta = await coletarItensPainel(eid);
+    if (coleta.itens.length === 0) return { itens: subset, origem: "subset" };
+    const itens: ItensEditalRow[] = coleta.itens.map((i) => ({
+      item: i.item_numero,
+      produtoLicitadoSemTags: i.descricao,
+    }));
+    return { itens, origem: "painel" };
+  } catch {
+    return { itens: subset, origem: "subset" };
+  }
+}
+
 // ---------------------------------------------------------------------
 // Gate de POLITICA (deterministico, SOM): um aviso NUNCA pode virar `util`
 // (favoritar + bid) quando o produto candidato casado tem politica de
@@ -660,24 +689,29 @@ async function handler(req: Request): Promise<Response> {
     }
 
     // 4.3) Validador de RECALL DO EFFECTI (deterministico, per-aviso — B1):
-    //      todo item do piso itensEdital tem que aparecer em ALGUM documento do
+    //      todo item da lista-ANCORA tem que aparecer em ALGUM documento do
     //      aviso. Faltante (buraco real) -> rebaixa o veredito para `duvida`
-    //      (nao favoritar/avancar um aviso com piso furado) e enfileira para
-    //      confirmacao humana. So roda quando ha piso E ja ha itens extraidos:
-    //      "ainda nao extraido" e tratado pelo gate de recall 4.1 (nao gera
-    //      faltante falso). Casamento tolerante (numero OU normDesc). So consulta
-    //      o banco quando ha piso a validar.
+    //      (nao favoritar/avancar um aviso com lista furada) e enfileira para
+    //      confirmacao humana. So roda quando JA ha itens extraidos: "ainda nao
+    //      extraido" e tratado pelo gate de recall 4.1 (nao gera faltante falso),
+    //      por isso o indice e carregado ANTES de buscar o /all (evita chamada de
+    //      rede inutil em aviso ainda nao extraido). A ancora e a lista COMPLETA
+    //      do painel web (/all) quando a credencial esta configurada; fail-open
+    //      ao subset itensEdital. Casamento tolerante (numero OU normDesc).
     let rebaixadoPorRecallEffecti = false;
     let recallAvaliado = false;
     let faltantesEffecti: ItensEditalRow[] = [];
-    const itensEdital = Array.isArray(aviso.itens_effecti)
+    let recallAncora: "painel" | "subset" = "subset";
+    const subsetEffecti = Array.isArray(aviso.itens_effecti)
       ? (aviso.itens_effecti as ItensEditalRow[])
       : [];
-    if (itensEdital.length > 0) {
-      const idx = await loadItensIndexDoAviso(db, aviso.effecti_id);
-      if (idx.total > 0) {
+    const idxEffecti = await loadItensIndexDoAviso(db, aviso.effecti_id);
+    if (idxEffecti.total > 0) {
+      const ancora = await resolverAncoraEffecti(aviso.effecti_id, subsetEffecti);
+      recallAncora = ancora.origem;
+      if (ancora.itens.length > 0) {
         recallAvaliado = true;
-        faltantesEffecti = faltantesDoEffecti(itensEdital, idx);
+        faltantesEffecti = faltantesDoEffecti(ancora.itens, idxEffecti);
         if (faltantesEffecti.length > 0) {
           if (classificacao.veredito !== "duvida") {
             classificacao = { ...classificacao, veredito: "duvida" };
@@ -790,6 +824,11 @@ async function handler(req: Request): Promise<Response> {
         // (buraco de recall). Enfileirado em documento_item_suspeitas
         // (recall_effecti) para confirmacao humana.
         rebaixado_por_recall_effecti: rebaixadoPorRecallEffecti,
+        // 'painel' -> a validacao usou a lista COMPLETA do /all (recall total);
+        // 'subset' -> caiu no itensEdital (cred do painel ausente, painel
+        // indisponivel, ou aviso sem itens extraidos a validar). Observabilidade
+        // do ganho de recall do /all.
+        recall_ancora: recallAncora,
         // false -> os matches por item nao foram persistidos (erro registrado em
         // erros_ingestao). O veredito vale; so o detalhamento por item faltou.
         matches_persistidos: matchesPersistidos,
