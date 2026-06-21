@@ -162,6 +162,61 @@ export interface ItemLicitacao {
    * nunca como verdade (guardrail anti-ancoragem).
    */
   item_estado: string;
+  /**
+   * ENRIQUECIMENTO inline (so na pagina 1): as OUTRAS aparicoes do mesmo
+   * (lote, item_numero) em fontes diferentes (edital/TR/modelo/portal/Effecti).
+   * Descricoes LITERAIS — o Analista decide o candidato olhando o conjunto,
+   * NUNCA concatena. Vazio/ausente quando o item aparece numa fonte so. Omitido
+   * nas paginas 2+ (envelope reduzido).
+   */
+  outras_fontes?: AparicaoItem[];
+  /** Esta aparicao e a de MAIOR peso do grupo (a que prevalece em divergencia). */
+  prevalece?: boolean;
+  /** Unidade diverge entre as fontes deste numero (sinal de cadastro/edital). */
+  divergencia_unidade?: boolean;
+  /** Quantidade diverge entre as fontes deste numero (sinal de cadastro/edital). */
+  divergencia_quantidade?: boolean;
+}
+
+/**
+ * UMA aparicao de um item numa fonte/lista especifica. Descricao LITERAL/verbatim
+ * (jamais concatenada). Unidade de agrupamento por (lote, item_numero).
+ */
+export interface AparicaoItem {
+  /** id do documento_itens (null quando a aparicao vem do piso Effecti). */
+  item_id: string | null;
+  /** Arquivo de origem (nome_arquivo do documento) ou 'Effecti (itensEdital)'. */
+  arquivo: string;
+  /** Rotulo livre da lista de origem (ex.: 'anexo TR', 'modelo de proposta'). */
+  lista_origem: string;
+  /** 'tecnica' | 'portal' | 'effecti'. */
+  fonte_descricao: string;
+  /** Peso deterministico da fonte (TR=50 .. effecti=10) — quem prevalece. */
+  peso_fonte: number;
+  /** Descricao INTEGRAL/literal — NUNCA concatenar. */
+  descricao: string;
+  unidade: string | null;
+  quantidade: number | null;
+  preco_referencia: number | null;
+  item_estado: string;
+}
+
+/**
+ * Item agrupado por (lote, item_numero): reune TODAS as aparicoes do mesmo
+ * numero nas varias fontes. Nao funde descricoes — lista as variantes literais e
+ * marca qual PREVALECE (maior peso). Estrutura completa para o COCKPIT (sem
+ * limite de payload). O Analista recebe a versao inline (outras_fontes) embutida
+ * na propria itens_licitacao. Itens sem numero viram grupo unitario (recall-safe).
+ */
+export interface ItemAgrupado {
+  lote: string | null;
+  item_numero: string | null;
+  /** Aparicoes ordenadas por peso desc — a primeira (indice 0) PREVALECE. */
+  aparicoes: AparicaoItem[];
+  /** Unidades divergem entre aparicoes com unidade preenchida. */
+  divergencia_unidade: boolean;
+  /** Quantidades divergem entre aparicoes com quantidade preenchida. */
+  divergencia_quantidade: boolean;
 }
 
 /** Exemplo few-shot rotulado (sem embedding nem ids internos). */
@@ -477,7 +532,16 @@ async function montarItensDaFila(
     const documentos = docsByAviso.get(aviso.id) ?? [];
     // Lista completa e ordenada de itens; entregamos so a 1a pagina + cursor.
     const todosItens = flattenItensOrdenados(documentos, itensByDocumento);
-    const pagina = todosItens.slice(0, ITENS_PAGE_SIZE);
+    const pisoEffecti = resolvePisoEffecti(aviso.piso_effecti);
+    // Agrupa por (lote, item_numero) reunindo TODAS as aparicoes (edital/TR/
+    // modelo/portal/Effecti) e enriquece a pagina 1 com as outras fontes do mesmo
+    // numero (descricoes LITERAIS, nunca concatenadas). Payload-safe: so itens
+    // que aparecem em >1 fonte ganham outras_fontes; pagina 2+ vem sem (envelope
+    // reduzido). O cockpit recebe a estrutura agrupada completa por outro endpoint.
+    const { grupoPorItemId } = agruparPorNumero(todosItens, documentos, pisoEffecti);
+    const pagina = todosItens
+      .slice(0, ITENS_PAGE_SIZE)
+      .map((item) => enriquecerItem(item, grupoPorItemId.get(item.id)));
     const itensNextCursor = todosItens.length > ITENS_PAGE_SIZE
       ? makeItensCursor(aviso.id, ITENS_PAGE_SIZE)
       : null;
@@ -500,6 +564,209 @@ async function montarItensDaFila(
     });
   }
   return itens;
+}
+
+// ---------------------------------------------------------------------
+// Agrupamento por (lote, item_numero) — reune as aparicoes do MESMO numero nas
+// varias fontes (edital/TR/modelo/portal/Effecti) sem fundir descricoes. Nucleo
+// compartilhado: o cockpit consome ItemAgrupado[] completo (sem limite de
+// payload); o Analista recebe a versao inline (outras_fontes) na pagina 1.
+// ---------------------------------------------------------------------
+
+/**
+ * Pesos deterministicos por fonte (quem PREVALECE em divergencia). Hardcode
+ * deliberado hoje; alvo de config no cockpit depois. TR > edital > modelo de
+ * proposta > portal > Effecti.
+ */
+const FONTE_PESOS = { tr: 50, edital: 40, modelo: 30, portal: 20, effecti: 10 } as const;
+
+/**
+ * Classifica o peso da fonte de UM item a partir do rotulo livre lista_origem +
+ * fonte_descricao. 'portal'/'effecti' decididos pela fonte_descricao; dentro de
+ * 'tecnica' o rotulo distingue TR (termo de referencia) de modelo de proposta;
+ * o resto e corpo do edital.
+ */
+function classificaFonteItem(listaOrigem: string, fonteDescricao: string): number {
+  const f = (fonteDescricao ?? "").toLowerCase();
+  if (f === "effecti") return FONTE_PESOS.effecti;
+  if (f === "portal") return FONTE_PESOS.portal;
+  const l = (listaOrigem ?? "").toLowerCase();
+  if (/termo de refer[eê]ncia|\btr\b/.test(l)) return FONTE_PESOS.tr;
+  if (/modelo|proposta|formul[aá]rio/.test(l)) return FONTE_PESOS.modelo;
+  return FONTE_PESOS.edital;
+}
+
+/** Normaliza um numero de item para chave: tira zeros a esquerda; preserva sub-itens. */
+function normNumero(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (s === "") return null;
+  if (/^\d+$/.test(s)) return String(Number(s));
+  return s.toLowerCase();
+}
+
+/** Normaliza o lote (null/vazio -> sentinela ""); zeros a esquerda removidos. */
+function normLote(v: string | null): string {
+  if (v === null) return "";
+  const s = v.trim();
+  if (s === "") return "";
+  if (/^\d+$/.test(s)) return String(Number(s));
+  return s.toLowerCase();
+}
+
+/**
+ * Lote EFETIVO do item. O extrator as vezes deixa a coluna `lote` vazia e embute
+ * o lote no rotulo lista_origem (ex.: "modelo de proposta - lote 12 - ..."). Sem
+ * isso, itens de LOTES DIFERENTES que reusam o mesmo item_numero (item 4 do lote 1
+ * = papel; item 4 do lote 12 = carimbo) colapsariam num grupo so e poluiriam as
+ * outras_fontes com produtos sem relacao. Le a coluna primeiro; se vazia, tenta
+ * extrair "lote N" do rotulo; senao "" (aviso de lote unico / sem lote).
+ */
+function loteEfetivo(lote: string | null, listaOrigem: string): string {
+  const col = normLote(lote);
+  if (col !== "") return col; // lote alfabetico (ex.: "A") vem so pela coluna; ok.
+  // No rotulo so existe lote NUMERICO ("lote 12"); medido: 0 rotulos alfabeticos
+  // ou plurais na base. So [0-9]+ evita lote-fantasma ("lotes 3"->"s") sem perder
+  // nada. `\b` inicial protege de substrings ("loteamento").
+  const m = (listaOrigem ?? "").toLowerCase().match(/\blote\s*:?\s*([0-9]+)/);
+  return m ? normLote(m[1]) : "";
+}
+
+function aparicaoDeItem(item: ItemLicitacao, arquivo: string): AparicaoItem {
+  return {
+    item_id: item.id,
+    arquivo,
+    lista_origem: item.lista_origem,
+    fonte_descricao: item.fonte_descricao,
+    peso_fonte: classificaFonteItem(item.lista_origem, item.fonte_descricao),
+    descricao: item.descricao,
+    unidade: item.unidade,
+    quantidade: item.quantidade,
+    preco_referencia: item.preco_referencia,
+    item_estado: item.item_estado,
+  };
+}
+
+/** Divergencia estrutural: >1 unidade ou >1 quantidade distinta (ignora nulos). */
+function calcDivergencias(aps: AparicaoItem[]): { unidade: boolean; quantidade: boolean } {
+  const unidades = new Set(
+    aps
+      .map((a) => a.unidade?.trim().toLowerCase())
+      .filter((u): u is string => !!u && u !== ""),
+  );
+  const qtds = new Set(aps.map((a) => a.quantidade).filter((q): q is number => q !== null));
+  return { unidade: unidades.size > 1, quantidade: qtds.size > 1 };
+}
+
+interface ResultadoAgrupamento {
+  /** Grupos por (lote, item_numero); aparicoes ordenadas por peso desc. */
+  grupos: ItemAgrupado[];
+  /** item_id (documento_itens) -> grupo, para enriquecer a pagina inline. */
+  grupoPorItemId: Map<string, ItemAgrupado>;
+}
+
+/**
+ * Agrupa os itens por (lote, item_numero) reunindo TODAS as aparicoes do mesmo
+ * numero. Effecti (itensEdital) entra por numero (sem lote) APENAS nos grupos ja
+ * existentes daquele numero — so para visibilidade de divergencia, nunca cria
+ * grupo nem prevalece. Itens sem numero viram grupo unitario (recall-safe, jamais
+ * fundidos). Nao funde descricoes: lista as variantes literais e marca divergencias.
+ */
+function agruparPorNumero(
+  todosItens: ItemLicitacao[],
+  documentos: DocumentoFila[],
+  pisoEffecti: PisoEffectiItem[],
+): ResultadoAgrupamento {
+  const arquivoPorDoc = new Map<string, string>();
+  for (const d of documentos) arquivoPorDoc.set(d.documento_id, d.nome_arquivo ?? d.documento_id);
+
+  const porChave = new Map<string, ItemAgrupado>();
+  const grupoPorItemId = new Map<string, ItemAgrupado>();
+  const porNumero = new Map<string, ItemAgrupado[]>();
+
+  for (const item of todosItens) {
+    const numero = normNumero(item.item_numero);
+    const lote = loteEfetivo(item.lote, item.lista_origem);
+    const chave = numero === null ? `__solo__${item.id}` : `${lote}|${numero}`;
+    let grupo = porChave.get(chave);
+    if (!grupo) {
+      grupo = {
+        lote: lote !== "" ? lote : item.lote,
+        item_numero: item.item_numero,
+        aparicoes: [],
+        divergencia_unidade: false,
+        divergencia_quantidade: false,
+      };
+      porChave.set(chave, grupo);
+      if (numero !== null) {
+        const arr = porNumero.get(numero) ?? [];
+        arr.push(grupo);
+        porNumero.set(numero, arr);
+      }
+    }
+    grupo.aparicoes.push(aparicaoDeItem(item, arquivoPorDoc.get(item.documento_id) ?? item.documento_id));
+    grupoPorItemId.set(item.id, grupo);
+  }
+
+  for (const piso of pisoEffecti) {
+    const numero = normNumero(piso.item);
+    const produto = (piso.produto ?? "").trim();
+    if (numero === null || produto === "") continue;
+    const grupos = porNumero.get(numero);
+    if (!grupos || grupos.length === 0) continue; // numero so no Effecti -> piso_effecti separado ja cobre recall.
+    // Effecti (itensEdital) NAO traz lote: o numero e ambiguo em aviso multi-lote.
+    // So anexa quando ha UM unico grupo para o numero (lote inequivoco); com
+    // varios grupos (lotes distintos) pular evita espalhar o produto errado.
+    if (grupos.length !== 1) continue;
+    grupos[0].aparicoes.push({
+      item_id: null,
+      arquivo: "Effecti (itensEdital)",
+      lista_origem: "effecti",
+      fonte_descricao: "effecti",
+      peso_fonte: FONTE_PESOS.effecti,
+      descricao: produto,
+      unidade: null,
+      quantidade: null,
+      preco_referencia: null,
+      item_estado: "portal",
+    });
+  }
+
+  const grupos: ItemAgrupado[] = [];
+  for (const grupo of porChave.values()) {
+    // Ordena por peso desc; desempate deterministico: lista final (revisado)
+    // antes de rascunho/suspeito, depois a descricao mais completa (maior) — para
+    // que `prevalece` aponte sempre a mesma aparicao quando os pesos empatam.
+    grupo.aparicoes.sort((a, b) => {
+      if (b.peso_fonte !== a.peso_fonte) return b.peso_fonte - a.peso_fonte;
+      const ra = a.item_estado === "revisado" ? 0 : 1;
+      const rb = b.item_estado === "revisado" ? 0 : 1;
+      if (ra !== rb) return ra - rb;
+      return (b.descricao?.length ?? 0) - (a.descricao?.length ?? 0);
+    });
+    const div = calcDivergencias(grupo.aparicoes);
+    grupo.divergencia_unidade = div.unidade;
+    grupo.divergencia_quantidade = div.quantidade;
+    grupos.push(grupo);
+  }
+  return { grupos, grupoPorItemId };
+}
+
+/**
+ * Enriquece UM item da pagina com as OUTRAS aparicoes do seu grupo. Sem grupo ou
+ * grupo unitario -> item intacto (sem campos extras, payload minimo). Descricoes
+ * das outras fontes ficam LITERAIS; o Analista decide o candidato no conjunto.
+ */
+function enriquecerItem(item: ItemLicitacao, grupo: ItemAgrupado | undefined): ItemLicitacao {
+  if (!grupo || grupo.aparicoes.length <= 1) return item;
+  const outras = grupo.aparicoes.filter((a) => a.item_id !== item.id);
+  return {
+    ...item,
+    outras_fontes: outras,
+    prevalece: grupo.aparicoes[0].item_id === item.id,
+    divergencia_unidade: grupo.divergencia_unidade,
+    divergencia_quantidade: grupo.divergencia_quantidade,
+  };
 }
 
 /**
