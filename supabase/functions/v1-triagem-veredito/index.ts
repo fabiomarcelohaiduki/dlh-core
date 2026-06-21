@@ -545,10 +545,18 @@ async function handler(req: Request): Promise<Response> {
     //      documento extraivel sem a lista de itens estruturada. Rebaixa
     //      `lixo` -> `duvida` (nunca o contrario). Aplica-se inclusive sobre o
     //      override `fora_de_ramo`: objeto fora do ramo NAO isenta a leitura da
-    //      lista (recall total por item). So consulta o banco quando relevante.
+    //      lista (recall total por item).
+    //      A flag `rebaixado_por_recall` e setada SEMPRE que ha doc extraivel
+    //      sem itens, mesmo quando o veredito NAO e lixo (ex.: `duvida` de baixa
+    //      relevancia com extracao falha): a lista esta incompleta, entao o
+    //      resultado pede re-extracao/curadoria — nao e uma duvida comum. Sem
+    //      isso, uma falha TOTAL de extracao (0 item) emergia como duvida 0.5
+    //      silenciosa, indistinguivel de baixa relevancia legitima.
     let rebaixadoPorRecall = false;
-    if (classificacao.veredito === "lixo" && await temDocExtraivelSemItens(db, aviso.effecti_id)) {
-      classificacao = { ...classificacao, veredito: "duvida" };
+    if (await temDocExtraivelSemItens(db, aviso.effecti_id)) {
+      if (classificacao.veredito === "lixo") {
+        classificacao = { ...classificacao, veredito: "duvida" };
+      }
       rebaixadoPorRecall = true;
     }
 
@@ -688,9 +696,11 @@ async function handler(req: Request): Promise<Response> {
         confianca: confianca,
         favoritado: estado.favoritar,
         na_lixeira: estado.naLixeira,
-        // true -> o gate de recall rebaixou um `lixo` para `duvida` (havia
-        // documento extraivel sem a lista de itens). Sinaliza a Lia/operador a
-        // extrair os itens pendentes antes de um eventual descarte.
+        // true -> ha documento extraivel sem a lista de itens estruturada. Se o
+        // veredito era `lixo`, foi rebaixado a `duvida` (descarte cego viola
+        // recall); se ja era `duvida`, segue `duvida` mas marcado como extracao
+        // incompleta (re-extrair / curadoria) — distinto de duvida por baixa
+        // relevancia. Sinaliza a Lia/operador a extrair os itens pendentes.
         rebaixado_por_recall: rebaixadoPorRecall,
         // true -> o gate de politica rebaixou um `util` para `duvida` (o produto
         // candidato tem politica de participacao `nao`). Sinaliza que o match e

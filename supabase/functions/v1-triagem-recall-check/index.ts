@@ -33,6 +33,7 @@ import { parseJsonBody } from "../_shared/validation.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 import {
+  docsComTextoSemItens,
   faltantesDoEffecti,
   type ItensEditalRow,
   loadItensIndexDoAviso,
@@ -108,13 +109,35 @@ async function handler(req: Request): Promise<Response> {
       descricao: e.produtoLicitadoSemTags ?? null,
     }));
 
+    // 4.1) EXTRACAO INCOMPLETA: docs com texto cuja lista de itens nao foi
+    //      estruturada (pendente/erro reprocessavel). Fecha o furo do silencio:
+    //      quando NADA foi extraido (total===0) e a ancora veio vazia,
+    //      faltantes=[] nao acusa o buraco; este sinal acusa. So pede
+    //      re-extracao enquanto reprocessavel (algum doc < teto); esgotado ->
+    //      a rede final/curadoria humana resolve, nao adianta re-despachar.
+    const incompleta = await docsComTextoSemItens(db, aviso.effecti_id);
+    const extracaoIncompleta = incompleta.docs.length > 0;
+    const podeReextrairIncompleta = extracaoIncompleta && !incompleta.esgotado;
+
+    const precisaReextrair = faltantes.length > 0 || podeReextrairIncompleta;
+    const motivoReextracao = faltantes.length > 0
+      ? "faltantes"
+      : (podeReextrairIncompleta ? "extracao_incompleta" : null);
+
     const resposta = {
       aviso_id: aviso.id,
       ancora: ancora.origem,
       total_piso: ancora.itens.length,
       total_extraido: idx.total,
       faltantes,
-      precisa_reextrair: faltantes.length > 0,
+      // Docs com texto cuja lista NAO foi estruturada (pendente/erro). Alvos da
+      // re-extracao quando nao ha faltantes-por-item (ancora vazia / total 0).
+      extracao_incompleta: extracaoIncompleta,
+      docs_incompletos: incompleta.docs,
+      // Por que re-extrair: 'faltantes' (item do piso ausente) ou
+      // 'extracao_incompleta' (doc com texto sem itens). null = nada a fazer.
+      motivo_reextracao: motivoReextracao,
+      precisa_reextrair: precisaReextrair,
     };
 
     // Auditoria do acesso /v1: principal + contagens; SEM conteudo de aviso.
@@ -129,6 +152,9 @@ async function handler(req: Request): Promise<Response> {
         total_piso: resposta.total_piso,
         total_extraido: resposta.total_extraido,
         faltantes: faltantes.length,
+        extracao_incompleta: extracaoIncompleta,
+        docs_incompletos: incompleta.docs.length,
+        motivo_reextracao: motivoReextracao,
         precisa_reextrair: resposta.precisa_reextrair,
       },
     });

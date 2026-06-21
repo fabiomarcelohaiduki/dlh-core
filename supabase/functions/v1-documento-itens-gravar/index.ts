@@ -110,13 +110,26 @@ const itemSchema = z.object({
 const bodySchema = z.object({
   documento_id: z.string().uuid("documento_id deve ser um uuid valido"),
   status: z.enum(["extraido", "sem_itens", "erro", "ignorado"]),
+  // Modo de gravacao (so relevante para status 'extraido'): habilita a extracao
+  // de editais grandes em LOTES quando o documento nao cabe numa unica leitura.
+  //  - substituir (default): delete-then-insert; finaliza (doc inteiro em 1 chamada).
+  //  - iniciar:    delete + insere o 1o lote; NAO finaliza (itens_status fica 'pendente').
+  //  - acrescentar: SEM delete; anexa um lote; NAO finaliza.
+  //  - finalizar:  anexa o lote final (sem delete) e finaliza (itens_status='extraido').
+  // Retomada: um run novo recomeca em 'iniciar' (o delete limpa lotes orfaos de
+  // um run que falhou no meio). Ausente => 'substituir' (backward-compativel).
+  modo: z.enum(["substituir", "iniciar", "acrescentar", "finalizar"]).optional().default(
+    "substituir",
+  ),
   itens: z.array(itemSchema).max(2_000).optional().default([]),
   motivo: z.string().max(2_000).nullish(),
 }).superRefine((val, ctx) => {
-  if (val.status === "extraido" && val.itens.length === 0) {
+  // 'extraido' exige >=1 item, EXCETO 'finalizar' (pode apenas selar o doc
+  // depois de lotes anteriores ja terem inserido as linhas).
+  if (val.status === "extraido" && val.itens.length === 0 && val.modo !== "finalizar") {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "status 'extraido' exige ao menos 1 item",
+      message: "status 'extraido' exige ao menos 1 item (salvo modo 'finalizar')",
       path: ["itens"],
     });
   }
@@ -125,6 +138,14 @@ const bodySchema = z.object({
       code: z.ZodIssueCode.custom,
       message: `status '${val.status}' nao aceita itens`,
       path: ["itens"],
+    });
+  }
+  // Modo de lote so faz sentido com status 'extraido'.
+  if (val.status !== "extraido" && val.modo !== "substituir") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `modo '${val.modo}' so se aplica a status 'extraido'`,
+      path: ["modo"],
     });
   }
 });
@@ -316,18 +337,24 @@ async function reconciliarSuspeitasFidelidade(
     numero_suspeito: string | null;
     motivo: string;
   }[],
+  // reconciliar=true (substituir/iniciar): apaga as pendentes do doc antes de
+  // inserir (clean slate). reconciliar=false (acrescentar/finalizar): SO anexa
+  // — apagar aqui zeraria as suspeitas dos lotes anteriores do mesmo doc.
+  reconciliar: boolean,
 ): Promise<void> {
   try {
-    // Limpa as pendentes deste documento (reconciliacao: nao duplica linha
-    // pendente para o mesmo conteudo; curadas permanecem).
-    const { error: delErr } = await db
-      .from("documento_item_suspeitas")
-      .delete()
-      .eq("documento_id", documentoId)
-      .eq("tipo", "fidelidade")
-      .eq("status", "pendente");
-    if (delErr) {
-      throw new Error(`falha ao limpar suspeitas pendentes: ${delErr.message}`);
+    if (reconciliar) {
+      // Limpa as pendentes deste documento (reconciliacao: nao duplica linha
+      // pendente para o mesmo conteudo; curadas permanecem).
+      const { error: delErr } = await db
+        .from("documento_item_suspeitas")
+        .delete()
+        .eq("documento_id", documentoId)
+        .eq("tipo", "fidelidade")
+        .eq("status", "pendente");
+      if (delErr) {
+        throw new Error(`falha ao limpar suspeitas pendentes: ${delErr.message}`);
+      }
     }
 
     if (suspeitas.length === 0) return;
@@ -422,14 +449,46 @@ async function handler(req: Request): Promise<Response> {
         correcoes: new Map<string, CorrecaoCurada>(),
       };
 
+    // Modo append (lotes do meio/fim): NAO apaga as linhas ja inseridas. Os
+    // demais modos (substituir/iniciar) zeram o doc antes de inserir.
+    const ehAppend = body.status === "extraido" &&
+      (body.modo === "acrescentar" || body.modo === "finalizar");
+    // finaliza: o doc fica em estado terminal (itens_status=body.status). Lotes
+    // 'iniciar'/'acrescentar' NAO finalizam — itens_status fica 'pendente' ate
+    // o 'finalizar' (ou um run novo recomecar em 'iniciar').
+    const finaliza = !(body.status === "extraido" &&
+      (body.modo === "iniciar" || body.modo === "acrescentar"));
+
     // 4) extraido / sem_itens / ignorado: idempotente — zera os itens do
     //    documento e regrava o conjunto recem-extraido (so AGORA, pos-validacao).
-    const { error: delErr } = await db
-      .from("documento_itens")
-      .delete()
-      .eq("documento_id", body.documento_id);
-    if (delErr) {
-      throw new Error(`falha ao limpar itens anteriores: ${delErr.message}`);
+    //    Em modo append, preserva os lotes ja inseridos (nao deleta).
+    if (!ehAppend) {
+      const { error: delErr } = await db
+        .from("documento_itens")
+        .delete()
+        .eq("documento_id", body.documento_id);
+      if (delErr) {
+        throw new Error(`falha ao limpar itens anteriores: ${delErr.message}`);
+      }
+    }
+
+    // Offset de ordem em modo append: continua a numeracao a partir da MAIOR
+    // `ordem` ja existente no doc (nao da CONTAGEM), evitando colisao quando o
+    // lote anterior trouxe `ordem` explicita esparsa. 0 nos demais modos (doc
+    // recem-zerado pelo delete).
+    let ordemOffset = 0;
+    if (ehAppend) {
+      const { data: maxRow, error: maxErr } = await db
+        .from("documento_itens")
+        .select("ordem")
+        .eq("documento_id", body.documento_id)
+        .order("ordem", { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+      if (maxErr) {
+        throw new Error(`falha ao ler maior ordem existente (append): ${maxErr.message}`);
+      }
+      ordemOffset = Number((maxRow as { ordem: number | null } | null)?.ordem ?? 0);
     }
 
     let gravados = 0;
@@ -470,7 +529,7 @@ async function handler(req: Request): Promise<Response> {
           unidade: it.unidade ?? null,
           quantidade,
           preco_referencia: precoReferencia,
-          ordem: it.ordem ?? i + 1,
+          ordem: it.ordem ?? ordemOffset + i + 1,
           // FIDELIDADE server-side (decisao 3/4): uma POST da Lia = revisao
           // concluida -> 'revisado'; item reprovado -> 'suspeito' + motivo. Item
           // com correcao humana curada (A2) e sempre 'revisado' (nunca suspeito).
@@ -493,10 +552,11 @@ async function handler(req: Request): Promise<Response> {
       suspeitosCount = validacoes.filter((v) => v.suspeito).length;
     }
 
-    // 5) Suspeitas de fidelidade: reconcilia (sempre, p/ limpar pendentes
-    //    obsoletas pos re-extracao) e enfileira as desta rodada (best-effort).
-    //    O link documento_item_id e por posicao (insert preserva a ordem);
-    //    o snapshot e a fonte de verdade resiliente.
+    // 5) Suspeitas de fidelidade: enfileira as desta rodada (best-effort). O
+    //    link documento_item_id e por posicao (insert preserva a ordem); o
+    //    snapshot e a fonte de verdade resiliente. Reconcilia (apaga pendentes
+    //    obsoletas) so quando NAO e append: em acrescentar/finalizar apagar
+    //    zeraria as suspeitas dos lotes anteriores do mesmo doc.
     const suspeitas = body.itens
       .map((it, i) => ({ it, i, v: validacoes[i] }))
       .filter(({ v }) => v.suspeito)
@@ -506,11 +566,19 @@ async function handler(req: Request): Promise<Response> {
         numero_suspeito: v.numeroSuspeito,
         motivo: v.motivos.join("; "),
       }));
-    await reconciliarSuspeitasFidelidade(db, body.documento_id, suspeitas);
+    await reconciliarSuspeitasFidelidade(db, body.documento_id, suspeitas, !ehAppend);
 
+    // Estado do doc: lotes intermediarios (iniciar/acrescentar) ficam 'pendente'
+    // (extracao em andamento — recall-check enxerga e re-despacha se o run cair
+    // no meio); so substituir/finalizar selam o doc (itens_status=body.status +
+    // carimbo de extracao).
+    const docPatch: Record<string, unknown> = {
+      itens_status: finaliza ? body.status : "pendente",
+    };
+    if (finaliza) docPatch.itens_extraido_em = agora;
     const { error: upErr } = await db
       .from("documentos")
-      .update({ itens_status: body.status, itens_extraido_em: agora })
+      .update(docPatch)
       .eq("id", body.documento_id);
     if (upErr) {
       throw new Error(`falha ao atualizar status do documento: ${upErr.message}`);
@@ -520,6 +588,10 @@ async function handler(req: Request): Promise<Response> {
       {
         documento_id: body.documento_id,
         status: body.status,
+        modo: body.modo,
+        // false em lotes iniciar/acrescentar (doc ainda 'pendente'); true quando
+        // selado (substituir/finalizar). Sinaliza ao Extrator se ja pode parar.
+        finalizado: finaliza,
         itens_gravados: gravados,
         // Quantos itens foram gravados MARCADOS como suspeitos de fidelidade
         // (recall total — nenhum foi dropado). 0 = lista integra.

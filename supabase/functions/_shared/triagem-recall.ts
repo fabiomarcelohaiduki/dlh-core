@@ -43,6 +43,32 @@ const SNAPSHOT_DESC_MAX = 2000;
 // estruturados e bloquear lixo neles seria eterno.
 export const STATUS_EXTRACAO_COM_TEXTO = ["extraido", "herdado", "precisa_ocr"];
 
+// Teto de tentativas de extracao de itens (espelha TETO_TENTATIVAS de
+// v1-documento-itens-gravar): no teto o doc vira 'inobtenivel' (terminal) e
+// re-extrair e inutil. Usado para decidir se a extracao incompleta ainda e
+// reprocessavel (vale re-despachar o Extrator) ou ja esgotou.
+export const TETO_TENTATIVAS_ITENS = 3;
+
+// itens_status (documentos.itens_status) NAO-terminais: a lista de itens ainda
+// nao foi estruturada/revisada (ou falhou e e reprocessavel). Espelha
+// ITENS_STATUS_NAO_TERMINAL da Edge de veredito. 'extraido'/'sem_itens'/
+// 'ignorado'/'inobtenivel' sao terminais (nao reprocessam).
+export const ITENS_STATUS_NAO_TERMINAL = ["pendente", "pendente_revisao", "erro"];
+
+/** Documento com texto cuja lista de itens ainda nao foi estruturada. */
+export interface DocIncompleto {
+  documento_id: string;
+  itens_status: string;
+  tentativas: number;
+}
+
+export interface ExtracaoIncompletaResult {
+  /** Docs com texto aproveitavel cujo itens_status e nao-terminal. */
+  docs: DocIncompleto[];
+  /** Ha doc incompleto, mas TODOS no teto de tentativas (re-extrair e inutil). */
+  esgotado: boolean;
+}
+
 // ---------------------------------------------------------------------
 // Validador de RECALL DO EFFECTI (deterministico, per-AVISO — B1). O piso
 // itensEdital sao os itens que SABIDAMENTE existem no edital (casaram a palavra
@@ -161,6 +187,64 @@ export async function enfileirarRecallEffecti(
       mensagem: `recall do Effecti nao enfileirado: ${errorMessage(err)}`,
     });
   }
+}
+
+/**
+ * Detecta EXTRACAO INCOMPLETA do aviso: documentos com texto aproveitavel
+ * (status_extracao com texto) cuja lista de itens ainda NAO foi estruturada
+ * (itens_status nao-terminal: pendente / pendente_revisao / erro). Fecha o
+ * buraco que o recall por item nao enxerga: quando NADA foi extraido (e a
+ * ancora veio vazia), faltantesDoEffecti=[] passa em silencio — este sinal
+ * acusa o doc que ficou sem itens. `esgotado` distingue "ainda da para
+ * re-extrair" (algum doc < teto) de "ja esgotou" (todos no teto -> a rede
+ * final e a curadoria humana, nao adianta re-despachar o Extrator).
+ */
+export async function docsComTextoSemItens(
+  db: ServiceClient,
+  effectiId: string,
+): Promise<ExtracaoIncompletaResult> {
+  const eid = (effectiId ?? "").trim();
+  if (eid === "") return { docs: [], esgotado: false };
+
+  // Documentos do aviso (por effecti_id) com texto aproveitavel.
+  const { data: vinculos, error: vincErr } = await db
+    .from("documento_vinculos")
+    .select("documento_id")
+    .eq("fonte", "effecti")
+    .eq("registro_origem_id", eid)
+    .in("status_extracao", STATUS_EXTRACAO_COM_TEXTO);
+  if (vincErr) {
+    throw new Error(`falha ao ler documento_vinculos (extracao incompleta): ${vincErr.message}`);
+  }
+  const docIds = [
+    ...new Set((vinculos ?? []).map((v) => v.documento_id as string).filter(Boolean)),
+  ];
+  if (docIds.length === 0) return { docs: [], esgotado: false };
+
+  // Docs com texto cuja lista de itens NAO foi estruturada (nao-terminal).
+  const { data: pendentes, error: docErr } = await db
+    .from("documentos")
+    .select("id, itens_status, itens_tentativas")
+    .in("id", docIds)
+    .in("itens_status", ITENS_STATUS_NAO_TERMINAL);
+  if (docErr) {
+    throw new Error(`falha ao ler documentos (extracao incompleta): ${docErr.message}`);
+  }
+  const rows = (pendentes ?? []) as {
+    id: string;
+    itens_status: string;
+    itens_tentativas: number | null;
+  }[];
+  if (rows.length === 0) return { docs: [], esgotado: false };
+
+  let reprocessaveis = 0;
+  const docs: DocIncompleto[] = rows.map((r) => {
+    const tentativas = Number(r.itens_tentativas ?? 0);
+    if (tentativas < TETO_TENTATIVAS_ITENS) reprocessaveis++;
+    return { documento_id: r.id, itens_status: r.itens_status, tentativas };
+  });
+  // esgotado: ha doc incompleto, mas NENHUM ainda reprocessavel (todos no teto).
+  return { docs, esgotado: reprocessaveis === 0 };
 }
 
 /**
