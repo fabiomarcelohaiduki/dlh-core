@@ -277,6 +277,33 @@ export const fonteCredentialSchema = z
 export type FonteCredentialInput = z.infer<typeof fonteCredentialSchema>;
 
 // ---------------------------------------------------------------------
+// Schema: credencial do PAINEL WEB da Effecti (PUT /effecti-painel-cred).
+// Login programatico usuario/senha -> JWT (habilita o endpoint /all de recall
+// total). Ambos nao-vazios apos trim; segredo so trafega na ida (RNF-02).
+// ---------------------------------------------------------------------
+export const effectiPainelCredSchema = z
+  .object({
+    username: z
+      .string({
+        required_error: "username e obrigatorio",
+        invalid_type_error: "username deve ser string",
+      })
+      .trim()
+      .min(1, "username nao pode ser vazio")
+      .max(200, "username muito longo"),
+    password: z
+      .string({
+        required_error: "password e obrigatorio",
+        invalid_type_error: "password deve ser string",
+      })
+      .min(1, "password nao pode ser vazio")
+      .max(400, "password muito longa"),
+  })
+  .strict();
+
+export type EffectiPainelCredInput = z.infer<typeof effectiPainelCredSchema>;
+
+// ---------------------------------------------------------------------
 // Schema: teste de conexao parametrizado por fonte (POST /fontes-testar).
 // ---------------------------------------------------------------------
 export const testarConexaoSchema = z

@@ -42,6 +42,16 @@ export const TRIAGEM_WRITE_KEY_NAME = "TRIAGEM_WRITE_API_KEY" as const;
  */
 export const LLM_OPENAI_API_KEY_NAME = "LLM_OPENAI_API_KEY" as const;
 
+/**
+ * Nome deterministico do segredo da credencial do PAINEL WEB da Effecti no
+ * Vault (JSON {username,password}). Habilita o login programatico
+ * (usuario/senha -> JWT) que abre o endpoint /all com a lista COMPLETA de itens
+ * por edital (recall total), que a API de integracao por token nao entrega.
+ * Configurado pela tela de Fontes (card Effecti); server-side only, nunca volta
+ * ao cliente (RNF-02).
+ */
+export const EFFECTI_PAINEL_CRED_KEY_NAME = "EFFECTI_PAINEL_CRED" as const;
+
 export interface FonteRecord {
   id: string;
   nome: string;
