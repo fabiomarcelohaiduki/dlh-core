@@ -44,6 +44,23 @@ export function salvarCredencial(
 }
 
 /**
+ * PUT /effecti-painel-cred — grava a credencial do PAINEL WEB da Effecti
+ * (usuario+senha) no Vault como segredo de servico. Habilita o login
+ * programatico que abre o endpoint /all (recall total de itens). O segredo so
+ * trafega na ida (request); a resposta nunca o devolve (RNF-02). Campos vazios
+ * sao bloqueados por zod no cliente e no servidor.
+ */
+export function salvarPainelCredEffecti(
+  username: string,
+  password: string,
+): Promise<SalvarCredencialResponse> {
+  return apiFetch<SalvarCredencialResponse>("effecti-painel-cred", {
+    method: "PUT",
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+/**
  * POST /fontes-testar — testa a conexao usando a credencial do Vault.
  * Parametrizado por fonte (effecti|nomus, default effecti). Independente do
  * salvar: pode falhar (estadoConexao='erro' + causa) mesmo apos um salvar

@@ -5,6 +5,7 @@ import { Factory, Gavel, HardDrive, Mail, X } from "lucide-react";
 import { CredForm, type CredFormSource } from "@/components/cockpit/cred-form";
 import { CfgForm } from "@/components/cockpit/cfg-form";
 import { EffectiDisparoForm } from "@/components/cockpit/effecti-disparo-form";
+import { EffectiPainelCredForm } from "@/components/cockpit/effecti-painel-cred-form";
 import { AgendamentoFonteForm } from "@/components/cockpit/agendamento-fonte-form";
 import { NomusCfgForm } from "@/components/cockpit/nomus-cfg-form";
 import { DrivePastasForm } from "@/components/cockpit/drive-pastas-form";
@@ -316,6 +317,7 @@ export function FontesCredenciais({
             fonteId={effecti.id}
             onDirtyChange={setEffectiCfgDirty}
           />
+          <EffectiPainelCredForm configurado={effecti.painelConfigurado} />
         </div>
       )}
 

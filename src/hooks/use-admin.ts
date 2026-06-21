@@ -13,6 +13,7 @@ import {
   salvarAgendamentoFonte,
   salvarConfig,
   salvarCredencial,
+  salvarPainelCredEffecti,
   testarConexao,
   type BuscaSemanticaInput,
   type SalvarAgendamentoExtracaoInput,
@@ -32,6 +33,19 @@ import type { FonteTipo, NomusModo } from "@/lib/api/types";
 export function useSalvarCredencial(fonte: FonteTipo = "effecti") {
   return useMutation({
     mutationFn: (token: string) => salvarCredencial(token, fonte),
+  });
+}
+
+/**
+ * useSalvarPainelCredEffecti — grava/atualiza a credencial do painel web da
+ * Effecti (usuario+senha; PUT effecti-painel-cred). Estados
+ * idle/loading/success/error expostos pela mutation. O segredo nunca volta na
+ * resposta (RNF-02); o sucesso apenas confirma a persistencia.
+ */
+export function useSalvarPainelCredEffecti() {
+  return useMutation({
+    mutationFn: ({ username, password }: { username: string; password: string }) =>
+      salvarPainelCredEffecti(username, password),
   });
 }
 

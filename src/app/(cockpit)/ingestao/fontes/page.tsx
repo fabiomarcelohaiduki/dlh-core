@@ -34,6 +34,7 @@ interface FonteRow {
   endpoint_base: string | null;
   estado_conexao: string | null;
   token_cifrado: string | null;
+  painel_cred_em: string | null;
   updated_at: string | null;
 }
 
@@ -75,7 +76,9 @@ async function loadFonte(): Promise<FonteEffectiState> {
   const supabase = await createClient();
   const { data: raw } = await supabase
     .from("fontes")
-    .select("id, nome, tipo, endpoint_base, estado_conexao, token_cifrado, updated_at")
+    .select(
+      "id, nome, tipo, endpoint_base, estado_conexao, token_cifrado, painel_cred_em, updated_at",
+    )
     .eq("tipo", "effecti")
     .maybeSingle();
 
@@ -88,6 +91,7 @@ async function loadFonte(): Promise<FonteEffectiState> {
     endpointBase: data?.endpoint_base ?? "—",
     estadoConexao: (data?.estado_conexao as EstadoConexao) ?? "nao_configurada",
     configurado: Boolean(data?.token_cifrado),
+    painelConfigurado: Boolean(data?.painel_cred_em),
     ultimaVerificacao: data?.updated_at ?? null,
   };
 }
@@ -114,6 +118,8 @@ async function loadFonteNomus(): Promise<FonteCredState> {
     endpointBase: data?.endpoint_base ?? "—",
     estadoConexao: (data?.estado_conexao as EstadoConexao) ?? "nao_configurada",
     configurado: Boolean(data?.token_cifrado),
+    // Nomus nao tem painel web programatico; a flag fica sempre falsa.
+    painelConfigurado: false,
     ultimaVerificacao: data?.updated_at ?? null,
   };
 }

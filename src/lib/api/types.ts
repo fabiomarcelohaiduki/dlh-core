@@ -162,6 +162,13 @@ export interface FonteEffectiState {
   endpointBase: string;
   estadoConexao: EstadoConexao;
   configurado: boolean;
+  /**
+   * true quando a credencial do PAINEL WEB (usuario+senha) ja foi gravada no
+   * Vault (deriva de fontes.painel_cred_em != null). Independente de
+   * `configurado` (token de API): o painel habilita o endpoint /all de recall
+   * total; o segredo jamais trafega ao cliente (RNF-02).
+   */
+  painelConfigurado: boolean;
   ultimaVerificacao: string | null;
 }
 
