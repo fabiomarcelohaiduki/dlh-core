@@ -1,9 +1,18 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Check, Info, PencilLine, Plus, TriangleAlert } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Info,
+  PencilLine,
+  Plus,
+  TriangleAlert,
+} from "lucide-react";
 import type { AvisoDocumento, AvisoItem, AvisoItemMatch, ItensStatus } from "@/lib/api/types";
 import { formatCurrency, formatNumber } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { useAvisoItens } from "@/hooks/use-aviso-itens";
 import { MatchFeedbackPanel } from "@/components/automacao/match-feedback-panel";
 
@@ -252,16 +261,348 @@ function DocumentoBloco({
   );
 }
 
+// =====================================================================
+// Visao "Por item" (multifonte por numero): reune as aparicoes de um mesmo
+// item (edital/TR/modelo/portal/Effecti) sob a chave (lote, item_numero),
+// exibe a descricao prevalente na linha e expande as demais fontes. Espelha
+// a semantica de pesos do backend (_shared/triagem-fila.ts): TR > edital >
+// modelo > portal > Effecti. Agrupamento client-side: o endpoint do cockpit
+// ja entrega a lista plana completa (sem limite de payload).
+// =====================================================================
+
+const FONTE_PESOS = { tr: 50, edital: 40, modelo: 30, portal: 20, effecti: 10 } as const;
+
+/** Peso da fonte de uma aparicao (decide quem prevalece na divergencia). */
+function pesoFonteItem(it: AvisoItem): number {
+  if (it.effecti) return FONTE_PESOS.effecti;
+  if (it.fonteDescricao === "portal") return FONTE_PESOS.portal;
+  const l = it.listaOrigem.toLowerCase();
+  if (/termo de refer[eê]ncia|\btr\b/.test(l)) return FONTE_PESOS.tr;
+  if (/modelo|proposta|formul[aá]rio/.test(l)) return FONTE_PESOS.modelo;
+  return FONTE_PESOS.edital;
+}
+
+/** Rotulo curto da fonte de uma aparicao (derivado do peso). */
+function rotuloFonte(it: AvisoItem): string {
+  if (it.effecti) return "Effecti";
+  if (it.fonteDescricao === "portal") return "Portal";
+  const l = it.listaOrigem.toLowerCase();
+  if (/termo de refer[eê]ncia|\btr\b/.test(l)) return "TR";
+  if (/modelo|proposta|formul[aá]rio/.test(l)) return "Modelo";
+  return "Edital";
+}
+
+/** Numero normalizado (numerico canonico; texto em minusculas; null se vazio). */
+function normNumero(v: string | null): string | null {
+  const s = (v ?? "").trim();
+  if (!s) return null;
+  return /^\d+$/.test(s) ? String(Number(s)) : s.toLowerCase();
+}
+
+/** Lote efetivo: coluna lote ou, se nula, o "lote N" embutido no lista_origem
+ *  (evita fundir produtos distintos de lotes diferentes em registro de precos). */
+function loteEfetivo(it: AvisoItem): string {
+  const col = (it.lote ?? "").trim();
+  if (col !== "") return /^\d+$/.test(col) ? String(Number(col)) : col.toLowerCase();
+  const m = it.listaOrigem.toLowerCase().match(/\blote\s*:?\s*([0-9]+)/);
+  return m ? String(Number(m[1])) : "";
+}
+
+/** Grupo de aparicoes de um mesmo numero (aparicoes[0] = prevalente). */
+interface GrupoNumero {
+  chave: string;
+  itemNumero: string | null;
+  aparicoes: AvisoItem[];
+  divergenciaUnidade: boolean;
+  divergenciaQuantidade: boolean;
+}
+
+/** Agrupa os itens (de todos os documentos) por (lote, item_numero). Itens sem
+ *  numero viram grupo unitario (recall-safe: nenhum item some). */
+function agruparPorNumero(itens: AvisoItem[]): GrupoNumero[] {
+  const porChave = new Map<string, AvisoItem[]>();
+  const ordem: string[] = [];
+  for (const it of itens) {
+    const num = normNumero(it.itemNumero);
+    const chave = num === null ? `__solo__${it.id}` : `${loteEfetivo(it)}|${num}`;
+    let arr = porChave.get(chave);
+    if (!arr) {
+      arr = [];
+      porChave.set(chave, arr);
+      ordem.push(chave);
+    }
+    arr.push(it);
+  }
+  return ordem.map((chave) => {
+    const aps = (porChave.get(chave) as AvisoItem[]).slice().sort((a, b) => {
+      const dp = pesoFonteItem(b) - pesoFonteItem(a);
+      if (dp !== 0) return dp;
+      const ra = a.itemEstado === "revisado" ? 0 : 1;
+      const rb = b.itemEstado === "revisado" ? 0 : 1;
+      if (ra !== rb) return ra - rb;
+      return b.descricao.length - a.descricao.length;
+    });
+    const unidades = new Set(
+      aps.map((a) => (a.unidade ?? "").trim().toLowerCase()).filter(Boolean),
+    );
+    const quantidades = new Set(
+      aps.filter((a) => a.quantidade != null).map((a) => a.quantidade),
+    );
+    return {
+      chave,
+      itemNumero: aps[0].itemNumero,
+      aparicoes: aps,
+      divergenciaUnidade: unidades.size > 1,
+      divergenciaQuantidade: quantidades.size > 1,
+    };
+  });
+}
+
+function GrupoNumeroLinha({
+  grupo,
+  docNome,
+  matchById,
+  avisoId,
+  editingId,
+  setEditingId,
+  onSaved,
+}: {
+  grupo: GrupoNumero;
+  docNome: Map<string, string | null>;
+  matchById: Map<string, AvisoItemMatch>;
+  avisoId: string;
+  editingId: string | null;
+  setEditingId: (id: string | null) => void;
+  onSaved: (msg: string) => void;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const prevalece = grupo.aparicoes[0];
+  const outras = grupo.aparicoes.slice(1);
+  const temOutras = outras.length > 0;
+  // Match: primeira aparicao (na ordem de peso) com match no catalogo.
+  const aparicaoComMatch = grupo.aparicoes.find((a) => matchById.has(a.id)) ?? null;
+  const match = aparicaoComMatch ? matchById.get(aparicaoComMatch.id) ?? null : null;
+  const alvoMatch = aparicaoComMatch ?? prevalece;
+  const editando = editingId === alvoMatch.id;
+
+  return (
+    <Fragment>
+      <tr className={match ? "row-aprovado" : undefined}>
+        <td className="sub tnum">
+          {temOutras ? (
+            <button
+              type="button"
+              className="btn btn-icon btn-sm"
+              aria-expanded={aberto}
+              aria-label={aberto ? "Recolher fontes" : "Ver outras fontes"}
+              onClick={() => setAberto((v) => !v)}
+              style={{ marginRight: 4 }}
+            >
+              {aberto ? (
+                <ChevronDown aria-hidden="true" width={14} height={14} />
+              ) : (
+                <ChevronRight aria-hidden="true" width={14} height={14} />
+              )}
+            </button>
+          ) : null}
+          {grupo.itemNumero || "—"}
+        </td>
+        <td>
+          {prevalece.descricao}{" "}
+          <span className="tag">{rotuloFonte(prevalece)}</span>
+          {temOutras ? (
+            <>
+              {" "}
+              <span className="sub">
+                · {grupo.aparicoes.length} fontes
+              </span>
+            </>
+          ) : null}
+          {grupo.divergenciaUnidade ? (
+            <>
+              {" "}
+              <span className="tag duvida" title="Unidade diverge entre as fontes">
+                unid. diverge
+              </span>
+            </>
+          ) : null}
+          {grupo.divergenciaQuantidade ? (
+            <>
+              {" "}
+              <span className="tag duvida" title="Quantidade diverge entre as fontes">
+                qtd. diverge
+              </span>
+            </>
+          ) : null}
+        </td>
+        <td className="sub tnum">{prevalece.unidade || "—"}</td>
+        <td className="sub tnum">
+          {prevalece.quantidade != null ? formatNumber(prevalece.quantidade) : "—"}
+        </td>
+        <td className="sub tnum">
+          {prevalece.precoReferencia != null ? formatCurrency(prevalece.precoReferencia) : "—"}
+        </td>
+      </tr>
+      {aberto && temOutras
+        ? outras.map((ap) => (
+            <tr key={ap.id} className="row-match">
+              <td aria-hidden="true" />
+              <td colSpan={4}>
+                <span className="cell-stack" style={{ gap: 2 }}>
+                  <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <span className="tag">{rotuloFonte(ap)}</span>
+                    <span className="sub">
+                      {docNome.get(ap.documentoId) || (ap.effecti ? "Effecti (itensEdital)" : ap.listaOrigem)}
+                    </span>
+                  </span>
+                  <span>{ap.descricao}</span>
+                  <span className="sub tnum">
+                    {ap.unidade || "—"} · {ap.quantidade != null ? formatNumber(ap.quantidade) : "—"}
+                    {ap.precoReferencia != null ? ` · ${formatCurrency(ap.precoReferencia)}` : ""}
+                  </span>
+                </span>
+              </td>
+            </tr>
+          ))
+        : null}
+      {match ? (
+        <tr className="row-match">
+          <td aria-hidden="true" />
+          <td colSpan={4}>
+            <span className="match-produto">
+              <span className="tag aprovado">match</span>
+              <strong>{match.produtoNome ?? "produto do catálogo"}</strong>
+              {match.skuCodigo ? <span className="tag">SKU {match.skuCodigo}</span> : null}
+              {match.score != null ? (
+                <span className="sub">similaridade {match.score.toFixed(2)}</span>
+              ) : null}
+            </span>
+          </td>
+        </tr>
+      ) : null}
+      {editando ? (
+        <tr className="row-match">
+          <td aria-hidden="true" />
+          <td colSpan={4}>
+            <MatchFeedbackPanel
+              avisoId={avisoId}
+              item={alvoMatch}
+              match={match}
+              onClose={() => setEditingId(null)}
+              onSaved={onSaved}
+            />
+          </td>
+        </tr>
+      ) : (
+        <tr className="row-match">
+          <td aria-hidden="true" />
+          <td colSpan={4}>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => setEditingId(alvoMatch.id)}
+            >
+              {match ? (
+                <>
+                  <PencilLine aria-hidden="true" />
+                  Corrigir match
+                </>
+              ) : (
+                <>
+                  <Plus aria-hidden="true" />
+                  Adicionar match
+                </>
+              )}
+            </button>
+          </td>
+        </tr>
+      )}
+    </Fragment>
+  );
+}
+
+function ItensPorNumero({
+  itens,
+  documentos,
+  matchById,
+  avisoId,
+  editingId,
+  setEditingId,
+  onSaved,
+}: {
+  itens: AvisoItem[];
+  documentos: AvisoDocumento[];
+  matchById: Map<string, AvisoItemMatch>;
+  avisoId: string;
+  editingId: string | null;
+  setEditingId: (id: string | null) => void;
+  onSaved: (msg: string) => void;
+}) {
+  const docNome = useMemo(
+    () => new Map(documentos.map((d) => [d.documentoId, d.nomeArquivo])),
+    [documentos],
+  );
+  // Prioridade: grupos com match (0) > destacados pelo Effecti (1) > restante
+  // (2). Dentro de cada nivel preserva a ordem do agrupamento (estavel).
+  const grupos = useMemo(() => {
+    const gs = agruparPorNumero(itens);
+    const rank = (g: GrupoNumero) =>
+      g.aparicoes.some((a) => matchById.has(a.id))
+        ? 0
+        : g.aparicoes.some((a) => a.effecti)
+          ? 1
+          : 2;
+    return gs
+      .map((g, i) => ({ g, i, r: rank(g) }))
+      .sort((a, b) => (a.r === b.r ? a.i - b.i : a.r - b.r))
+      .map((x) => x.g);
+  }, [itens, matchById]);
+
+  if (grupos.length === 0) {
+    return <span className="sub">Nenhum item extraído ainda.</span>;
+  }
+
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Descrição (fonte prevalente)</th>
+          <th>Unid.</th>
+          <th>Qtd.</th>
+          <th>Preço ref. (unit.)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {grupos.map((g) => (
+          <GrupoNumeroLinha
+            key={g.chave}
+            grupo={g}
+            docNome={docNome}
+            matchById={matchById}
+            avisoId={avisoId}
+            editingId={editingId}
+            setEditingId={setEditingId}
+            onSaved={onSaved}
+          />
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 /**
  * cmp-aviso-itens-panel — Conteudo da linha expandida (recall por item).
  *
  * Busca LAZY (so renderiza quando a linha esta aberta) os documentos do aviso e
- * os itens extraidos. SO LEITURA: a extracao e da Lia. Itens agrupados por
- * documento e por lista de origem (listas convivem, nunca fundidas).
+ * os itens extraidos. SO LEITURA: a extracao e da Lia. Duas vistas: "Por item"
+ * (multifonte por numero, decisao) e "Por documento" (fidelidade da extracao,
+ * listas convivem, nunca fundidas).
  */
 export function AvisoItensPanel({ avisoId }: { avisoId: string }) {
   const { data, isLoading, isError, error } = useAvisoItens(avisoId, true);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [vista, setVista] = useState<"item" | "documento">("item");
   const [toast, setToast] = useState<{ kind: "ok" | "err"; message: string } | null>(null);
 
   useEffect(() => {
@@ -332,7 +673,36 @@ export function AvisoItensPanel({ avisoId }: { avisoId: string }) {
           </div>
         </div>
       ) : null}
-      {documentos.map((doc) => (
+      <div className="filter-group segmented" role="group" aria-label="Visão dos itens">
+        <button
+          type="button"
+          className={cn("btn", "btn-sm", vista === "item" && "btn-primary")}
+          aria-pressed={vista === "item"}
+          onClick={() => setVista("item")}
+        >
+          Por item
+        </button>
+        <button
+          type="button"
+          className={cn("btn", "btn-sm", vista === "documento" && "btn-primary")}
+          aria-pressed={vista === "documento"}
+          onClick={() => setVista("documento")}
+        >
+          Por documento
+        </button>
+      </div>
+      {vista === "item" ? (
+        <ItensPorNumero
+          itens={itens}
+          documentos={documentos}
+          matchById={matchById}
+          avisoId={avisoId}
+          editingId={editingId}
+          setEditingId={setEditingId}
+          onSaved={handleSaved}
+        />
+      ) : (
+        documentos.map((doc) => (
         <DocumentoBloco
           key={doc.documentoId}
           doc={doc}
@@ -343,7 +713,8 @@ export function AvisoItensPanel({ avisoId }: { avisoId: string }) {
           setEditingId={setEditingId}
           onSaved={handleSaved}
         />
-      ))}
+        ))
+      )}
       {toast ? (
         <div
           role="status"
