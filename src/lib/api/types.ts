@@ -1099,6 +1099,15 @@ export type Veredito = "lixo" | "duvida" | "util";
 /** Rotulo do feedback humano sobre a decisao vigente. */
 export type FeedbackHumano = "correto" | "incorreto";
 
+/**
+ * Estado agregado da extracao de itens de um aviso (icone da listagem):
+ *  - ok:            todos os documentos com texto tiveram a lista extraida.
+ *  - problema:      algum documento com erro/inobtenivel OU item suspeito.
+ *  - pendente:      ha documento com texto ainda sem a lista extraida.
+ *  - sem_documento: nenhum documento com texto para extrair itens.
+ */
+export type ExtracaoStatus = "ok" | "problema" | "pendente" | "sem_documento";
+
 /** Item da fila de triagem (aviso ja triado), exposto na aba Triagem. */
 export interface TriagemItem {
   avisoId: string;
@@ -1122,6 +1131,8 @@ export interface TriagemItem {
   naLixeiraEm: string | null;
   descartePrevistoEm: string | null;
   reabilitado: boolean;
+  /** Estado agregado da extracao de itens (icone na linha). */
+  extracao: ExtracaoStatus;
 }
 
 /** Item da lixeira: mesma forma da triagem (filtro lixeira aplicado no servidor). */

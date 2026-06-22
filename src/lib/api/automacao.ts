@@ -14,6 +14,7 @@ import type {
   BacktestRecall,
   Conhecimento,
   ExemploFewShot,
+  ExtracaoStatus,
   ExtracaoSuspeitaCurarInput,
   ExtracaoSuspeitaFilaItem,
   FalsoDescarteAmostra,
@@ -50,6 +51,7 @@ interface RawTriagemItem {
   na_lixeira_em: string | null;
   descarte_previsto_em: string | null;
   reabilitado: boolean;
+  extracao: string;
 }
 
 interface RawAvisosResponse {
@@ -178,6 +180,7 @@ function toTriagemItem(raw: RawTriagemItem): TriagemItem {
     naLixeiraEm: raw.na_lixeira_em ?? null,
     descartePrevistoEm: raw.descarte_previsto_em ?? null,
     reabilitado: raw.reabilitado === true,
+    extracao: (raw.extracao as ExtracaoStatus) ?? "sem_documento",
   };
 }
 

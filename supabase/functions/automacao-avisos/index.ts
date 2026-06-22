@@ -34,6 +34,25 @@ const MAX_LIMITE = 100;
 
 const VEREDITOS = new Set(["util", "duvida", "lixo", "todos"]);
 
+/**
+ * Estados de extracao de TEXTO com conteudo aproveitavel — a mesma elegibilidade
+ * da fila de extracao de itens (so estes documentos rendem lista de itens).
+ */
+const STATUS_EXTRACAO_COM_TEXTO = ["extraido", "herdado", "precisa_ocr"];
+
+/** PostgREST corta a resposta em 1000 linhas; paginamos para nao truncar em
+ *  silencio (RECALL TOTAL nas agregacoes auxiliares). */
+const PAGE_SIZE = 1000;
+
+/**
+ * Estado agregado da extracao de itens de um aviso, para o icone da listagem:
+ *  - ok:            todos os documentos com texto tiveram a lista extraida.
+ *  - problema:      algum documento com erro/inobtenivel OU item suspeito.
+ *  - pendente:      ha documento com texto ainda sem a lista extraida.
+ *  - sem_documento: nenhum documento com texto para extrair itens.
+ */
+type ExtracaoStatus = "ok" | "problema" | "pendente" | "sem_documento";
+
 /** Item da listagem (contrato 3.2.3). */
 interface AvisoTriadoItem {
   aviso_id: string;
@@ -54,6 +73,7 @@ interface AvisoTriadoItem {
   na_lixeira_em: string | null;
   descarte_previsto_em: string | null;
   reabilitado: boolean;
+  extracao: ExtracaoStatus;
 }
 
 /** Linha de avisos lida (com aliases de uf via payload_bruto). */
@@ -175,6 +195,7 @@ async function listarFila(
   }
 
   const avisos = (data ?? []) as unknown as AvisoRow[];
+  const extracao = await loadExtracaoStatus(db, avisos);
   const itens: AvisoTriadoItem[] = avisos.map((aviso) => ({
     aviso_id: aviso.id,
     effecti_id: aviso.effecti_id ?? null,
@@ -197,6 +218,7 @@ async function listarFila(
     na_lixeira_em: null,
     descarte_previsto_em: null,
     reabilitado: false,
+    extracao: extracao.get(aviso.id) ?? "sem_documento",
   }));
 
   const nextCursor = itens.length === limite ? itens[itens.length - 1].aviso_id : null;
@@ -252,6 +274,122 @@ async function loadDecisoesVigentes(
   }
   for (const row of (data ?? []) as DecisaoRow[]) {
     if (!map.has(row.aviso_id)) map.set(row.aviso_id, row);
+  }
+  return map;
+}
+
+/** Le todas as linhas de uma query paginada por .range() (evita o teto de 1000). */
+async function fetchAllRows<T>(
+  label: string,
+  build: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0;; from += PAGE_SIZE) {
+    const { data, error } = await build(from, from + PAGE_SIZE - 1);
+    if (error) throw new Error(`falha ao ler ${label}: ${error.message}`);
+    const batch = (data ?? []) as T[];
+    out.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+  }
+  return out;
+}
+
+/**
+ * Mapa aviso_id -> ExtracaoStatus agregando o itens_status dos documentos do
+ * aviso. Caminho: aviso.effecti_id -> documento_vinculos (fonte effecti, com
+ * texto) -> documentos.itens_status; alem disso, qualquer item suspeito vira
+ * "problema" (alerta de fidelidade). Avisos sem documento com texto nao entram
+ * no mapa (o chamador assume "sem_documento" por ausencia).
+ */
+async function loadExtracaoStatus(
+  db: ServiceClient,
+  avisos: AvisoRow[],
+): Promise<Map<string, ExtracaoStatus>> {
+  const map = new Map<string, ExtracaoStatus>();
+
+  // A chave do vinculo de documentos e o effecti_id, nao o uuid do aviso.
+  const avisoPorEffecti = new Map<string, string>();
+  for (const a of avisos) {
+    const eid = (a.effecti_id ?? "").trim();
+    if (eid !== "") avisoPorEffecti.set(eid, a.id);
+  }
+  const effectiIds = [...avisoPorEffecti.keys()];
+  if (effectiIds.length === 0) return map;
+
+  // Vinculos com texto aproveitavel -> documento_id por effecti_id.
+  const vinculos = await fetchAllRows<{
+    registro_origem_id: string | null;
+    documento_id: string | null;
+  }>("documento_vinculos", (from, to) =>
+    db
+      .from("documento_vinculos")
+      .select("registro_origem_id, documento_id")
+      .eq("fonte", "effecti")
+      .in("registro_origem_id", effectiIds)
+      .in("status_extracao", STATUS_EXTRACAO_COM_TEXTO)
+      .range(from, to));
+
+  const avisoPorDoc = new Map<string, string>();
+  const docIds: string[] = [];
+  for (const v of vinculos) {
+    const docId = v.documento_id;
+    const eid = (v.registro_origem_id ?? "").trim();
+    const avisoId = eid === "" ? undefined : avisoPorEffecti.get(eid);
+    if (!docId || !avisoId || avisoPorDoc.has(docId)) continue;
+    avisoPorDoc.set(docId, avisoId);
+    docIds.push(docId);
+  }
+  if (docIds.length === 0) return map;
+
+  // itens_status de cada documento com texto.
+  const docs = await fetchAllRows<{ id: string; itens_status: string | null }>(
+    "documentos",
+    (from, to) =>
+      db.from("documentos").select("id, itens_status").in("id", docIds).range(from, to),
+  );
+
+  // Documentos com ao menos um item suspeito (alerta de fidelidade).
+  const suspeitos = await fetchAllRows<{ documento_id: string | null }>(
+    "documento_itens",
+    (from, to) =>
+      db
+        .from("documento_itens")
+        .select("documento_id")
+        .eq("item_estado", "suspeito")
+        .in("documento_id", docIds)
+        .range(from, to),
+  );
+  const docsComSuspeito = new Set<string>();
+  for (const s of suspeitos) {
+    if (s.documento_id) docsComSuspeito.add(s.documento_id);
+  }
+
+  // Junta os sinais por aviso e so depois decide (problema > pendente > ok).
+  const sinais = new Map<string, { problema: boolean; pendente: boolean; bom: boolean }>();
+  for (const d of docs) {
+    const avisoId = avisoPorDoc.get(d.id);
+    if (!avisoId) continue;
+    let s = sinais.get(avisoId);
+    if (!s) {
+      s = { problema: false, pendente: false, bom: false };
+      sinais.set(avisoId, s);
+    }
+    const status = d.itens_status ?? "pendente";
+    if (status === "erro" || status === "inobtenivel") s.problema = true;
+    else if (status === "pendente" || status === "pendente_revisao") s.pendente = true;
+    else if (status === "extraido" || status === "sem_itens") s.bom = true;
+    // ignorado -> neutro (documento deliberadamente fora da extracao de itens).
+    if (docsComSuspeito.has(d.id)) s.problema = true;
+  }
+
+  for (const [avisoId, s] of sinais) {
+    map.set(
+      avisoId,
+      s.problema ? "problema" : s.pendente ? "pendente" : s.bom ? "ok" : "sem_documento",
+    );
   }
   return map;
 }
@@ -331,9 +469,10 @@ async function handler(req: Request): Promise<Response> {
     // Aliases por arrow-operator quebram a inferencia do PostgREST -> cast.
     const avisos = (data ?? []) as unknown as AvisoRow[];
 
-    const [{ diasCarencia, descarteFisicoLigado }, decisoes] = await Promise.all([
+    const [{ diasCarencia, descarteFisicoLigado }, decisoes, extracao] = await Promise.all([
       loadConfig(db),
       loadDecisoesVigentes(db, avisos.map((a) => a.id)),
+      loadExtracaoStatus(db, avisos),
     ]);
 
     const itens: AvisoTriadoItem[] = avisos.map((aviso) => {
@@ -359,6 +498,7 @@ async function handler(req: Request): Promise<Response> {
         na_lixeira_em: aviso.na_lixeira_em ?? null,
         descarte_previsto_em: calcDescartePrevisto(aviso.na_lixeira_em, diasCarencia),
         reabilitado: aviso.reabilitado === true,
+        extracao: extracao.get(aviso.id) ?? "sem_documento",
       };
     });
 
