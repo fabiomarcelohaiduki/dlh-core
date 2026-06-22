@@ -34,6 +34,8 @@ export function salvarConfigIndexacao(
       pausaMs: input.pausaMs,
       tpmAlvo: input.tpmAlvo,
       tentativasMax: input.tentativasMax,
+      embeddingsProvider: input.embeddingsProvider,
+      embeddingsEndpoint: input.embeddingsEndpoint,
     }),
   });
 }

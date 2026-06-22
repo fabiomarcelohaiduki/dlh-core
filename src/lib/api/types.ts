@@ -264,6 +264,14 @@ export interface ConfigIndexacaoState {
   tpmAlvo: number;
   /** Teto de tentativas antes de marcar a indexacao como 'erro' definitivo. */
   tentativasMax: number;
+  /**
+   * Motor de embeddings: 'openai' (text-embedding-3-small, custo por token) ou
+   * 'bge-m3-local' (self-hosted, sem custo). Trocar exige reindexar o acervo
+   * (espaco vetorial diferente). A chave da OpenAI vive no Vault, nao aqui.
+   */
+  embeddingsProvider: "openai" | "bge-m3-local";
+  /** URL do servico self-hosted (so 'bge-m3-local'); null quando 'openai'. */
+  embeddingsEndpoint: string | null;
 }
 
 /** Contagem de documentos indexaveis por status (foto da fila de indexacao). */

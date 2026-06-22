@@ -64,6 +64,10 @@ async function handlePut(req: Request): Promise<Response> {
     pausa_ms: input.pausaMs,
     tpm_alvo: input.tpmAlvo,
     tentativas_max: input.tentativasMax,
+    embeddings_provider: input.embeddingsProvider,
+    // openai ignora endpoint: zera para nao deixar URL orfa de uma troca anterior.
+    embeddings_endpoint:
+      input.embeddingsProvider === "bge-m3-local" ? input.embeddingsEndpoint ?? null : null,
     updated_at: new Date().toISOString(),
   };
 
@@ -104,6 +108,8 @@ async function handlePut(req: Request): Promise<Response> {
       pausaMs: input.pausaMs,
       tpmAlvo: input.tpmAlvo,
       tentativasMax: input.tentativasMax,
+      embeddingsProvider: input.embeddingsProvider,
+      embeddingsEndpoint: payload.embeddings_endpoint,
     },
   });
 

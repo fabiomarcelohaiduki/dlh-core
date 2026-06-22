@@ -45,7 +45,27 @@ const cfgSchema = z.object({
     .int("Use um valor inteiro.")
     .min(1, "Mínimo 1.")
     .max(10, "Máximo 10."),
-});
+  embeddingsProvider: z.enum(["openai", "bge-m3-local"]),
+  embeddingsEndpoint: z.string().trim().nullable().optional(),
+})
+  // bge-m3-local exige endpoint válido; openai ignora (o endpoint vira null).
+  .superRefine((val, ctx) => {
+    if (val.embeddingsProvider !== "bge-m3-local") return;
+    const ep = val.embeddingsEndpoint?.trim();
+    if (!ep) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["embeddingsEndpoint"],
+        message: "Informe o endpoint do serviço bge-m3.",
+      });
+    } else if (!/^https?:\/\/.+/.test(ep)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["embeddingsEndpoint"],
+        message: "URL inválida (ex.: http://192.168.1.6:8080).",
+      });
+    }
+  });
 type CfgValues = z.infer<typeof cfgSchema>;
 
 type Feedback = { kind: "ok" | "err"; message: string };
@@ -60,6 +80,8 @@ function toDefaults(initial: ConfigIndexacaoState): CfgValues {
     pausaMs: initial.pausaMs,
     tpmAlvo: initial.tpmAlvo,
     tentativasMax: initial.tentativasMax,
+    embeddingsProvider: initial.embeddingsProvider,
+    embeddingsEndpoint: initial.embeddingsEndpoint ?? "",
   };
 }
 
@@ -96,6 +118,9 @@ export function IndexacaoConfigForm({ initial }: { initial: ConfigIndexacaoState
   const ativo = watch("ativo");
   const processosAtivo = watch("processosAtivo");
   const fontesSel = watch("fontes");
+  const embeddingsProvider = watch("embeddingsProvider");
+  // Trocar o provider muda o espaco vetorial: alerta de recall (reindex).
+  const providerTrocado = embeddingsProvider !== initial.embeddingsProvider;
 
   function toggleFonte(value: FonteIndexacao, checked: boolean) {
     const next = checked
@@ -115,6 +140,12 @@ export function IndexacaoConfigForm({ initial }: { initial: ConfigIndexacaoState
         pausaMs: values.pausaMs,
         tpmAlvo: values.tpmAlvo,
         tentativasMax: values.tentativasMax,
+        embeddingsProvider: values.embeddingsProvider,
+        // openai ignora endpoint; bge-m3-local manda a URL (ja validada).
+        embeddingsEndpoint:
+          values.embeddingsProvider === "bge-m3-local"
+            ? values.embeddingsEndpoint?.trim() || null
+            : null,
       });
       reset(values);
       setFeedback({ kind: "ok", message: "Configuração salva · vale na próxima indexação." });
@@ -142,6 +173,74 @@ export function IndexacaoConfigForm({ initial }: { initial: ConfigIndexacaoState
       </div>
 
       <div className="field" style={{ marginTop: 14 }}>
+        <label>Motor de embeddings</label>
+        <div className="filter-group segmented" role="group" aria-label="Motor de embeddings">
+          <button
+            type="button"
+            className={cn("btn", "btn-sm", embeddingsProvider === "openai" && "btn-primary")}
+            aria-pressed={embeddingsProvider === "openai"}
+            onClick={() =>
+              setValue("embeddingsProvider", "openai", { shouldDirty: true, shouldValidate: true })
+            }
+          >
+            OpenAI · custo
+          </button>
+          <button
+            type="button"
+            className={cn("btn", "btn-sm", embeddingsProvider === "bge-m3-local" && "btn-primary")}
+            aria-pressed={embeddingsProvider === "bge-m3-local"}
+            onClick={() =>
+              setValue("embeddingsProvider", "bge-m3-local", {
+                shouldDirty: true,
+                shouldValidate: true,
+              })
+            }
+          >
+            bge-m3 local · grátis
+          </button>
+        </div>
+        <div className="helper">
+          OpenAI (text-embedding-3-small): qualidade gerenciada, custo por token, chave no Vault.
+          bge-m3 local: self-hosted, sem custo, exige um endpoint acessível.
+        </div>
+      </div>
+
+      {embeddingsProvider === "bge-m3-local" && (
+        <div className={cn("field", errors.embeddingsEndpoint && "invalid")}>
+          <label htmlFor="ix-endpoint">Endpoint do serviço bge-m3</label>
+          <input
+            type="text"
+            id="ix-endpoint"
+            placeholder="http://192.168.1.6:8080"
+            aria-invalid={Boolean(errors.embeddingsEndpoint)}
+            {...register("embeddingsEndpoint")}
+          />
+          <div className="err-msg">
+            <TriangleAlert aria-hidden="true" />
+            {errors.embeddingsEndpoint?.message ?? "Informe a URL do serviço de embeddings."}
+          </div>
+          <div className="helper">
+            URL HTTP do serviço self-hosted que gera os embeddings (contrato compatível com bge-m3).
+          </div>
+        </div>
+      )}
+
+      {providerTrocado && (
+        <div className="banner">
+          <TriangleAlert aria-hidden="true" />
+          <div>
+            <b>Trocar o motor exige reindexar todo o acervo</b>
+            <p>
+              Cada motor gera embeddings num espaço vetorial diferente. Ao salvar a troca, os chunks
+              já gravados (avisos, documentos, processos) ficam incompatíveis com a busca semântica
+              até serem reindexados. Rode o reprocessamento / &ldquo;Indexar agora&rdquo; após
+              salvar.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="field">
         <label>Interruptor da indexação · documentos</label>
         <label className={cn("chk", ativo && "on")} style={{ maxWidth: 340 }}>
           <input type="checkbox" checked={ativo} {...register("ativo")} />

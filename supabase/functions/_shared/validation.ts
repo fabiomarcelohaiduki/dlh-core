@@ -855,8 +855,29 @@ export const indexacaoConfigSchema = z
       .int("tentativasMax deve ser inteiro")
       .min(1, "tentativasMax deve ser >= 1")
       .max(MAX_TENTATIVAS, `tentativasMax deve ser <= ${MAX_TENTATIVAS}`),
+    // Motor de embeddings (administravel; trocar exige reindexar o acervo).
+    embeddingsProvider: z.enum(["openai", "bge-m3-local"], {
+      errorMap: () => ({ message: "embeddingsProvider invalido (use: openai, bge-m3-local)" }),
+    }),
+    // URL do servico self-hosted; obrigatorio para bge-m3-local, ignorado p/ openai.
+    embeddingsEndpoint: z
+      .string({ invalid_type_error: "embeddingsEndpoint deve ser string" })
+      .trim()
+      .url("embeddingsEndpoint deve ser uma URL valida")
+      .nullable()
+      .optional(),
   })
-  .strict();
+  .strict()
+  // bge-m3-local sem endpoint nao indexa (503 em runtime) -> barra no boundary.
+  .superRefine((val, ctx) => {
+    if (val.embeddingsProvider === "bge-m3-local" && !val.embeddingsEndpoint) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["embeddingsEndpoint"],
+        message: "embeddingsEndpoint e obrigatorio quando o provider e bge-m3-local",
+      });
+    }
+  });
 
 export type IndexacaoConfigInput = z.infer<typeof indexacaoConfigSchema>;
 

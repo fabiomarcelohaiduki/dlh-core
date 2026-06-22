@@ -22,6 +22,8 @@ interface ConfigIndexacaoRow {
   pausa_ms: number | null;
   tpm_alvo: number | null;
   tentativas_max: number | null;
+  embeddings_provider: string | null;
+  embeddings_endpoint: string | null;
 }
 
 /**
@@ -33,7 +35,7 @@ async function loadConfigIndexacao(): Promise<ConfigIndexacaoState> {
   const supabase = await createClient();
   const { data: raw } = await supabase
     .from("config_indexacao")
-    .select("ativo, processos_ativo, fontes_habilitadas, lote_chunks, pausa_ms, tpm_alvo, tentativas_max")
+    .select("ativo, processos_ativo, fontes_habilitadas, lote_chunks, pausa_ms, tpm_alvo, tentativas_max, embeddings_provider, embeddings_endpoint")
     .limit(1)
     .maybeSingle();
 
@@ -51,6 +53,11 @@ async function loadConfigIndexacao(): Promise<ConfigIndexacaoState> {
     pausaMs: data?.pausa_ms ?? 0,
     tpmAlvo: data?.tpm_alvo ?? 800000,
     tentativasMax: data?.tentativas_max ?? 3,
+    embeddingsProvider: data?.embeddings_provider === "bge-m3-local" ? "bge-m3-local" : "openai",
+    embeddingsEndpoint:
+      typeof data?.embeddings_endpoint === "string" && data.embeddings_endpoint.trim() !== ""
+        ? data.embeddings_endpoint.trim()
+        : null,
   };
 }
 

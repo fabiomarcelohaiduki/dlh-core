@@ -40,6 +40,10 @@ export interface ConfigIndexacao {
   tentativasMax: number;
   /** Teto de tokens/min mirado ao chamar a OpenAI (pacer por tokens; 0 = sem pacing). */
   tpmAlvo: number;
+  /** Motor de embeddings: 'openai' (custo, chave no Vault) ou 'bge-m3-local' (self-hosted). */
+  embeddingsProvider: string;
+  /** URL do servico self-hosted (so 'bge-m3-local'); null quando 'openai'. */
+  embeddingsEndpoint: string | null;
 }
 
 /**
@@ -53,7 +57,7 @@ export async function loadConfigIndexacao(
 ): Promise<ConfigIndexacao | null> {
   const { data, error } = await service
     .from("config_indexacao")
-    .select("ativo, processos_ativo, fontes_habilitadas, lote_chunks, pausa_ms, tentativas_max, tpm_alvo")
+    .select("ativo, processos_ativo, fontes_habilitadas, lote_chunks, pausa_ms, tentativas_max, tpm_alvo, embeddings_provider, embeddings_endpoint")
     .limit(1)
     .maybeSingle();
   if (error) {
@@ -75,19 +79,47 @@ export async function loadConfigIndexacao(
     pausaMs: typeof c.pausa_ms === "number" && c.pausa_ms > 0 ? c.pausa_ms : 0,
     tentativasMax: typeof c.tentativas_max === "number" && c.tentativas_max > 0 ? c.tentativas_max : 3,
     tpmAlvo: typeof c.tpm_alvo === "number" && c.tpm_alvo >= 0 ? c.tpm_alvo : 800_000,
+    embeddingsProvider: c.embeddings_provider === "bge-m3-local" ? "bge-m3-local" : "openai",
+    embeddingsEndpoint:
+      typeof c.embeddings_endpoint === "string" && c.embeddings_endpoint.trim() !== ""
+        ? c.embeddings_endpoint.trim()
+        : null,
   };
 }
 
 /**
- * Monta o provider de embeddings da camada de DOCUMENTOS. Forca provider
- * 'openai' EXPLICITAMENTE (decisao 2026-06-11: text-embedding-3-small, dim
- * 1024) em vez de depender de EMBEDDINGS_PROVIDER do env: flipar o env global
- * arrastaria as demais funcoes (busca semantica, reindex) que chamam
- * createEmbeddingProvider() sem chave -> 401. Isolar aqui = blast radius zero.
- * A chave vive cifrada no Vault (LLM_OPENAI_API_KEY); sem ela nao indexa (503).
- * A dimensao vem do env (EMBEDDINGS_DIM, default 1024) e e validada no provider.
+ * Monta o provider de embeddings lendo a config_indexacao (administravel pelo
+ * cockpit, sem hardcode). ESCRITA e LEITURA (busca semantica) chamam esta mesma
+ * funcao -> ambas seguem a MESMA config no mesmo instante, nunca divergem.
+ *
+ *   'openai'       -> text-embedding-3-small (dim do env EMBEDDINGS_DIM, default
+ *                     1024). A chave vive cifrada no Vault (LLM_OPENAI_API_KEY);
+ *                     sem ela nao indexa (503).
+ *   'bge-m3-local' -> servico self-hosted; exige embeddings_endpoint na config
+ *                     (sem ele, 503). Sem chave (servico interno).
+ *
+ * Sem linha de config (improvavel apos o seed) cai em 'openai' = preserva o
+ * comportamento legado. ATENCAO (recall): trocar o provider muda o ESPACO
+ * VETORIAL; os chunks ja gravados ficam incompativeis com a busca ate o acervo
+ * ser reindexado (o cockpit avisa; nao ha reindex automatico aqui).
  */
 export async function resolveEmbeddingProvider(): Promise<EmbeddingProvider> {
+  const service = createServiceClient();
+  const config = await loadConfigIndexacao(service);
+  const provider = config?.embeddingsProvider ?? "openai";
+
+  if (provider === "bge-m3-local") {
+    const endpoint = config?.embeddingsEndpoint;
+    if (!endpoint) {
+      throw new HttpError(
+        503,
+        "embeddings_endpoint_ausente",
+        "indexacao 'bge-m3-local' requer embeddings_endpoint na config_indexacao, ausente",
+      );
+    }
+    return createEmbeddingProvider({ provider: "bge-m3-local", endpoint });
+  }
+
   const apiKey = await getServiceSecret(LLM_OPENAI_API_KEY_NAME);
   if (!apiKey) {
     throw new HttpError(
