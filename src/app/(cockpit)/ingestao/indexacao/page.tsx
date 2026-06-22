@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { IndexacaoConfigForm } from "@/components/cockpit/indexacao-config-form";
 import { IndexacaoDisparoForm } from "@/components/cockpit/indexacao-disparo-form";
+import { IndexacaoAvisosResumo } from "@/components/cockpit/indexacao-avisos-resumo";
 import type { ConfigIndexacaoState, FonteIndexacao } from "@/lib/api/types";
 
 export const metadata: Metadata = { title: "Indexação" };
@@ -68,6 +69,7 @@ export default async function IngestaoIndexacaoPage() {
     <>
       <div className="extracao-acoes-row">
         <IndexacaoDisparoForm fontes={config.fontesHabilitadas} ativo={config.ativo} />
+        <IndexacaoAvisosResumo />
       </div>
 
       <IndexacaoConfigForm initial={config} />

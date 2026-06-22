@@ -10,7 +10,13 @@
 //
 //   POST { action:"resumo", fontes? } -> contagem por status_indexacao da(s)
 //           fonte(s) (RPC resumo_indexacao, service_role). Foto da fila para
-//           o painel (pendente/em_andamento/concluida/erro).
+//           o painel (pendente/em_andamento/concluida/erro). Conta DOCUMENTOS.
+//
+//   POST { action:"resumo_avisos" } -> contagem dos AVISOS (licitacoes Effecti)
+//           por status_indexacao (RPC resumo_indexacao_avisos, service_role).
+//           Tabela SEPARADA de documentos; surfa o ponto cego que escondia
+//           avisos travados em 'pendente'. avisos usam 'indexado' (mapeado
+//           para o bucket concluida/Indexados do painel).
 //
 //   POST { action:"disparar" } -> aciona 1 lote de backfill AGORA: chama
 //           reenfileirar_indexacao() (net.http_post no documentos-indexar,
@@ -121,8 +127,8 @@ async function handlePut(req: Request): Promise<Response> {
 // ---------------------------------------------------------------------
 const acaoSchema = z
   .object({
-    action: z.enum(["resumo", "disparar", "reprocessar_erros"], {
-      errorMap: () => ({ message: "action invalida (use: resumo, disparar, reprocessar_erros)" }),
+    action: z.enum(["resumo", "resumo_avisos", "disparar", "reprocessar_erros"], {
+      errorMap: () => ({ message: "action invalida (use: resumo, resumo_avisos, disparar, reprocessar_erros)" }),
     }),
     fontes: z
       .array(
@@ -161,6 +167,28 @@ async function handlePost(req: Request): Promise<Response> {
       if (r.status === "pendente") contagens.pendente += n;
       else if (r.status === "em_andamento") contagens.em_andamento += n;
       else if (r.status === "concluida") contagens.concluida += n;
+      else if (r.status === "erro") contagens.erro += n;
+    }
+    return jsonResponse({ contagens }, 200);
+  }
+
+  if (input.action === "resumo_avisos") {
+    // Foto da fila dos AVISOS (licitacoes Effecti) — tabela separada de
+    // documentos, ciclo de indexacao proprio (aviso_chunks). Surfa o ponto
+    // cego que escondia avisos travados em 'pendente'. Avisos usam o status
+    // 'indexado' (nao 'concluida'): mapeado para o mesmo bucket do painel.
+    const { data, error } = await service.rpc("resumo_indexacao_avisos");
+    if (error) {
+      throw new HttpError(500, "indexacao_resumo_avisos_failed", "falha ao apurar o resumo de indexacao dos avisos");
+    }
+    const rows = (Array.isArray(data) ? data : []) as ResumoRow[];
+    const contagens = { pendente: 0, em_andamento: 0, concluida: 0, erro: 0, total: 0 };
+    for (const r of rows) {
+      const n = typeof r.total === "number" ? r.total : 0;
+      contagens.total += n;
+      if (r.status === "pendente") contagens.pendente += n;
+      else if (r.status === "em_andamento") contagens.em_andamento += n;
+      else if (r.status === "indexado" || r.status === "concluida") contagens.concluida += n;
       else if (r.status === "erro") contagens.erro += n;
     }
     return jsonResponse({ contagens }, 200);

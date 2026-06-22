@@ -10,6 +10,7 @@ import {
 import {
   dispararIndexacao,
   fetchIndexacaoResumo,
+  fetchIndexacaoResumoAvisos,
   reprocessarErrosIndexacao,
   salvarConfigIndexacao,
   type SalvarConfigIndexacaoInput,
@@ -31,6 +32,7 @@ export const indexacaoKeys = {
     "resumo",
     fontes && fontes.length > 0 ? [...fontes].sort().join(",") : "todas",
   ],
+  resumoAvisos: (): QueryKey => ["indexacao", "resumo-avisos"],
 };
 
 /**
@@ -46,6 +48,24 @@ export function useIndexacaoResumo(
   return useQuery({
     queryKey: indexacaoKeys.resumo(fontes),
     queryFn: () => fetchIndexacaoResumo(fontes),
+    enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval ?? false,
+  });
+}
+
+/**
+ * useIndexacaoResumoAvisos — contagens dos AVISOS (licitacoes Effecti) por
+ * status_indexacao (POST indexacao { action:"resumo_avisos" }). Tabela
+ * SEPARADA dos documentos; surfa avisos travados em 'pendente' que o resumo
+ * de documentos nunca enxergou. Read-only (sem disparo nesta fase).
+ */
+export function useIndexacaoResumoAvisos(options?: {
+  enabled?: boolean;
+  refetchInterval?: ResumoRefetchInterval;
+}) {
+  return useQuery({
+    queryKey: indexacaoKeys.resumoAvisos(),
+    queryFn: () => fetchIndexacaoResumoAvisos(),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval ?? false,
   });

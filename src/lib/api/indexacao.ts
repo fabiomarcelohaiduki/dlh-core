@@ -72,6 +72,25 @@ export function fetchIndexacaoResumo(
 }
 
 /**
+ * POST /indexacao { action:"resumo_avisos" } — contagens dos AVISOS
+ * (licitacoes Effecti) por status_indexacao. Tabela SEPARADA dos documentos
+ * (ciclo de indexacao proprio); surfa avisos travados em 'pendente' que o
+ * resumo de documentos nunca enxergou. Sem filtro de fonte (avisos = Effecti).
+ */
+export function fetchIndexacaoResumoAvisos(): Promise<IndexacaoResumo> {
+  return apiFetch<IndexacaoResumoRaw>("indexacao", {
+    method: "POST",
+    body: JSON.stringify({ action: "resumo_avisos" }),
+  }).then((raw) => ({
+    pendente: raw.contagens?.pendente ?? 0,
+    emAndamento: raw.contagens?.em_andamento ?? 0,
+    concluida: raw.contagens?.concluida ?? 0,
+    erro: raw.contagens?.erro ?? 0,
+    total: raw.contagens?.total ?? 0,
+  }));
+}
+
+/**
  * POST /indexacao { action:"disparar" } — aciona 1 lote de backfill da
  * indexacao AGORA (auto-encadeado ate esgotar a fila). So tem efeito quando o
  * master switch (ativo) esta ON; OFF => no-op no documentos-indexar.
