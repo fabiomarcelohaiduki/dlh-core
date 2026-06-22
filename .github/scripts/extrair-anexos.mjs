@@ -66,6 +66,13 @@ const EFFECTI_FETCH_TIMEOUT_MS = posInt(process.env.EFFECTI_FETCH_TIMEOUT_MS, 60
 // essa fila com OCR ligado. Default rapido (preco de nao perder licitacao).
 const MODO = process.env.EXTRACAO_MODO?.trim() === "ocr" ? "ocr" : "rapido";
 const OCR_TEXTO_MINIMO = posInt(process.env.OCR_TEXTO_MINIMO, 50);
+// Teto de tamanho do TEXTO extraido (chars). PDF corrompido ("Invalid PDF
+// structure" + "Indexing all PDF objects") faz o Tika cuspir MEGABYTES de
+// texto-lixo que estoura o worker do Edge na indexacao (WORKER_RESOURCE_LIMIT
+// 546). Acima do teto o runner NAO empurra o texto: marca falha e o Edge segue
+// o auto-retry ate virar card 'erro' visivel (nunca silencioso; o Fabio revisa).
+// 8 MiB = ~8x o maior edital real ja visto (~1 MiB), longe do lixo de 15 MiB.
+const TEXTO_MAX_CHARS = posInt(process.env.EXTRACAO_TEXTO_MAX_CHARS, 8 * 1024 * 1024);
 // Timeout PROPRIO do modo OCR. config_extracao.timeoutMs e calibrado para o
 // passo RAPIDO (OCR off -> timeout grande so segura o Tika a toa); no modo OCR
 // o trabalho e demorado de proposito (Tesseract pagina a pagina num escaneado),
@@ -460,6 +467,19 @@ async function processarVinculo(vinculo, configExtrator) {
       extension: extensao,
       config: configExtrator,
     });
+    // Guarda de texto-lixo (ver TEXTO_MAX_CHARS): acima do teto NAO empurra o
+    // texto. Marca falha (ok:false, terminal=false) -> o Edge roda o auto-retry
+    // normal ate virar card 'erro' VISIVEL no cockpit (recall: nunca some calado;
+    // o Fabio decide se ha conteudo recuperavel). Evita trafegar megabytes e
+    // estourar o worker do Edge na indexacao.
+    if ((r.texto?.length ?? 0) > TEXTO_MAX_CHARS) {
+      return {
+        vinculo_id: vinculo.id,
+        ok: false,
+        erro: `texto excede ${TEXTO_MAX_CHARS} chars (${r.texto.length}); PDF provavelmente corrompido`,
+        inobtenivel: false,
+      };
+    }
     // Modo rapido (OCR off): um arquivo que so daria texto via OCR volta quase
     // vazio. Em vez de gravar lixo, sinaliza precisa_ocr -> o Edge enfileira e o
     // passo OCR dedicado re-extrai com OCR ligado. Cobre PDF/imagem direto
@@ -572,7 +592,22 @@ async function drenarBuffer(buffer, minimo) {
   while (buffer.length > 0 && buffer.length >= minimo) {
     const lote = buffer.splice(0, PUSH_CHUNK);
     const r = await postEdge({ documentos: lote });
-    if (!r.ok) fail(`push de resultados falhou (${r.status}): ${r.text.slice(0, 300)}`, 1);
+    if (!r.ok) {
+      // 5xx = o worker do Edge estourou recursos (ex 546 WORKER_RESOURCE_LIMIT)
+      // ou ficou indisponivel: a falha e do LOTE, nao do run. Pula este lote (os
+      // vinculos nao foram atualizados no banco -> seguem 'pendente' e voltam pela
+      // fila num proximo fetch/run) e segue drenando, em vez de derrubar TODOS os
+      // pendentes ja extraidos com um exit 1. 4xx = erro de contrato do proprio
+      // push (corpo/auth invalido): seguir nao adianta -> mata o run.
+      if (r.status >= 500) {
+        console.error(
+          `[push] lote pulado: Edge respondeu ${r.status} (${r.text.slice(0, 200)}); ` +
+            `${lote.length} vinculo(s) voltam para a fila.`,
+        );
+        continue;
+      }
+      fail(`push de resultados falhou (${r.status}): ${r.text.slice(0, 300)}`, 1);
+    }
     resumo.recebidos += r.json?.recebidos ?? lote.length;
     resumo.novos += r.json?.novos ?? 0;
     resumo.herdados += r.json?.herdados ?? 0;
