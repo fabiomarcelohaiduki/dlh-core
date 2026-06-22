@@ -1,11 +1,35 @@
 "use client";
 
-import { type CSSProperties, Fragment, type ReactNode, useState } from "react";
-import { ChevronDown, ChevronRight, Inbox } from "lucide-react";
-import type { TriagemItem } from "@/lib/api/types";
+import { type ComponentType, type CSSProperties, type ReactNode } from "react";
+import Link from "next/link";
+import { AlertTriangle, CheckCircle2, Clock, Inbox, Minus } from "lucide-react";
+import type { ExtracaoStatus, TriagemItem } from "@/lib/api/types";
 import { formatDataBr, formatDate, formatHoraBr } from "@/lib/format";
 import { VereditoBadge } from "@/components/automacao/veredito-badge";
-import { AvisoItensPanel } from "@/components/automacao/aviso-itens-panel";
+
+/** Icone + cor + rotulo por estado de extracao de itens do aviso. O proprio
+ *  icone e o link para a tela de itens extraidos (status + navegacao num clique). */
+const EXTRACAO_META: Record<
+  ExtracaoStatus,
+  { Icon: ComponentType<{ "aria-hidden"?: boolean }>; cor: string; titulo: string }
+> = {
+  ok: { Icon: CheckCircle2, cor: "var(--ok)", titulo: "Lista de itens extraída" },
+  problema: { Icon: AlertTriangle, cor: "var(--warn)", titulo: "Problema na extração de itens" },
+  pendente: { Icon: Clock, cor: "var(--muted)", titulo: "Extração de itens pendente" },
+  sem_documento: { Icon: Minus, cor: "var(--muted)", titulo: "Sem documento para extrair itens" },
+};
+
+/** Link para a tela de itens extraidos do aviso, levando os metadados da linha
+ *  (orgao/UF/edital/Effecti) por query para o cabecalho da pagina. */
+function hrefItens(it: TriagemItem): string {
+  const qs = new URLSearchParams();
+  if (it.orgao) qs.set("orgao", it.orgao);
+  if (it.uf) qs.set("uf", it.uf);
+  if (it.edital) qs.set("edital", it.edital);
+  if (it.effectiId) qs.set("effecti", it.effectiId);
+  const sufixo = qs.toString();
+  return `/automacao/avisos/${it.avisoId}/itens${sufixo ? `?${sufixo}` : ""}`;
+}
 
 export type TriagemVariant = "triagem" | "lixeira" | "fila";
 
@@ -71,11 +95,10 @@ export function TriagemTable({
   footer?: ReactNode;
 }) {
   const columns = COLUMNS[variant];
-  // +1 = coluna do expansor (itens extraidos pela Lia, recall por item).
+  // +1 = coluna do link para a tela de itens extraidos pela Lia.
   const colCount = columns.length + 1;
   const isLixeira = variant === "lixeira";
   const isFila = variant === "fila";
-  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
     <div className="tbl-wrap tbl-scroll">
@@ -103,20 +126,19 @@ export function TriagemTable({
             </tr>
           ) : (
             items.map((it) => {
-              const expanded = expandedId === it.avisoId;
+              const ext = EXTRACAO_META[it.extracao];
               return (
-              <Fragment key={it.avisoId}>
-              <tr>
+              <tr key={it.avisoId}>
                 <td>
-                  <button
-                    type="button"
+                  <Link
+                    href={hrefItens(it)}
                     className="btn-icon"
-                    aria-expanded={expanded}
-                    aria-label={expanded ? "Recolher itens do edital" : "Ver itens do edital"}
-                    onClick={() => setExpandedId(expanded ? null : it.avisoId)}
+                    style={{ color: ext.cor }}
+                    aria-label={`${ext.titulo}. Ver itens extraídos do edital`}
+                    title={ext.titulo}
                   >
-                    {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
-                  </button>
+                    <ext.Icon aria-hidden={true} />
+                  </Link>
                 </td>
                 <td className="sub tnum">{it.effectiId || "—"}</td>
                 <td className="sub tnum">{it.portal || "—"}</td>
@@ -148,15 +170,6 @@ export function TriagemTable({
                   </>
                 )}
               </tr>
-              {expanded && (
-                <tr>
-                  <td aria-hidden="true" />
-                  <td colSpan={colCount - 1}>
-                    <AvisoItensPanel avisoId={it.avisoId} />
-                  </td>
-                </tr>
-              )}
-              </Fragment>
               );
             })
           )}
