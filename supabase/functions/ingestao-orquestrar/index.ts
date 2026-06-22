@@ -28,7 +28,7 @@ import { createServiceClient } from "../_shared/supabase.ts";
 import { getFonteSecret, getServiceSecret } from "../_shared/vault.ts";
 import { createConnector, EffectiConnector } from "../_shared/effecti-connector.ts";
 import { type NomusConnector, type NomusRecursoConfig } from "../_shared/nomus-connector.ts";
-import { createEmbeddingProvider } from "../_shared/embeddings.ts";
+import { resolveEmbeddingProvider } from "../_shared/indexacao.ts";
 import {
   buildInitialCheckpoint,
   type CheckpointModo,
@@ -231,8 +231,7 @@ async function advanceNomus(
   }
   const config = await loadConfig(service, fonte.id);
   const { connector, tiposAtivos } = buildNomusConnector(fonte, token, config);
-  const env = getEnv();
-  const embeddingProvider = env.embeddingsEndpoint ? createEmbeddingProvider() : undefined;
+  const embeddingProvider = await resolveEmbeddingProvider();
 
   const outcome = await runNomusBlock(
     { db: service, connector, embeddingProvider, fonteId: fonte.id },
@@ -305,6 +304,11 @@ async function startNomus(
   }
   const checkpoint = buildInitialCheckpoint(modo, since, until);
 
+  // Resolve o provider de embeddings ANTES de criar a execucao em_andamento:
+  // se a chave OpenAI faltar no Vault, falha (503) sem deixar execucao orfa
+  // travando o lock-por-fonte.
+  const embeddingProvider = await resolveEmbeddingProvider();
+
   const { data: execucao, error: insError } = await service
     .from("execucoes")
     .insert({
@@ -330,9 +334,6 @@ async function startNomus(
     throw new HttpError(500, "execucao_insert_failed", "falha ao criar a execucao");
   }
   const execucaoId = String((execucao as { id: string }).id);
-
-  const env = getEnv();
-  const embeddingProvider = env.embeddingsEndpoint ? createEmbeddingProvider() : undefined;
 
   // Primeiro bloco sincrono: o resultado define a acao (iniciou/concluiu).
   const outcome = await runNomusBlock(
@@ -389,6 +390,11 @@ async function startEffecti(
   // orquestrador avanca os seguintes nos tiques do ciclo (igual ao Nomus).
   const checkpoint = buildInitialEffectiCheckpoint(since, until);
 
+  // Resolve o provider de embeddings ANTES de criar a execucao em_andamento:
+  // se a chave OpenAI faltar no Vault, falha (503) sem deixar execucao orfa
+  // travando o lock-por-fonte.
+  const embeddingProvider = await resolveEmbeddingProvider();
+
   const { data: execucao, error: insError } = await service
     .from("execucoes")
     .insert({
@@ -414,8 +420,6 @@ async function startEffecti(
   const execucaoId = String((execucao as { id: string }).id);
 
   const connector = new EffectiConnector({ endpointBase: fonte.endpoint_base, token });
-  const env = getEnv();
-  const embeddingProvider = env.embeddingsEndpoint ? createEmbeddingProvider() : undefined;
 
   // Primeiro bloco sincrono: o resultado define a acao (iniciou/concluiu).
   const outcome = await runEffectiBlock(
@@ -451,8 +455,7 @@ async function advanceEffecti(
   }
   const config = await loadConfig(service, fonte.id);
   const connector = new EffectiConnector({ endpointBase: fonte.endpoint_base, token });
-  const env = getEnv();
-  const embeddingProvider = env.embeddingsEndpoint ? createEmbeddingProvider() : undefined;
+  const embeddingProvider = await resolveEmbeddingProvider();
 
   const outcome = await runEffectiBlock(
     { db: service, connector, embeddingProvider, fonteId: fonte.id },

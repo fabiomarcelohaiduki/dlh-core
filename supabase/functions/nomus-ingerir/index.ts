@@ -36,7 +36,7 @@ import { createServiceClient } from "../_shared/supabase.ts";
 import { getFonteByTipo, getServiceSecret } from "../_shared/vault.ts";
 import { mapRawPessoa, mapRawProcesso, type NomusRecursoConfig } from "../_shared/nomus-connector.ts";
 import type { CollectedPessoa, CollectedRecord } from "../_shared/collected.ts";
-import { createEmbeddingProvider } from "../_shared/embeddings.ts";
+import { resolveEmbeddingProvider } from "../_shared/indexacao.ts";
 import {
   persistAndIndexPessoa,
   persistAndIndexRecord,
@@ -493,6 +493,11 @@ async function handler(req: Request): Promise<Response> {
     // criacao da execucao registre `janela_dias` (coluna JANELA das telas).
     const floor = await loadFloor(service, fonte.id, recurso);
 
+    // Resolve o provider de embeddings ANTES de criar a execucao em_andamento:
+    // se a chave OpenAI faltar no Vault, falha (503) sem deixar execucao orfa
+    // travando o single-flight do recurso.
+    const embeddingProvider = await resolveEmbeddingProvider();
+
     // -----------------------------------------------------------------
     // Resolve a execucao: continua a existente ou cria uma nova (1o lote).
     // -----------------------------------------------------------------
@@ -578,8 +583,6 @@ async function handler(req: Request): Promise<Response> {
     const isPessoa = recurso === "pessoas";
     const recursoAtivo = isPessoa ? await loadRecursoAtivo(service, fonte.id, recurso) : true;
     const tiposAtivos = isPessoa ? [] : await loadTiposAtivos(service, fonte.id, recurso);
-    const env = getEnv();
-    const embeddingProvider = env.embeddingsEndpoint ? createEmbeddingProvider() : undefined;
     const ctx: PersistContext = { execucaoId, recurso, tiposAtivos, embeddingProvider };
 
     let novos = 0;

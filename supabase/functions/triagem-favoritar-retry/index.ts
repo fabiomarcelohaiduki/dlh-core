@@ -33,7 +33,6 @@ import { errorMessage, recordIngestErro } from "../_shared/ingest-errors.ts";
 import { EffectiConnector } from "../_shared/effecti-connector.ts";
 import { getFonteByTipo, getFonteSecret } from "../_shared/vault.ts";
 import {
-  createEmbeddingProvider,
   EmbeddingError,
   type EmbeddingProvider,
   generateAndStoreChunks,
@@ -140,9 +139,9 @@ async function reindexarBestEffort(
   avisoId: string,
   verbatim: string,
 ): Promise<void> {
-  if (verbatim.trim() === "" || !(getEnv().embeddingsEndpoint ?? "").trim()) return;
+  if (verbatim.trim() === "") return;
   try {
-    const provider = createEmbeddingProvider();
+    const provider = await resolveEmbeddingProvider();
     await generateAndStoreChunks(db, { avisoId, verbatim, provider });
   } catch (err) {
     console.warn(

@@ -19,7 +19,8 @@ import { getEnv } from "../_shared/env.ts";
 import { requireAuthorizedUser } from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
-import { createEmbeddingProvider, generateAndStoreChunks } from "../_shared/embeddings.ts";
+import { generateAndStoreChunks } from "../_shared/embeddings.ts";
+import { resolveEmbeddingProvider } from "../_shared/indexacao.ts";
 import { errorMessage } from "../_shared/ingest-errors.ts";
 import type { ReprocessarResponse } from "../_shared/types.ts";
 
@@ -106,7 +107,7 @@ async function handler(req: Request): Promise<Response> {
       .update({ status_reprocesso: "em_andamento" })
       .eq("aviso_id", avisoId);
 
-    const embeddingProvider = createEmbeddingProvider();
+    const embeddingProvider = await resolveEmbeddingProvider();
 
     try {
       // Reindexacao dos embeddings do verbatim integro.
