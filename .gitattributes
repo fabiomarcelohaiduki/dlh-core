@@ -1,0 +1,3 @@
+# Força LF em todos os arquivos de texto (cross-platform, evita CRLF no Windows).
+# Necessário para Codex CLI apply_patch funcionar sem "verification failed".
+* text=auto eol=lf
