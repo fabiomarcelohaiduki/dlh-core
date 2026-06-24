@@ -39,3 +39,6 @@ docs/pasta sera excluida/
 
 # supabase (estado local do CLI)
 supabase/.temp/
+# scratch de desenvolvedor (convencao _tmp_ = descartavel, nao commitar)
+scripts/_tmp_*.mjs
+scripts/_tmp_*.ts
