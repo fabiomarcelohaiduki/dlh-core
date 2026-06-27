@@ -24,6 +24,7 @@ export function GerarFichaModal({
       rota="/produtos/ficha-tecnica/imprimir"
       linhas={linhas}
       onClose={onClose}
+      cardStyle={{ boxShadow: "var(--shadow-overlay)" }}
     />
   );
 }

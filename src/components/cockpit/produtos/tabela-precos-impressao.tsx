@@ -199,7 +199,7 @@ export function TabelaPrecosImpressao() {
 
   if (linhaIds.length === 0 || regioes.length === 0) {
     return (
-      <div style={{ padding: 40, color: "#b91c1c" }}>
+      <div style={{ padding: 40, color: "var(--err)" }}>
         Seleção inválida. Volte ao cockpit e gere a tabela novamente.
       </div>
     );
@@ -303,7 +303,7 @@ export function TabelaPrecosImpressao() {
       </div>
 
       {erro ? (
-        <div style={{ padding: 40, color: "#b91c1c", display: "flex", gap: 8 }}>
+        <div style={{ padding: 40, color: "var(--err)", display: "flex", gap: 8 }}>
           <TriangleAlert aria-hidden="true" />
           Não foi possível carregar os dados da tabela de preços.
         </div>

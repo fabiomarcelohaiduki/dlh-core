@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -34,7 +34,6 @@ import { TabelaPrecosLinha } from "@/components/cockpit/produtos/tabela-precos-l
 import { GerarTabelaModal } from "@/components/cockpit/produtos/gerar-tabela-modal";
 import { GerarCatalogoModal } from "@/components/cockpit/produtos/gerar-catalogo-modal";
 import { GerarFichaModal } from "@/components/cockpit/produtos/gerar-ficha-modal";
-import { ParametrosCustoPanel } from "@/components/cockpit/produtos/parametros-custo-panel";
 import type { AtributoSchema, ProdutoLinha } from "@/lib/api/types";
 
 type DocModal = "none" | "tabela" | "catalogo" | "ficha";
@@ -53,22 +52,6 @@ export function ProdutosClient() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<LinhaFormMode>("none");
   const [docModal, setDocModal] = useState<DocModal>("none");
-  const [paramsAberto, setParamsAberto] = useState(false);
-  const paramsTriggerRef = useRef<HTMLButtonElement>(null);
-
-  // Fecha o drawer de parâmetros no Escape e devolve o foco ao botao (a11y).
-  useEffect(() => {
-    if (!paramsAberto) return;
-    const trigger = paramsTriggerRef.current;
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setParamsAberto(false);
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      trigger?.focus();
-    };
-  }, [paramsAberto]);
 
   const items = useMemo(() => linhas.data?.items ?? [], [linhas.data]);
   const selected = useMemo(
@@ -117,17 +100,10 @@ export function ProdutosClient() {
             <ClipboardList aria-hidden="true" />
             <span>Gerar ficha técnica</span>
           </button>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => setParamsAberto(true)}
-            ref={paramsTriggerRef}
-            aria-haspopup="dialog"
-            aria-expanded={paramsAberto}
-          >
+          <Link href="/parametros-custo" className="btn">
             <SlidersHorizontal aria-hidden="true" />
             <span>Parâmetros de custo</span>
-          </button>
+          </Link>
           <Link href="/produtos/novo" className="btn btn-primary">
             <Wand2 aria-hidden="true" />
             <span>Cadastro guiado</span>
@@ -143,48 +119,6 @@ export function ProdutosClient() {
       ) : null}
       {docModal === "ficha" ? (
         <GerarFichaModal linhas={items} onClose={() => setDocModal("none")} />
-      ) : null}
-
-      {paramsAberto ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Parâmetros de custo"
-          onClick={() => setParamsAberto(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 60,
-            background: "rgba(0,0,0,0.55)",
-            display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "center",
-            padding: "8vh 16px 16px",
-            overflowY: "auto",
-          }}
-        >
-          <div
-            className="card"
-            onClick={(e) => e.stopPropagation()}
-            style={{ width: "min(820px, 100%)", maxWidth: 820 }}
-          >
-            <div className="section-title" style={{ margin: "0 0 16px" }}>
-              <h3>Parâmetros de custo</h3>
-              <button
-                type="button"
-                className="btn btn-sm btn-icon"
-                style={{ marginLeft: "auto" }}
-                onClick={() => setParamsAberto(false)}
-                aria-label="Fechar"
-                title="Fechar"
-              >
-                <X aria-hidden="true" />
-              </button>
-            </div>
-
-            <ParametrosCustoPanel />
-          </div>
-        </div>
       ) : null}
 
       <div

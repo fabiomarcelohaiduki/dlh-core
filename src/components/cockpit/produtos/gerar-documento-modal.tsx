@@ -34,6 +34,7 @@ export function GerarDocumentoModal({
   children,
   extraParams,
   extraValido = true,
+  cardStyle,
 }: {
   titulo: string;
   helper: string;
@@ -46,6 +47,8 @@ export function GerarDocumentoModal({
   extraParams?: Record<string, string>;
   /** Gate adicional de validacao dos campos extras (default: valido). */
   extraValido?: boolean;
+  /** Estilo extra aplicado ao card interno (ex.: boxShadow: var(--shadow-overlay)). */
+  cardStyle?: React.CSSProperties;
 }) {
   const [linhasSel, setLinhasSel] = useState<Set<string>>(new Set());
   // Exclusao explicita por produto; a inclusao e implicita (tudo que nao foi
@@ -115,7 +118,7 @@ export function GerarDocumentoModal({
         position: "fixed",
         inset: 0,
         zIndex: 60,
-        background: "rgba(0,0,0,0.55)",
+        background: "var(--modal-backdrop)",
         display: "flex",
         alignItems: "flex-start",
         justifyContent: "center",
@@ -126,7 +129,7 @@ export function GerarDocumentoModal({
       <div
         className="card"
         onClick={(e) => e.stopPropagation()}
-        style={{ width: "min(640px, 100%)", maxWidth: 640 }}
+        style={{ width: "min(640px, 100%)", maxWidth: 640, boxShadow: "var(--shadow-overlay)", ...cardStyle }}
       >
         <div className="section-title" style={{ margin: "0 0 14px" }}>
           <h3>{titulo}</h3>

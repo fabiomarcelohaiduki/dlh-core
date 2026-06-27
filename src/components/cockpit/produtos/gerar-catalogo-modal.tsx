@@ -59,6 +59,7 @@ export function GerarCatalogoModal({
       onClose={onClose}
       extraParams={extraParams}
       extraValido={extraValido}
+      cardStyle={{ boxShadow: "var(--shadow-overlay)" }}
     >
       <div className="field">
         <label>Preços</label>

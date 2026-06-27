@@ -17,8 +17,8 @@ const NIVEIS: { value: ParametroNivel; label: string; hint: string }[] = [
 /**
  * Corpo dos parâmetros de custo (3 níveis GLOBAL -> LINHA -> PRODUTO com vetor
  * regional e badges de origem efetiva/herdada), mais o bloco de SKUs pendentes
- * de recálculo. Fragmento sem wrapper .screen para poder viver dentro do drawer
- * de Produtos (ProdutosClient).
+ * de recálculo. Fragmento sem wrapper .screen para poder viver na rota própria
+ * /parametros-custo e em qualquer composição futura.
  */
 export function ParametrosCustoPanel() {
   const [nivel, setNivel] = useState<ParametroNivel>("global");

@@ -135,7 +135,7 @@ export function FichaImpressao() {
 
   if (linhaIds.length === 0) {
     return (
-      <div style={{ padding: 40, color: "#b91c1c" }}>
+      <div style={{ padding: 40, color: "var(--err)" }}>
         Seleção inválida. Volte ao cockpit e gere a ficha novamente.
       </div>
     );
@@ -184,7 +184,7 @@ export function FichaImpressao() {
       </div>
 
       {erro ? (
-        <div style={{ padding: 40, color: "#b91c1c", display: "flex", gap: 8 }}>
+        <div style={{ padding: 40, color: "var(--err)", display: "flex", gap: 8 }}>
           <TriangleAlert aria-hidden="true" />
           Não foi possível carregar os dados das fichas técnicas.
         </div>

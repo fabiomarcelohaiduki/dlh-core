@@ -1,7 +1,12 @@
-import { redirect } from "next/navigation";
+import type { Metadata } from "next";
+import { ParametrosCustoPanel } from "@/components/cockpit/produtos/parametros-custo-panel";
 
-export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Parâmetros de custo" };
 
 export default function ParametrosCustoPage() {
-  redirect("/produtos");
+  return (
+    <section className="screen">
+      <ParametrosCustoPanel />
+    </section>
+  );
 }

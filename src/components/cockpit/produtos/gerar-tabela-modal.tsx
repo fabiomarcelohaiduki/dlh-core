@@ -96,7 +96,7 @@ export function GerarTabelaModal({
         position: "fixed",
         inset: 0,
         zIndex: 60,
-        background: "rgba(0,0,0,0.55)",
+        background: "var(--modal-backdrop)",
         display: "flex",
         alignItems: "flex-start",
         justifyContent: "center",
@@ -107,7 +107,7 @@ export function GerarTabelaModal({
       <div
         className="card"
         onClick={(e) => e.stopPropagation()}
-        style={{ width: "min(640px, 100%)", maxWidth: 640 }}
+        style={{ width: "min(640px, 100%)", maxWidth: 640, boxShadow: "var(--shadow-overlay)" }}
       >
         <div className="section-title" style={{ margin: "0 0 14px" }}>
           <h3>Gerar tabela de preços</h3>
