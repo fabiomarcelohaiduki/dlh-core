@@ -64,7 +64,7 @@ export function SubstituirLinkModal({
         position: "fixed",
         inset: 0,
         zIndex: 60,
-        background: "rgba(0,0,0,0.55)",
+        background: "var(--modal-backdrop)",
         display: "flex",
         alignItems: "flex-start",
         justifyContent: "center",
@@ -75,7 +75,7 @@ export function SubstituirLinkModal({
       <div
         className="card"
         onClick={(e) => e.stopPropagation()}
-        style={{ width: "min(560px, 100%)", maxWidth: 560 }}
+        style={{ width: "min(560px, 100%)", maxWidth: 560, boxShadow: "var(--shadow-overlay)" }}
       >
         <div className="section-title" style={{ margin: "0 0 14px" }}>
           <h3>Substituir link do anexo</h3>

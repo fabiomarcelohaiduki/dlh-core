@@ -25,8 +25,23 @@ export function AvisosClient() {
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [items, setItems] = useState<TriagemItem[]>([]);
   const [toast, setToast] = useState<Toast | null>(null);
+  // Busca por id do Effecti (server-side): debounce no input, reset da paginacao.
+  const [idInput, setIdInput] = useState("");
+  const [idFiltro, setIdFiltro] = useState("");
 
-  const triagem = useTriagem({ cursor });
+  useEffect(() => {
+    const t = setTimeout(() => setIdFiltro(idInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [idInput]);
+
+  // Ao trocar a busca por id, zera as paginas acumuladas e o cursor (a query
+  // muda no servidor; reaproveitar a lista antiga misturaria resultados).
+  useEffect(() => {
+    setItems([]);
+    setCursor(undefined);
+  }, [idFiltro]);
+
+  const triagem = useTriagem({ cursor, effecti: idFiltro || undefined });
 
   // Acumula as paginas carregadas, deduplicando por avisoId. O refetch leve da
   // pagina corrente apenas atualiza os itens ja presentes (sem duplicar).
@@ -77,8 +92,17 @@ export function AvisosClient() {
         )}
       </div>
 
-      <div className="filter-bar">
+      <div className="filter-bar" style={{ display: "flex", gap: 12, alignItems: "center" }}>
         <VereditoFiltro value={veredito} onChange={setVeredito} />
+        <input
+          type="text"
+          inputMode="numeric"
+          placeholder="Buscar por id do Effecti"
+          value={idInput}
+          onChange={(e) => setIdInput(e.target.value)}
+          aria-label="Buscar por id do Effecti"
+          style={{ maxWidth: 220 }}
+        />
       </div>
 
       {triagem.isError ? (

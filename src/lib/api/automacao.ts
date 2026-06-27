@@ -52,6 +52,8 @@ interface RawTriagemItem {
   descarte_previsto_em: string | null;
   reabilitado: boolean;
   extracao: string;
+  lista_portal?: boolean;
+  lista_edital?: boolean;
 }
 
 interface RawAvisosResponse {
@@ -181,6 +183,8 @@ function toTriagemItem(raw: RawTriagemItem): TriagemItem {
     descartePrevistoEm: raw.descarte_previsto_em ?? null,
     reabilitado: raw.reabilitado === true,
     extracao: (raw.extracao as ExtracaoStatus) ?? "sem_documento",
+    listaPortal: raw.lista_portal === true,
+    listaEdital: raw.lista_edital === true,
   };
 }
 
@@ -284,6 +288,8 @@ export interface ListTriagemParams {
   veredito?: "util" | "duvida" | "lixo" | "todos";
   limite?: number;
   cursor?: string;
+  /** Busca por id do Effecti (match parcial, case-insensitive). */
+  effecti?: string;
 }
 
 /** Filtros da listagem da lixeira (automacao-avisos?lixeira=true). */
@@ -296,6 +302,8 @@ export interface ListLixeiraParams {
 export interface ListFilaParams {
   limite?: number;
   cursor?: string;
+  /** Busca por id do Effecti (match parcial, case-insensitive). */
+  effecti?: string;
 }
 
 /** Pagina da fila (aguardando triagem) + total da fila inteira. */
@@ -482,11 +490,22 @@ interface RawRecallEffecti {
   item_descricao: string | null;
 }
 
+interface RawAvisoItemPortal {
+  item_numero: number;
+  lote: string | null;
+  descricao: string;
+  unidade: string | null;
+  quantidade: number | null;
+  effecti?: boolean;
+  effecti_termos?: string[];
+}
+
 interface RawAvisoItensResponse {
   documentos: RawAvisoDocumento[];
   itens: RawAvisoItem[];
   matches: RawAvisoItemMatch[];
   recall_effecti?: RawRecallEffecti[];
+  itens_portal?: RawAvisoItemPortal[];
 }
 
 /** Documentos + itens extraidos de um aviso (so leitura; a Lia extrai). */
@@ -531,7 +550,37 @@ export async function getAvisoItens(avisoId: string): Promise<AvisoItens> {
       numeroSuspeito: r.numero_suspeito ?? null,
       itemDescricao: r.item_descricao ?? null,
     })),
+    itensPortal: (raw.itens_portal ?? []).map((p) => ({
+      itemNumero: p.item_numero,
+      lote: p.lote ?? null,
+      descricao: p.descricao,
+      unidade: p.unidade ?? null,
+      quantidade: p.quantidade ?? null,
+      effecti: p.effecti ?? false,
+      effectiTermos: p.effecti_termos ?? [],
+    })),
   };
+}
+
+/** Resposta da coleta da lista completa do painel Effecti (/all). */
+interface RawColetaPainel {
+  effecti_id: string;
+  total: number;
+  contigua: boolean;
+  persistido?: boolean;
+}
+
+/**
+ * coletarItensPortal — dispara a coleta da lista COMPLETA do painel Effecti
+ * (/all) e persiste o snapshot em aviso_itens_portal (substituicao atomica).
+ * Standalone, fora da triagem. Retorna o total coletado para feedback no cockpit.
+ */
+export async function coletarItensPortal(effectiId: string): Promise<{ total: number }> {
+  const raw = await apiFetch<RawColetaPainel>(
+    `effecti-painel-itens${buildQuery({ effecti_id: effectiId })}`,
+    { method: "GET" },
+  );
+  return { total: raw.total ?? 0 };
 }
 
 // ---------------------------------------------------------------------

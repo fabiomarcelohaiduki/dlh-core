@@ -1,7 +1,7 @@
 "use client";
 
-import { useQuery, type QueryKey } from "@tanstack/react-query";
-import { getAvisoItens } from "@/lib/api/automacao";
+import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
+import { coletarItensPortal, getAvisoItens } from "@/lib/api/automacao";
 
 /** Chaves de cache dos itens extraidos por aviso (expansao da linha). */
 export const avisoItensKeys = {
@@ -19,5 +19,20 @@ export function useAvisoItens(avisoId: string, enabled: boolean) {
     queryKey: avisoItensKeys.byAviso(avisoId),
     queryFn: () => getAvisoItens(avisoId),
     enabled,
+  });
+}
+
+/**
+ * useColetarItensPortal — dispara a coleta da lista completa do painel Effecti
+ * (/all) e invalida os itens do aviso para a lista recoletada reaparecer.
+ * Standalone, fora da triagem.
+ */
+export function useColetarItensPortal(avisoId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (effectiId: string) => coletarItensPortal(effectiId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: avisoItensKeys.byAviso(avisoId) });
+    },
   });
 }

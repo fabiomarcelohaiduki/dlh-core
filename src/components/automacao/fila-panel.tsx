@@ -15,8 +15,23 @@ import { WidgetError } from "@/components/cockpit/widget-error";
 export function FilaPanel() {
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [items, setItems] = useState<TriagemItem[]>([]);
+  // Busca por id do Effecti (server-side): debounce no input, reset da paginacao.
+  const [idInput, setIdInput] = useState("");
+  const [idFiltro, setIdFiltro] = useState("");
 
-  const fila = useFila({ cursor });
+  useEffect(() => {
+    const t = setTimeout(() => setIdFiltro(idInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [idInput]);
+
+  // Ao trocar a busca por id, zera as paginas acumuladas e o cursor (a query
+  // muda no servidor; reaproveitar a lista antiga misturaria resultados).
+  useEffect(() => {
+    setItems([]);
+    setCursor(undefined);
+  }, [idFiltro]);
+
+  const fila = useFila({ cursor, effecti: idFiltro || undefined });
 
   // Acumula as paginas carregadas, deduplicando por avisoId.
   useEffect(() => {
@@ -40,6 +55,18 @@ export function FilaPanel() {
         {!loading && !fila.isError && total !== null && (
           <span className="count">{total}</span>
         )}
+      </div>
+
+      <div className="filter-bar" style={{ display: "flex", gap: 12, alignItems: "center" }}>
+        <input
+          type="text"
+          inputMode="numeric"
+          placeholder="Buscar por id do Effecti"
+          value={idInput}
+          onChange={(e) => setIdInput(e.target.value)}
+          aria-label="Buscar por id do Effecti"
+          style={{ maxWidth: 220 }}
+        />
       </div>
 
       {fila.isError ? (

@@ -2,7 +2,7 @@
 
 import { type ComponentType, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, Clock, Inbox, Minus } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, FileCheck2, Inbox, ListChecks, Minus } from "lucide-react";
 import type { ExtracaoStatus, TriagemItem } from "@/lib/api/types";
 import { formatDataBr, formatDate, formatHoraBr } from "@/lib/format";
 import { VereditoBadge } from "@/components/automacao/veredito-badge";
@@ -140,7 +140,34 @@ export function TriagemTable({
                     <ext.Icon aria-hidden={true} />
                   </Link>
                 </td>
-                <td className="sub tnum">{it.effectiId || "—"}</td>
+                <td className="sub tnum">
+                  {it.effectiId ? (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <a
+                        href={`https://minha.effecti.com.br/#/aviso-edital-minhas/${it.effectiId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Abrir este aviso no painel Effecti"
+                      >
+                        {it.effectiId}
+                      </a>
+                      {it.listaEdital ? (
+                        <FileCheck2
+                          aria-label="Lista de itens do edital extraída"
+                          style={{ width: 14, height: 14, color: "var(--accent)" }}
+                        />
+                      ) : null}
+                      {it.listaPortal ? (
+                        <ListChecks
+                          aria-label="Lista Effecti (/all) coletada"
+                          style={{ width: 14, height: 14, color: "var(--ok)" }}
+                        />
+                      ) : null}
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
                 <td className="sub tnum">{it.portal || "—"}</td>
                 <td className="sub tnum">
                   <div className="cell-stack">

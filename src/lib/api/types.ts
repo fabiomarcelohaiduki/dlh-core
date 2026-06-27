@@ -1141,6 +1141,10 @@ export interface TriagemItem {
   reabilitado: boolean;
   /** Estado agregado da extracao de itens (icone na linha). */
   extracao: ExtracaoStatus;
+  /** true quando ha lista do painel Effecti (/all) coletada para o aviso. */
+  listaPortal: boolean;
+  /** true quando ha lista de itens extraida dos documentos do edital. */
+  listaEdital: boolean;
 }
 
 /** Item da lixeira: mesma forma da triagem (filtro lixeira aplicado no servidor). */
@@ -1213,6 +1217,23 @@ export interface RecallEffectiItem {
   itemDescricao: string | null;
 }
 
+/**
+ * Item da lista COMPLETA do painel Effecti (/all, tabela aviso_itens_portal).
+ * Descricao GENERICA do portal: LISTADA mas NAO confiavel (a confiavel vem do
+ * edital/TR em AvisoItem). Coleta standalone, fora da triagem.
+ */
+export interface AvisoItemPortal {
+  itemNumero: number;
+  lote: string | null;
+  descricao: string;
+  unidade: string | null;
+  quantidade: number | null;
+  /** true se o Effecti destacou este item (casou palavra-chave do perfil). */
+  effecti: boolean;
+  /** Termos que o Effecti realcou (palavra-chave casada); vazio quando sem match. */
+  effectiTermos: string[];
+}
+
 /** Itens extraidos de um aviso (documentos + itens + matches por item). */
 export interface AvisoItens {
   documentos: AvisoDocumento[];
@@ -1221,6 +1242,9 @@ export interface AvisoItens {
   /** Itens do piso Effecti ausentes (recall_effecti pendente): sinal de extracao
    *  incompleta que rebaixou o veredito do aviso. Vazio = sem buraco de recall. */
   recallEffecti: RecallEffectiItem[];
+  /** Lista COMPLETA do painel Effecti (/all): LISTADA mas NAO confiavel. Vazia
+   *  quando a coleta standalone (effecti-painel-itens) ainda nao rodou. */
+  itensPortal: AvisoItemPortal[];
 }
 
 /** Regra dura editavel, consumida deterministicamente pela triagem (E5). */
