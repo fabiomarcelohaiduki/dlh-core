@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { MODULE_CONFIGS, type EstadoTom, type ModuloId } from "@/lib/cockpit-config";
 import { BlockMatrix } from "./block-matrix";
 
@@ -16,8 +17,18 @@ function tomClass(tom: EstadoTom): string {
  * Renderiza dois painéis:
  *   - "Estado do módulo": read-only (apenas leitura) com pills de tom.
  *   - "Blocos por tela": block-matrix filtrado pelo módulo, persistência ao vivo.
+ *
+ * `children` é um slot opcional para ações específicas do módulo (ex.: Cadastros
+ * passa o card "Reindexar busca de produtos"), renderizado dentro da mesma
+ * `screen` após os blocos. Módulos sem ação extra não passam nada.
  */
-export function ModuleConfigView({ modulo }: { modulo: ModuloId }) {
+export function ModuleConfigView({
+  modulo,
+  children,
+}: {
+  modulo: ModuloId;
+  children?: ReactNode;
+}) {
   const cfg = MODULE_CONFIGS[modulo];
 
   return (
@@ -66,6 +77,8 @@ export function ModuleConfigView({ modulo }: { modulo: ModuloId }) {
         </div>
         <BlockMatrix modulo={modulo} />
       </section>
+
+      {children}
     </section>
   );
 }

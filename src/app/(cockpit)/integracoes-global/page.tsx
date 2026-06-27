@@ -1,16 +1,20 @@
 import type { Metadata } from "next";
 import { loadConexoesFontes } from "@/lib/conexoes-fontes";
 import { IntegracoesPainel } from "@/components/cockpit/integracoes-painel";
+import { ConfiguracoesIaForm } from "@/components/cockpit/configuracoes-ia-form";
+import { ConfiguracoesRerankForm } from "@/components/cockpit/configuracoes-rerank-form";
 
 export const metadata: Metadata = { title: "Integrações" };
 
 /**
  * View integracoes-global (/integracoes-global).
  *
- * Estado READ-ONLY das integrações pré-existentes. O bloco de conectores
+ * Hub das integrações externas que servem o projeto todo. O bloco de conectores
  * (Nomus, Effecti, Drive, Gmail) lê o estado REAL de conexão hidratado no
- * servidor via loadConexoesFontes (mesma fonte do indicador do Topbar). O bloco
- * Plataforma descreve os serviços internos de auth e acervo. Acessível pelo
+ * servidor via loadConexoesFontes (mesma fonte do indicador do Topbar). Os cards
+ * de provedores externos (IA OpenAI para gerações; Cohere para reranking/busca
+ * híbrida) trazem provedor, chave e parâmetros editáveis. O bloco Plataforma
+ * descreve os serviços internos de auth e acervo. Acessível pelo
  * globalSettingsButton da Topbar.
  */
 export default async function IntegracoesGlobalPage() {
@@ -21,12 +25,16 @@ export default async function IntegracoesGlobalPage() {
       <div className="page-head">
         <div className="titles">
           <h2>Integrações</h2>
-          <p>Conectores usados pela autenticação e ingestão operacional.</p>
+          <p>Conectores, autenticações e provedores externos usados em todo o cockpit.</p>
         </div>
       </div>
 
       <div className="global-view">
         <IntegracoesPainel conexoes={conexoes} />
+
+        <ConfiguracoesIaForm />
+
+        <ConfiguracoesRerankForm />
 
         <section className="cfg-panel-card" aria-labelledby="integracoes-plataforma-h">
           <div className="panel-header">

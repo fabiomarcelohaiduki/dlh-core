@@ -9,9 +9,9 @@ import { ApiError } from "@/lib/api/client";
 type Feedback = { kind: "ok" | "err"; message: string };
 
 /**
- * cmp-reindexar-busca-produtos — botao global "Reindexar busca de produtos"
- * em Configuracoes da empresa. Recalcula o vocabulario de busca (embeddings)
- * de TODOS os SKUs ativos apos alterar termos/atributos.
+ * cmp-reindexar-busca-produtos — botao "Reindexar busca de produtos" nas
+ * Configuracoes do modulo Cadastros. Recalcula o vocabulario de busca
+ * (embeddings) de TODOS os SKUs ativos apos alterar termos/atributos.
  *
  * Reindexa linha a linha (cada chamada escopada por linha_id) em serie. Isso
  * evita o timeout do gateway (varrer os ~246 SKUs num unico request com embed
@@ -58,7 +58,7 @@ export function ReindexarBuscaProdutos() {
     } else if (erro503) {
       setFeedback({
         kind: "err",
-        message: "Reindexação indisponível: configure e ative a IA em Inteligência artificial (acima).",
+        message: "Reindexação indisponível: configure e ative a IA em Integrações.",
       });
     } else {
       setFeedback({

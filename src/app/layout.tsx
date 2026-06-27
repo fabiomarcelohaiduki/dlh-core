@@ -40,10 +40,10 @@ export default function RootLayout({
       className={`${inter.variable} ${jetbrainsMono.variable}`}
     >
       <body>
-        {/* Announcer compartilhado (sr-only) usado por ThemeToggle e
-            ThemeSegmented para anunciar mudancas de tema a leitores de tela.
-            Montado UMA UNICA VEZ no RootLayout, posicionado antes dos
-            providers para garantir leitura por tecnologia assistiva. */}
+        {/* Announcer compartilhado (sr-only) usado pelo ThemeToggle para
+            anunciar mudancas de tema a leitores de tela. Montado UMA UNICA VEZ
+            no RootLayout, posicionado antes dos providers para garantir leitura
+            por tecnologia assistiva. */}
         <div
           id="theme-announcer"
           role="status"
