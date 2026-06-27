@@ -3076,6 +3076,35 @@ tr.row-match td {
   max-width: 232px;
   object-fit: contain;
 }
+/* Marca padrao do documento quando nao ha logomarca enviada: a estrelinha
+   (DlhLogo) com cores pinadas para papel — tile claro, faisca azul-ardosia —
+   independente do tema ativo do cockpit. */
+.print-brand .mini-logo {
+  width: 76px;
+  height: 76px;
+}
+.print-brand .mini-logo svg {
+  color: var(--pp-accent);
+}
+.print-brand .mini-logo .orbit {
+  animation: none;
+}
+.print-brand .mini-logo .tile-from {
+  stop-color: #ffffff;
+}
+.print-brand .mini-logo .tile-to {
+  stop-color: var(--pp-band);
+}
+.print-brand .mini-logo .spark-from,
+.print-brand .mini-logo .spark-to {
+  stop-color: var(--pp-accent);
+}
+.print-brand .mini-logo .logo-tile {
+  stroke: var(--pp-line-strong);
+}
+.print-brand .mini-logo .logo-node {
+  fill: #ffffff;
+}
 .print-head h1 {
   font-size: 15px;
   font-weight: 600;

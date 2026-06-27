@@ -13,6 +13,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useUpdateConfigEmpresa } from "@/hooks/use-config-empresa";
+import { DlhLogo } from "@/components/cockpit/dlh-logo";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import type { ConfigEmpresa } from "@/lib/api/types";
@@ -196,7 +197,11 @@ export function ConfiguracoesEmpresaForm({ initial }: { initial: ConfigEmpresa }
                 style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
               />
             ) : (
-              <Building2 aria-hidden="true" style={{ color: "var(--faint)" }} />
+              // Fallback sem logo enviada: a estrelinha canonica do cockpit
+              // (DlhLogo), no wrapper .mini-logo que aplica as cores do tema.
+              <span className="mini-logo" style={{ width: 60, height: 60 }} aria-hidden="true">
+                <DlhLogo />
+              </span>
             )}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

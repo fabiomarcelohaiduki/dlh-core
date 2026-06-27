@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2, Printer, TriangleAlert } from "lucide-react";
 import { useConfigEmpresa } from "@/hooks/use-config-empresa";
+import { DlhLogo } from "@/components/cockpit/dlh-logo";
 import { useLinhas } from "@/hooks/use-linhas";
 import { useTabelasPrecos } from "@/hooks/use-tabela-precos";
 import { formatDate } from "@/lib/format";
@@ -216,7 +217,13 @@ export function TabelaPrecosImpressao() {
           {e?.logoBase64 ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={e.logoBase64} alt="Logomarca" className="print-logo" />
-          ) : null}
+          ) : (
+            // Sem logo enviada: a estrelinha do cockpit como marca padrao do
+            // documento (cores pinadas para papel via .print-brand .mini-logo).
+            <span className="mini-logo" aria-hidden="true">
+              <DlhLogo />
+            </span>
+          )}
           <div>
             <h1>{e?.razaoSocial || titulo}</h1>
             {e?.nomeFantasia && e?.razaoSocial ? (
