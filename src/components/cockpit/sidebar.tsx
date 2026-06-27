@@ -2,120 +2,109 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useTransition } from "react";
-import { ChevronsLeft, ChevronsRight, LogOut } from "lucide-react";
-import { NAV_GROUPS } from "@/lib/nav";
-import { logout } from "@/app/actions/auth";
+import { ChevronDown, RefreshCw } from "lucide-react";
+import { NAV_MODULES, type NavModule } from "@/lib/nav";
+import { DlhLogo } from "@/components/cockpit/dlh-logo";
 import { cn } from "@/lib/utils";
 
 type SidebarProps = {
-  user: { email: string };
   open: boolean;
   onNavigate: () => void;
   badges?: Partial<Record<"erros", number>>;
-  /** Modo recolhido (somente icones) no desktop. */
-  collapsed?: boolean;
-  /** Alterna o modo recolhido. */
-  onToggleCollapse?: () => void;
+  /** Id do modulo expandido (no maximo 1). */
+  expanded: NavModule["id"] | null;
+  /** Alterna o modulo expandido (accordion). */
+  onToggleModule: (id: NavModule["id"]) => void;
 };
 
-function initialsFromEmail(email: string): string {
-  const handle = email.split("@")[0] ?? "";
-  const parts = handle.split(/[.\-_]/).filter(Boolean);
-  const chars = parts.length >= 2 ? parts[0][0] + parts[1][0] : handle.slice(0, 2);
-  return chars.toUpperCase() || "DL";
-}
-
-/** cmp-sidebar — Navegação persistente travada (Design Lock). */
-export function Sidebar({ user, open, onNavigate, badges, collapsed, onToggleCollapse }: SidebarProps) {
+/**
+ * cmp-sidebar — Navegacao lateral LionClaw em 3 modulos accordion.
+ *
+ * - Rail (somente icones) que expande no hover ate 288px sem deslocar o
+ *   conteudo: a coluna do grid reserva 78px e a `.side` (fixed) sobrepoe; os
+ *   labels e submodulos surgem ao expandir (controlado por CSS no `.side:hover`).
+ * - Accordion: no maximo 1 modulo expandido por vez (estado controlado pelo
+ *   CockpitShell: `expanded` / `onToggleModule`).
+ * - Submodulos linkam para as ROTAS REAIS existentes (Strangler Fig).
+ * - Drawer + scrim no mobile (classes `.side.open` reusadas do shell).
+ */
+export function Sidebar({
+  open,
+  onNavigate,
+  badges,
+  expanded,
+  onToggleModule,
+}: SidebarProps) {
   const pathname = usePathname();
-  const [isPending, startTransition] = useTransition();
 
-  function handleLogout() {
-    startTransition(async () => {
-      await logout();
-    });
+  function isActive(href: string): boolean {
+    return pathname === href || (pathname?.startsWith(`${href}/`) ?? false);
   }
 
   return (
-    <aside className={cn("side", open && "open", collapsed && "is-collapsed")} id="side">
+    <aside className={cn("side", open && "open")} id="side">
       <div className="side-head">
-        <span className="glyph">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-            <path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3Z" />
-            <path d="M4 7v5c0 1.7 3.6 3 8 3s8-1.3 8-3V7" />
-            <path d="M4 12v5c0 1.7 3.6 3 8 3s8-1.3 8-3v-5" />
-          </svg>
+        <span className="mini-logo" aria-hidden="true">
+          <DlhLogo size={44} />
         </span>
         <span className="name">
           DLH Core
-          <small>Cockpit de ingestão</small>
+          <small>Cockpit LionClaw</small>
         </span>
-        {onToggleCollapse && (
-          <button
-            type="button"
-            className="side-collapse"
-            onClick={onToggleCollapse}
-            title={collapsed ? "Expandir menu" : "Recolher menu"}
-            aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
-            aria-expanded={!collapsed}
-          >
-            {collapsed ? (
-              <ChevronsRight aria-hidden="true" />
-            ) : (
-              <ChevronsLeft aria-hidden="true" />
-            )}
-          </button>
-        )}
       </div>
 
-      <nav>
-        {NAV_GROUPS.map((group) => (
-          <div className="nav-group" key={group.id}>
-            <div className="label">{group.label}</div>
-            {group.items.map((item) => {
-              const active =
-                pathname === item.href ||
-                (pathname?.startsWith(`${item.href}/`) ?? false);
-              const Icon = item.icon;
-              const badge = item.badgeKey ? badges?.[item.badgeKey] : undefined;
-              return (
-                <Link
-                  key={item.id}
-                  href={item.href}
-                  className={cn("nav-link", active && "active")}
-                  aria-current={active ? "page" : undefined}
-                  onClick={onNavigate}
-                  title={collapsed ? item.label : undefined}
-                >
-                  <Icon aria-hidden="true" />
-                  <span className="nav-text">{item.label}</span>
-                  {badge ? <span className="nav-badge">{badge}</span> : null}
-                </Link>
-              );
-            })}
-          </div>
-        ))}
+      <Link
+        href="/dashboard"
+        className={cn("sidebar-cta", isActive("/dashboard") && "active")}
+        onClick={onNavigate}
+        aria-current={isActive("/dashboard") ? "page" : undefined}
+      >
+        <RefreshCw aria-hidden="true" />
+        <span className="nav-text">Cockpit</span>
+      </Link>
+
+      <nav className="primary-nav" aria-label="Navegação principal">
+        {NAV_MODULES.map((mod) => {
+          const Icon = mod.icon;
+          const isOpen = expanded === mod.id;
+          const hasActive = mod.items.some((i) => isActive(i.href));
+          return (
+            <div className={cn("module", isOpen && "is-open")} key={mod.id} data-module={mod.id}>
+              <button
+                type="button"
+                className={cn("module-header", hasActive && "has-active")}
+                aria-expanded={isOpen}
+                onClick={() => onToggleModule(mod.id)}
+              >
+                <Icon className="lead" aria-hidden="true" />
+                <span className="module-name">{mod.label}</span>
+                <ChevronDown className="chev" aria-hidden="true" />
+              </button>
+
+              {isOpen && (
+                <div className="submodule-list" role="group" aria-label={mod.label}>
+                  {mod.items.map((item) => {
+                    const active = isActive(item.href);
+                    const badge = item.badgeKey ? badges?.[item.badgeKey] : undefined;
+                    return (
+                      <Link
+                        key={item.id}
+                        href={item.href}
+                        className={cn("submodule", active && "active")}
+                        aria-current={active ? "page" : undefined}
+                        onClick={onNavigate}
+                      >
+                        <span className="nav-text">{item.label}</span>
+                        {badge ? <span className="nav-badge">{badge}</span> : null}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </nav>
-
-      <div className="side-foot">
-        <div className="user-row">
-          <div className="avatar">{initialsFromEmail(user.email)}</div>
-          <div className="who">
-            <b>Núcleo DLH</b>
-            <span>{user.email}</span>
-          </div>
-          <button
-            type="button"
-            title="Sair"
-            onClick={handleLogout}
-            disabled={isPending}
-            aria-label="Sair do cockpit"
-          >
-            <LogOut aria-hidden="true" />
-          </button>
-        </div>
-      </div>
     </aside>
   );
 }

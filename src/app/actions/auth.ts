@@ -53,9 +53,18 @@ export async function loginWithGoogle(
 
 /**
  * Logout server-side: revoga a sessão local e limpa os cookies httpOnly.
+ *
+ * Tem de rodar no servidor: os cookies de sessão são httpOnly (forçados no
+ * middleware), inacessíveis ao client browser — só o server client consegue
+ * expirá-los. Por isso os botões "Sair" delegam para esta action em vez de
+ * chamar signOut no client (que deixaria o cookie vivo e o middleware
+ * devolveria /login -> /dashboard).
+ *
+ * `redirectTo` permite ao logout por inatividade voltar com o aviso honesto
+ * (/login?reason=expired); só destinos /login são aceitos.
  */
-export async function logout(): Promise<void> {
+export async function logout(redirectTo: string = "/login"): Promise<void> {
   const supabase = await createClient();
   await supabase.auth.signOut({ scope: "local" });
-  redirect("/login");
+  redirect(redirectTo.startsWith("/login") ? redirectTo : "/login");
 }

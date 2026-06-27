@@ -11,7 +11,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        bg: "var(--bg)",
+        bg: { DEFAULT: "var(--bg)", 2: "var(--bg-2)" },
         surface: {
           DEFAULT: "var(--surface)",
           2: "var(--surface-2)",
@@ -20,19 +20,27 @@ const config: Config = {
         border: {
           DEFAULT: "var(--border)",
           soft: "var(--border-soft)",
+          strong: "var(--border-strong)",
         },
         fg: "var(--fg)",
         muted: "var(--muted)",
         faint: "var(--faint)",
+        soft: "var(--soft)",
         accent: {
           DEFAULT: "var(--accent)",
           soft: "var(--accent-soft)",
           line: "var(--accent-line)",
+          fg: "var(--accent-fg)",
+          deep: "var(--accent-deep)",
+          strong: "var(--accent-strong)",
         },
+        "accent-text": "var(--accent-text)",
+        "on-accent": "var(--on-accent)",
         ok: { DEFAULT: "var(--ok)", bg: "var(--ok-bg)" },
         run: { DEFAULT: "var(--run)", bg: "var(--run-bg)" },
         warn: { DEFAULT: "var(--warn)", bg: "var(--warn-bg)" },
         err: { DEFAULT: "var(--err)", bg: "var(--err-bg)" },
+        danger: "var(--danger)",
         idle: { DEFAULT: "var(--idle)", bg: "var(--idle-bg)" },
       },
       borderColor: {

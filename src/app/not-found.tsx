@@ -2,8 +2,8 @@ import Link from "next/link";
 
 export default function NotFound() {
   return (
-    <main className="login-root">
-      <div className="login-card" style={{ textAlign: "center" }}>
+    <main className="login-screen">
+      <div className="login-unit" style={{ textAlign: "center" }}>
         <div className="empty">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
             <circle cx="11" cy="11" r="7" />

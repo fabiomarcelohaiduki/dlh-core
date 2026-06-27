@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { GoogleButton } from "@/components/auth/google-button";
+import { DlhLogo } from "@/components/cockpit/dlh-logo";
 
 export const metadata: Metadata = {
   title: "Entrar no cockpit",
@@ -13,49 +14,70 @@ function parseError(value?: string): LoginErrorKind {
   return null;
 }
 
+/**
+ * Tela /login (FORA do route group autenticado, publica no middleware).
+ * Identidade LionClaw aplicada localmente via .login-screen — a paleta da
+ * marca renderiza no /login independentemente do tema da sessao (SPEC 4.3.1).
+ */
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; redirectTo?: string }>;
+  searchParams: Promise<{ error?: string; redirectTo?: string; reason?: string }>;
 }) {
   const params = await searchParams;
   const initialError = parseError(params.error);
+  // EC-03: redirect disparado pela expiracao por inatividade (use-sessao.doLogout).
+  const expired = params.reason === "expired";
   const redirectTo =
     params.redirectTo && params.redirectTo.startsWith("/")
       ? params.redirectTo
       : undefined;
 
   return (
-    <main className="login-root">
-      <div className="login-card">
-        <div className="brandmark">
-          <span className="glyph">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-              <path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3Z" />
-              <path d="M4 7v5c0 1.7 3.6 3 8 3s8-1.3 8-3V7" />
-              <path d="M4 12v5c0 1.7 3.6 3 8 3s8-1.3 8-3v-5" />
-            </svg>
+    <main className="login-screen" data-screen="login">
+      <div className="login-unit">
+        <div className="brand">
+          <span className="logo" aria-hidden="true">
+            <DlhLogo size={76} />
           </span>
-          <span className="name">
-            DLH Core <span>· Substrato + cockpit de ingestão</span>
-          </span>
+          <h1>DLH Core</h1>
         </div>
 
-        <div className="login-panel">
-          <h1>Entrar no cockpit</h1>
-          <p className="sub">
-            Acesso restrito ao núcleo operacional DLH. Use sua conta Google corporativa.
-          </p>
+        <p className="login-sub">
+          Nucleo operacional · acesso restrito. Entre com sua conta Google
+          corporativa para abrir o cockpit.
+        </p>
 
-          <GoogleButton initialError={initialError} redirectTo={redirectTo} />
-
-          <div className="login-foot">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-              <rect x="4" y="10" width="16" height="11" rx="2" />
-              <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+        {expired && (
+          <div className="login-notice" role="status" aria-live="polite">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" />
             </svg>
-            Sessão autenticada via Supabase Auth · perfil interno único
+            <span>Sua sessao expirou por inatividade.</span>
           </div>
+        )}
+
+        <GoogleButton initialError={initialError} redirectTo={redirectTo} />
+
+        <div className="login-foot">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            aria-hidden="true"
+          >
+            <rect x="4" y="10" width="16" height="11" rx="2" />
+            <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+          </svg>
+          Sessao autenticada via Supabase Auth · perfil interno unico
         </div>
       </div>
     </main>

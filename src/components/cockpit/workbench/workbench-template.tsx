@@ -1,0 +1,389 @@
+"use client";
+
+// =====================================================================
+// WorkbenchTemplate — padrao reutilizavel de tela operacional (delta-08/09).
+//
+// Renderiza um "workbench" parametrizavel por escopo/labels/blocos, reusado
+// pelas views de Ingestao (coleta/extracao/indexacao) e Cadastros. Os blocos
+// (data-block) sao posicionados por banda (data-band) e respeitam:
+//   - visibilidade em cascata (guia>submodulo>modulo>global) — delta-10;
+//   - ordem horizontal por zona — delta-11;
+//   - ordem vertical das bandas topo/status/ferramentas — delta-12.
+//
+// O modo "Personalizar" expoe os controles de reordenacao/visibilidade que
+// persistem AO VIVO em bloco_config (delta-19) com rollback otimista (EC-14).
+// Acoes operacionais sao read-only por decisao (Conflito 04 / delta-28/29).
+// =====================================================================
+
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  Settings2,
+  TriangleAlert,
+} from "lucide-react";
+import { BLOCK_DEF, BAND_LABELS } from "@/lib/cockpit-config";
+import type { BlocoBanda } from "@/types/database";
+import { Button } from "@/components/ui/button";
+import { Pill } from "@/components/ui/pill";
+import { CcToggle } from "@/components/cockpit/config/cc-toggle";
+import {
+  COLUMN_BLOCKS,
+  useWorkbenchLayout,
+  type WorkbenchScopeRef,
+} from "./use-workbench-layout";
+
+/** Slots de conteudo por bloco (o template injeta o "miolo" de cada bloco). */
+export interface WorkbenchSlots {
+  fontes?: ReactNode;
+  recurso?: ReactNode;
+  busca?: ReactNode;
+  filtros?: ReactNode;
+  /** Conteudo do bloco tempo-real; default = bandeira "Tempo real ativo". */
+  tempoReal?: ReactNode;
+  /** Barra de selecao em lote (bloco `lote`, banda tabela). */
+  lote?: ReactNode;
+}
+
+export interface WorkbenchTemplateProps {
+  /** Referencia de escopo (modulo/tela/guia) para a cascata e a persistencia. */
+  scope: WorkbenchScopeRef;
+  /** Valor de data-workbench (ex.: "coleta"). */
+  workbenchKey: string;
+  title: string;
+  description: string;
+  /** Conteudo do pill de contagem no cabecalho (ex.: "12 execuções"). */
+  countLabel: ReactNode;
+  /** Rotulo da acao principal ("Coletar agora"/"Extrair agora"/"Indexar agora"). */
+  actionLabel: string;
+  /** Acao principal (read-only por padrao: apenas leitura). */
+  onAction?: () => void;
+  /** Lista de blocos aplicaveis a esta view (ids do BLOCK_LIBRARY). */
+  blocks: readonly string[];
+  slots: WorkbenchSlots;
+  /** Regiao da tabela (RunsTable/DadosTable). */
+  children: ReactNode;
+}
+
+/** Contexto para descendentes (tabela/lote) lerem a visibilidade resolvida. */
+interface WorkbenchContextValue {
+  isVisible: (blockId: string) => boolean;
+}
+
+const WorkbenchContext = createContext<WorkbenchContextValue | null>(null);
+
+/** Hook de descendentes do WorkbenchTemplate (ex.: ocultar coluna de acoes). */
+export function useWorkbench(): WorkbenchContextValue {
+  const ctx = useContext(WorkbenchContext);
+  if (!ctx) {
+    throw new Error("useWorkbench deve ser usado dentro de <WorkbenchTemplate>.");
+  }
+  return ctx;
+}
+
+type Toast = { kind: "ok" | "err"; message: string };
+
+/** Blocos fixos por zona: nao entram na regiao reordenavel do meio. */
+const HEADER_BLOCK = "acao-principal";
+
+export function WorkbenchTemplate({
+  scope,
+  workbenchKey,
+  title,
+  description,
+  countLabel,
+  actionLabel,
+  onAction,
+  blocks,
+  slots,
+  children,
+}: WorkbenchTemplateProps) {
+  const [toast, setToast] = useState<Toast | null>(null);
+  const layout = useWorkbenchLayout(scope, (kind, message) =>
+    setToast({ kind, message }),
+  );
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const scopePath = `${scope.modulo}/${scope.tela}/${scope.guia}`;
+  const blockSet = useMemo(() => new Set(blocks), [blocks]);
+
+  // Conteudo renderizado de cada bloco "miolo".
+  const slotFor = (blockId: string): ReactNode => {
+    switch (blockId) {
+      case "fontes":
+        return slots.fontes ?? null;
+      case "recurso":
+        return slots.recurso ?? null;
+      case "busca":
+        return slots.busca ?? null;
+      case "filtros":
+        return slots.filtros ?? null;
+      case "tempo-real":
+        return (
+          slots.tempoReal ?? (
+            <span className="ml-auto inline-flex items-center gap-1.5 text-[12px] text-muted">
+              <span
+                aria-hidden="true"
+                className="size-2 animate-pulse rounded-full bg-ok"
+              />
+              Tempo real ativo
+            </span>
+          )
+        );
+      default:
+        return null;
+    }
+  };
+
+  // Agrupa os blocos do meio (exclui acao-principal e blocos column) por banda.
+  const middleBlocks = blocks.filter(
+    (id) => id !== HEADER_BLOCK && !COLUMN_BLOCKS.has(id),
+  );
+
+  const byBand = new Map<BlocoBanda, string[]>();
+  middleBlocks.forEach((id, catalogIndex) => {
+    const def = BLOCK_DEF[id];
+    if (!def) return;
+    const banda = layout.bandaOf(id, def.banda);
+    const list = byBand.get(banda) ?? [];
+    list.push(id);
+    byBand.set(banda, list);
+    void catalogIndex;
+  });
+  // Ordena cada banda pela ordem horizontal resolvida (estavel pelo catalogo).
+  for (const [banda, list] of byBand) {
+    list.sort(
+      (a, b) =>
+        layout.ordemOf(a, middleBlocks.indexOf(a)) -
+          layout.ordemOf(b, middleBlocks.indexOf(b)) ||
+        middleBlocks.indexOf(a) - middleBlocks.indexOf(b),
+    );
+    byBand.set(banda, list);
+  }
+
+  const orderedBands = layout.bandOrder();
+  const ctx: WorkbenchContextValue = { isVisible: layout.isVisible };
+
+  const actionVisible = blockSet.has(HEADER_BLOCK) && layout.isVisible(HEADER_BLOCK);
+  const loteVisible = blockSet.has("lote") && layout.isVisible("lote");
+
+  return (
+    <WorkbenchContext.Provider value={ctx}>
+      <section
+        data-workbench={workbenchKey}
+        data-scope={scopePath}
+        className="rounded-b-md rounded-t-none border border-border bg-surface shadow-[var(--shadow-card),var(--hairline-top)]"
+      >
+        {/* Banda de acao / cabecalho */}
+        <div
+          data-band="acao"
+          className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-[18px] py-4"
+        >
+          <div className="min-w-0">
+            <h3 className="text-[15px] font-bold tracking-[-0.01em] text-fg">
+              {title}
+            </h3>
+            <p className="mt-1 max-w-[60ch] text-[13px] text-muted">{description}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <Pill variant="accent">{countLabel}</Pill>
+            <Button
+              variant={layout.customizing ? "primary" : "default"}
+              size="sm"
+              type="button"
+              aria-pressed={layout.customizing}
+              onClick={() => layout.setCustomizing(!layout.customizing)}
+            >
+              <Settings2 aria-hidden="true" />
+              Personalizar
+            </Button>
+            {actionVisible ? (
+              <Button
+                data-block="acao-principal"
+                variant="primary"
+                size="sm"
+                type="button"
+                onClick={onAction}
+                title="Apenas leitura"
+              >
+                {actionLabel}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        {/* Painel de personalizacao (controles de ordem/visibilidade) */}
+        {layout.customizing ? (
+          <CustomizePanel
+            orderedBands={orderedBands}
+            byBand={byBand}
+            blockSet={blockSet}
+            layout={layout}
+          />
+        ) : null}
+
+        {/* Bandas reordenaveis do meio (topo/status/ferramentas) */}
+        {orderedBands.map((band) => {
+          const ids = (byBand.get(band) ?? []).filter((id) => layout.isVisible(id));
+          if (ids.length === 0) return null;
+          return (
+            <div
+              key={band}
+              data-band={band}
+              className="flex flex-wrap items-center gap-2.5 border-b border-border px-[18px] py-3"
+            >
+              {ids.map((id) => (
+                <div key={id} data-block={id} className="contents">
+                  {slotFor(id)}
+                </div>
+              ))}
+            </div>
+          );
+        })}
+
+        {/* Banda da tabela: lote (selecao) + tabela */}
+        <div data-band="tabela">
+          {loteVisible ? <div data-block="lote">{slots.lote}</div> : null}
+          {children}
+        </div>
+      </section>
+
+      {toast ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed bottom-6 right-6 z-50 inline-flex items-center gap-2 rounded-md border px-3.5 py-2.5 text-[13px] shadow-[var(--shadow-overlay)] ${
+            toast.kind === "err"
+              ? "border-err bg-err-bg text-err"
+              : "border-ok bg-ok-bg text-ok"
+          }`}
+        >
+          {toast.kind === "err" ? (
+            <TriangleAlert aria-hidden="true" width={16} height={16} />
+          ) : (
+            <Check aria-hidden="true" width={16} height={16} />
+          )}
+          {toast.message}
+        </div>
+      ) : null}
+    </WorkbenchContext.Provider>
+  );
+}
+
+/** Painel inline de personalizacao: ordem horizontal, vertical e visibilidade. */
+function CustomizePanel({
+  orderedBands,
+  byBand,
+  blockSet,
+  layout,
+}: {
+  orderedBands: BlocoBanda[];
+  byBand: Map<BlocoBanda, string[]>;
+  blockSet: ReadonlySet<string>;
+  layout: ReturnType<typeof useWorkbenchLayout>;
+}) {
+  return (
+    <div className="grid gap-3 border-b border-border bg-surface-2 px-[18px] py-4">
+      <p className="text-[11px] font-bold uppercase tracking-wide text-soft">
+        Personalizar layout
+      </p>
+      {orderedBands.map((band, bandPos) => {
+        const ids = (byBand.get(band) ?? []).filter((id) => blockSet.has(id));
+        if (ids.length === 0) return null;
+        const ordered = [...ids].sort(
+          (a, b) => layout.ordemOf(a, 0) - layout.ordemOf(b, 0),
+        );
+        return (
+          <div
+            key={band}
+            className="rounded-md border border-border bg-surface p-3"
+          >
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-soft">
+                {BAND_LABELS[band]}
+              </span>
+              <span className="inline-flex gap-1" role="group" aria-label="Ordem da banda">
+                <Button
+                  variant="icon"
+                  size="sm"
+                  type="button"
+                  aria-label={`Mover banda ${BAND_LABELS[band]} para cima`}
+                  disabled={bandPos === 0}
+                  onClick={() => layout.moveBand(band, -1)}
+                >
+                  <ArrowUp aria-hidden="true" />
+                </Button>
+                <Button
+                  variant="icon"
+                  size="sm"
+                  type="button"
+                  aria-label={`Mover banda ${BAND_LABELS[band]} para baixo`}
+                  disabled={bandPos === orderedBands.length - 1}
+                  onClick={() => layout.moveBand(band, 1)}
+                >
+                  <ArrowDown aria-hidden="true" />
+                </Button>
+              </span>
+            </div>
+            <ul className="grid gap-1.5">
+              {ordered.map((id, pos) => {
+                const def = BLOCK_DEF[id];
+                const isColumn = COLUMN_BLOCKS.has(id);
+                return (
+                  <li
+                    key={id}
+                    className="flex items-center justify-between gap-3 rounded-sm border border-border-soft px-2.5 py-1.5"
+                  >
+                    <span className="text-[13px] text-fg">{def?.label ?? id}</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="inline-flex gap-1" role="group" aria-label="Ordem do bloco">
+                        <Button
+                          variant="icon"
+                          size="sm"
+                          type="button"
+                          aria-label={`Mover ${def?.label ?? id} para a esquerda`}
+                          disabled={isColumn || pos === 0}
+                          onClick={() => layout.moveBlock(id, ordered, -1)}
+                        >
+                          <ArrowUp aria-hidden="true" />
+                        </Button>
+                        <Button
+                          variant="icon"
+                          size="sm"
+                          type="button"
+                          aria-label={`Mover ${def?.label ?? id} para a direita`}
+                          disabled={isColumn || pos === ordered.length - 1}
+                          onClick={() => layout.moveBlock(id, ordered, 1)}
+                        >
+                          <ArrowDown aria-hidden="true" />
+                        </Button>
+                      </span>
+                      <CcToggle
+                        ariaLabel={`Exibir bloco ${def?.label ?? id}`}
+                        checked={layout.isVisible(id)}
+                        onChange={(on) => layout.setVisible(id, on)}
+                      />
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}

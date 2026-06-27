@@ -4,6 +4,7 @@ import { ConfiguracoesEmpresaForm } from "@/components/cockpit/configuracoes-emp
 import { ConfiguracoesIaForm } from "@/components/cockpit/configuracoes-ia-form";
 import { ConfiguracoesRerankForm } from "@/components/cockpit/configuracoes-rerank-form";
 import { ReindexarBuscaProdutos } from "@/components/cockpit/reindexar-busca-produtos";
+import { ThemeSegmented } from "@/components/cockpit/theme-segmented";
 import type { ConfigEmpresa } from "@/lib/api/types";
 
 export const metadata: Metadata = { title: "Configurações da empresa" };
@@ -69,6 +70,16 @@ export default async function ConfiguracoesEmpresaPage() {
           </p>
         </div>
       </div>
+
+      <section aria-labelledby="aparencia-heading" className="card form-card form-card--wide">
+        <div className="field">
+          <label id="aparencia-heading">Aparência</label>
+          <p style={{ marginTop: 4, marginBottom: 12, color: "var(--muted)" }}>
+            Escolha entre o modo escuro, claro ou seguir a preferência do sistema operacional.
+          </p>
+          <ThemeSegmented />
+        </div>
+      </section>
 
       <ConfiguracoesEmpresaForm initial={config} />
 

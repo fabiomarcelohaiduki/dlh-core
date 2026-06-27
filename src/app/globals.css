@@ -7,19 +7,281 @@
    Replica da identidade LionClaw (tokens copiados, nunca importados — RNF-17).
    Fonte de verdade visual: docs/.../design/artifact.html
    ===================================================================== */
+
+/* ---------------------------------------------------------------------
+   Tokens estruturais (nao dependem de tema — declarados uma unica vez)
+   --------------------------------------------------------------------- */
 :root {
-  --bg: #0b0b0e;
-  --surface: #141418;
-  --surface-2: #1a1a20;
-  --surface-3: #202028;
-  --border: #272730;
-  --border-soft: #1f1f27;
-  --fg: #e9e9ec;
-  --muted: #9b9ba5;
-  --faint: #6c6c77;
-  --accent: #d99a3c;
-  --accent-soft: rgba(217, 154, 60, 0.14);
-  --accent-line: rgba(217, 154, 60, 0.4);
+  --r-sm: 6px;
+  --r-md: 12px;
+  --r-lg: 14px;
+  --mono: var(--font-mono), ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace;
+  --sans: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, system-ui, sans-serif;
+  --sp: 24px;
+
+  /* Curva de mola padrao para micro-movimento (sem linear/ease-in-out). */
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Fio de luz no topo do card (highlight de borda usinada) — calibrado por
+     regime atraves de overrides em .dark / :root abaixo. */
+  --hairline-top: inset 0 1px 0 rgba(0, 0, 0, 0.05);
+
+  /* Fio de luz no topo de botoes/inputs (borda superior usinada). */
+  --hairline-control: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+
+  /* Anel de foco de teclado (acessibilidade) coerente com o accent. */
+  --focus-ring: 0 0 0 3px var(--accent-soft), 0 0 0 1px var(--accent-line);
+
+  /* Derivados de marca cross-tema (color-mix a partir das cores de marca do
+     tema ativo). Cada bloco de tema pode sobrescrever com o valor exato do
+     artifact; aqui garantimos que toda variavel resolva em qualquer tema. */
+  --accent-deep: color-mix(in srgb, var(--accent) 78%, #000);
+  --accent-strong: color-mix(in srgb, var(--accent) 80%, #fff);
+  --on-accent: #ffffff;
+  --bg-2: var(--bg);
+  --soft: var(--faint);
+  --border-strong: var(--border);
+  --danger: var(--err);
+
+  /* Transicao 200ms cubic-bezier nas propriedades tema-sensiveis. Aplicada
+     em :root e propagada por heranca CSS aos descendentes. Cancelada via
+     @media (prefers-reduced-motion: reduce) abaixo. */
+  transition: background-color 200ms cubic-bezier(0.4, 0, 0.2, 1),
+    color 200ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 200ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ---------------------------------------------------------------------
+   Tokens de fundacao do Design Lock (SPEC 4.4) — espelham src/lib/tokens.ts.
+   Bases de tipografia/espacamento/raio (4.4.2/4.4.3/4.4.4) e a paleta de
+   MARCA bruta da SPEC 4.4.1 declarada como camada de REFERENCIA (`--dl-*`).
+
+   Os `--dl-*` documentam o LionClaw oficial e NAO sobrescrevem o accent
+   ambar ja calibrado dos regimes light/dark abaixo (--accent permanece
+   intacto). Consumir os `--dl-*` apenas onde se quer o valor de marca cru.
+   --------------------------------------------------------------------- */
+:root {
+  /* Tipografia base (SPEC 4.4.2). */
+  --font-base: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+
+  /* Espacamento base 4px (SPEC 4.4.3) — escala por multiplos inteiros. */
+  --space-base: 4px;
+
+  /* Raio base 12px (SPEC 4.4.4). */
+  --radius-base: 12px;
+
+  /* Paleta de marca bruta (SPEC 4.4.1, tema LionClaw) — camada de referencia. */
+  --dl-bg: #09090b;
+  --dl-surface: #18181b;
+  --dl-border: #27272a;
+  --dl-accent: #e27300;
+  --dl-accent-deep: #b85c00;
+  --dl-fg: #fafafa;
+  --dl-muted: #a1a1aa;
+  --dl-ok: #4ade80;
+  --dl-warn: #facc15;
+  --dl-danger: #f87171;
+}
+
+/* ---------------------------------------------------------------------
+   Regime LIGHT (default) — paleta off-white + zinc neutros + amber
+   Fonte de verdade: docs/design-lion.md (secao "Tokens Fundamentais")
+   --------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --surface-2: #f1f1ee;
+  --surface-3: #e8e8e3;
+  --border: #d6d6d1;
+  --border-soft: #e4e4df;
+  --fg: #1c1c20;
+  --muted: #5f5f6a;
+  --faint: #8c8c95;
+  /* Accent calibrado pelo protótipo (tema claro): laranja quente oklch. */
+  --accent: oklch(60% 0.16 50);
+  --accent-strong: oklch(54% 0.17 48);
+  --accent-deep: color-mix(in oklch, var(--accent) 78%, #000);
+  --on-accent: oklch(99% 0.01 75);
+  --accent-soft: color-mix(in oklch, var(--accent) 12%, transparent);
+  --accent-line: color-mix(in oklch, var(--accent) 45%, transparent);
+  --accent-fg: var(--on-accent);
+  --accent-text: color-mix(in oklch, var(--accent) 88%, #000);
+  --btn-primary-bg: linear-gradient(180deg, var(--accent-strong) 0%, var(--accent) 58%, var(--accent-deep) 100%);
+  --btn-primary-bg-hover: linear-gradient(180deg, color-mix(in oklch, var(--accent-strong) 88%, #fff) 0%, color-mix(in oklch, var(--accent) 92%, #fff) 60%, var(--accent-deep) 100%);
+  --btn-primary-border: color-mix(in oklch, var(--accent) 45%, transparent);
+  --btn-primary-border-hover: color-mix(in oklch, var(--accent) 65%, transparent);
+  --btn-primary-border-focus: var(--accent);
+  --btn-border-hover: var(--border-soft);
+  --btn-press-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.28);
+  --btn-ghost-press-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.22);
+  --btn-primary-press-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 1px 3px rgba(120, 70, 10, 0.4);
+  --btn-primary-focus-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 1px color-mix(in oklch, var(--accent) 70%, transparent);
+
+  /* Tokens de estado semantico calibrados para WCAG AA (>= 4.5:1) sobre
+     --bg/--surface em light. Cor forte -700 + bg tonal -100 da mesma
+     familia (emerald/blue/amber/red/zinc). */
+  --ok: #047857;            /* emerald-700 */
+  --ok-bg: #d1fae5;         /* emerald-100 */
+  --run: #1d4ed8;           /* blue-700 */
+  --run-bg: #dbeafe;        /* blue-100 */
+  --warn: #b45309;          /* amber-700 */
+  --warn-bg: #fef3c7;       /* amber-100 */
+  --err: #b91c1c;           /* red-700 */
+  --err-bg: #fee2e2;        /* red-100 */
+  --idle: #52525b;          /* zinc-600 */
+  --idle-bg: #f4f4f5;       /* zinc-100 */
+
+  /* Sombras: cards/cards-hover/tooltip permanecem transparentes (gate RF-24).
+     --shadow-overlay ganha elevacao real para os modais elevados. */
+  --shadow-card: 0 0 0 transparent;
+  --shadow-card-hover: 0 0 0 transparent;
+  --shadow-overlay: 0 4px 16px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-tooltip: 0 0 0 transparent;
+
+  /* Backdrop do modal/scrim: mais leve em light (0.4) para nao competir com
+     o conteudo branco do card. Em dark fica mais escuro (0.6) via override. */
+  --modal-backdrop: rgba(0, 0, 0, 0.4);
+
+  /* Profundidade do botao primario: sombra discreta + hairline-top. */
+  --shadow-primary: 0 1px 2px rgba(80, 45, 10, 0.18),
+    0 4px 12px -6px color-mix(in oklch, var(--accent) 32%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  --shadow-primary-hover: 0 2px 4px rgba(80, 45, 10, 0.22),
+    0 8px 18px -8px color-mix(in oklch, var(--accent) 40%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+/* ---------------------------------------------------------------------
+   Regime DARK — preserva os valores originais do projeto (cockpit
+   operacional noturno). Aplicado ao tema LionClaw (default) e a classe
+   legada `.dark`, ambos resolvidos por next-themes (attribute="data-theme").
+   O tema `claro` cai no `:root` base; `grafite`/`salvia` derivam logo abaixo.
+   --------------------------------------------------------------------- */
+.dark,
+:root[data-theme="lionclaw"],
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Seeds de marca LionClaw — copiados do artifact (Design Lock 20260626).
+     Escuros = zinc NEUTRO FRIO (nunca marrom); o laranja vive SO no acento. */
+  --bg: #09090b;            /* Zinc 950 */
+  --bg-2: #0d0d0f;
+  --surface: #18181b;       /* Zinc 900 */
+  --surface-2: #1f1f23;
+  --surface-3: #27272a;     /* Zinc 800 */
+  --border: #27272a;        /* Zinc 800 */
+  --border-soft: color-mix(in srgb, #27272a 70%, #09090b);
+  --border-strong: #3f3f46; /* Zinc 700 */
+  --fg: #fafafa;            /* Zinc 50 */
+  --muted: #a1a1aa;         /* Zinc 400 */
+  --soft: #71717a;          /* Zinc 500 */
+  --faint: #71717a;         /* alias legado de --soft */
+
+  /* Acento ambar de marca (#e27300) + derivados por color-mix do seed. */
+  --accent: #e27300;
+  --accent-strong: #ff8a1f;
+  --accent-deep: #b85c00;
+  --on-accent: #ffffff;
+  --accent-soft: color-mix(in srgb, #e27300 16%, transparent);
+  --accent-line: color-mix(in srgb, #e27300 42%, transparent);
+  --accent-fg: #ffffff;     /* texto branco dentro dos botoes laranja (igual ao Lion) */
+  --accent-text: #ff8a1f;
+  --btn-primary-bg: linear-gradient(180deg, color-mix(in srgb, #e27300 88%, #fff) 0%, #e27300 58%, #b85c00 100%);
+  --btn-primary-bg-hover: linear-gradient(180deg, #ff8a1f 0%, color-mix(in srgb, #e27300 92%, #fff) 60%, #e27300 100%);
+  --btn-primary-border: color-mix(in srgb, #e27300 42%, transparent);
+  --btn-primary-border-hover: color-mix(in srgb, #e27300 62%, transparent);
+  --btn-primary-border-focus: var(--accent);
+  --btn-border-hover: var(--surface-3);
+  --btn-press-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.28);
+  --btn-ghost-press-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.22);
+  --btn-primary-press-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 1px 3px rgba(120, 70, 10, 0.4);
+  --btn-primary-focus-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 1px color-mix(in srgb, #e27300 70%, transparent);
+
+  /* Status semanticos de marca (Tailwind 400) — copiados do artifact. */
+  --ok: #4ade80;
+  --ok-bg: color-mix(in srgb, #4ade80 13%, transparent);
+  --run: #6f9bd9;
+  --run-bg: color-mix(in srgb, #6f9bd9 14%, transparent);
+  --warn: #facc15;
+  --warn-bg: color-mix(in srgb, #facc15 13%, transparent);
+  --danger: #f87171;
+  --err: #f87171;
+  --err-bg: color-mix(in srgb, #f87171 13%, transparent);
+  --idle: #7d7d88;
+  --idle-bg: color-mix(in srgb, #7d7d88 13%, transparent);
+
+  /* Sombras calibradas para dark (matizadas, baixa opacidade, fonte de luz
+     unica vindo de cima) — espelha o baseline original. */
+  --shadow-card: 0 0 0 transparent;
+  --shadow-card-hover: 0 0 0 transparent;
+  --shadow-overlay: 0 4px 16px rgba(0, 0, 0, 0.32),
+    0 1px 2px rgba(0, 0, 0, 0.18);
+  --shadow-tooltip: 0 0 0 transparent;
+
+  /* Backdrop do modal/scrim em dark: mais escuro (0.6) para preservar o
+     contraste do card claro sobre o fundo preto. */
+  --modal-backdrop: rgba(0, 0, 0, 0.6);
+
+  /* Fio de luz interno no topo do card (highlight de borda usinada). */
+  --hairline-top: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  /* Fio de luz no topo de botoes/inputs (borda superior usinada). */
+  --hairline-control: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  /* Profundidade do botao primario ambar: brilho interno + assentamento. */
+  --shadow-primary: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 16px -10px color-mix(in srgb, #e27300 55%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  --shadow-primary-hover: 0 2px 4px rgba(0, 0, 0, 0.32), 0 10px 22px -10px color-mix(in srgb, #e27300 62%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+/* ---------------------------------------------------------------------
+   Tema GRAFITE — derivado por color-mix() a partir das sementes de marca
+   (SPEC 4.4.5 / tokens da Sprint 2): fundo #27272a, acento #e27300,
+   texto #fafafa. As cores secundarias (surfaces, bordas, faints) sao
+   calculadas misturando a semente de fundo com o texto/acento, garantindo
+   uma escala coesa sem valores avulsos.
+   --------------------------------------------------------------------- */
+:root[data-theme="grafite"] {
+  color-scheme: dark;
+
+  /* Sementes do prototipo (DESIGN.md): grafite frio + acento azul aco
+     dessaturado (oklch hue ~235/250). As superficies/bordas/derivados sao
+     calculados a partir dessas sementes para manter a escala coesa. */
+  --bg: oklch(13% 0.011 250);
+  --bg-2: oklch(15% 0.012 250);
+  --surface: oklch(18% 0.012 250);
+  --surface-2: oklch(21% 0.012 250);
+  --surface-3: oklch(25% 0.011 250);
+  --border: color-mix(in oklch, var(--fg) 11%, transparent);
+  --border-soft: color-mix(in oklch, var(--fg) 7%, transparent);
+  --border-strong: color-mix(in oklch, var(--fg) 17%, transparent);
+  --fg: oklch(93% 0.006 250);
+  --muted: oklch(70% 0.01 250);
+  --soft: oklch(52% 0.012 250);
+  --faint: oklch(52% 0.012 250);
+  --accent: oklch(68% 0.11 235);
+  --accent-strong: oklch(75% 0.12 235);
+  --accent-deep: color-mix(in oklch, var(--accent) 78%, #000);
+  --on-accent: oklch(15% 0.02 250);
+  --accent-soft: color-mix(in oklch, var(--accent) 16%, transparent);
+  --accent-line: color-mix(in oklch, var(--accent) 42%, transparent);
+  --accent-fg: oklch(15% 0.02 250);
+  --accent-text: color-mix(in oklch, var(--accent) 90%, var(--fg));
+  --btn-primary-bg: linear-gradient(180deg, var(--accent-strong) 0%, var(--accent) 58%, var(--accent-deep) 100%);
+  --btn-primary-bg-hover: linear-gradient(180deg, color-mix(in oklch, var(--accent-strong) 85%, #fff) 0%, var(--accent-strong) 60%, var(--accent) 100%);
+  --btn-primary-border: color-mix(in oklch, var(--accent) 42%, transparent);
+  --btn-primary-border-hover: color-mix(in oklch, var(--accent) 62%, transparent);
+  --btn-primary-border-focus: var(--accent);
+  --btn-border-hover: var(--surface-3);
+  --btn-press-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.28);
+  --btn-ghost-press-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.22);
+  --btn-primary-press-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 1px 3px rgba(10, 30, 60, 0.4);
+  --btn-primary-focus-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 1px color-mix(in oklch, var(--accent) 70%, transparent);
   --ok: #5cbf86;
   --ok-bg: rgba(92, 191, 134, 0.13);
   --run: #6f9bd9;
@@ -30,32 +292,92 @@
   --err-bg: rgba(221, 107, 98, 0.13);
   --idle: #7d7d88;
   --idle-bg: rgba(125, 125, 136, 0.13);
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
-  --mono: var(--font-mono), ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace;
-  --sans: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, system-ui, sans-serif;
-  --sp: 24px;
 
-  /* Sombras calibradas para dark (matizadas, baixa opacidade, fonte de luz
-     unica vindo de cima). ADITIVO — nenhuma var existente foi alterada. */
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.32), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
-  --shadow-card-hover: 0 1px 2px rgba(0, 0, 0, 0.34), 0 18px 40px -18px rgba(0, 0, 0, 0.62);
-  /* Fio de luz interno no topo do card (highlight de borda usinada). */
-  --hairline-top: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  /* Curva de mola padrao para micro-movimento (sem linear/ease-in-out). */
-  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
-
-  /* --- Etapa formularios: profundidade de controles (ADITIVO) --- */
-  /* Fio de luz no topo de botoes/inputs (borda superior usinada). */
-  --hairline-control: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  /* Profundidade do botao primario dourado: brilho interno + assentamento. */
-  --shadow-primary: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 16px -10px rgba(217, 154, 60, 0.55),
+  --shadow-card: 0 0 0 transparent;
+  --shadow-card-hover: 0 0 0 transparent;
+  --shadow-overlay: 0 4px 16px rgba(0, 0, 0, 0.32), 0 1px 2px rgba(0, 0, 0, 0.18);
+  --shadow-tooltip: 0 0 0 transparent;
+  --modal-backdrop: rgba(0, 0, 0, 0.55);
+  --hairline-top: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --hairline-control: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --shadow-primary: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 16px -10px color-mix(in oklch, var(--accent) 55%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.22);
-  --shadow-primary-hover: 0 2px 4px rgba(0, 0, 0, 0.32), 0 10px 22px -10px rgba(217, 154, 60, 0.62),
+  --shadow-primary-hover: 0 2px 4px rgba(0, 0, 0, 0.32), 0 10px 22px -10px color-mix(in oklch, var(--accent) 62%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.28);
-  /* Anel de foco de teclado (acessibilidade) coerente com o accent. */
-  --focus-ring: 0 0 0 3px var(--accent-soft), 0 0 0 1px var(--accent-line);
+}
+
+/* ---------------------------------------------------------------------
+   Tema SALVIA — claro (light) do prototipo (DESIGN.md): branco quente +
+   acento verde salvia dessaturado (oklch hue ~130/150). Superficies claras,
+   texto escuro; status/sombras seguem o regime light (igual ao :root claro).
+   --------------------------------------------------------------------- */
+:root[data-theme="salvia"] {
+  color-scheme: light;
+
+  --bg: oklch(96% 0.012 130);
+  --bg-2: oklch(98.5% 0.008 130);
+  --surface: oklch(100% 0 0);
+  --surface-2: oklch(96.5% 0.01 130);
+  --surface-3: oklch(93% 0.013 130);
+  --border: color-mix(in oklch, var(--fg) 13%, transparent);
+  --border-soft: color-mix(in oklch, var(--fg) 8%, transparent);
+  --border-strong: color-mix(in oklch, var(--fg) 19%, transparent);
+  --fg: oklch(24% 0.014 150);
+  --muted: oklch(46% 0.013 150);
+  --soft: oklch(58% 0.012 150);
+  --faint: oklch(58% 0.012 150);
+  --accent: oklch(56% 0.075 150);
+  --accent-strong: oklch(50% 0.08 150);
+  --accent-deep: color-mix(in oklch, var(--accent) 80%, #000);
+  --on-accent: oklch(99% 0.01 130);
+  --accent-soft: color-mix(in oklch, var(--accent) 16%, transparent);
+  --accent-line: color-mix(in oklch, var(--accent) 44%, transparent);
+  --accent-fg: oklch(99% 0.01 130);
+  --accent-text: oklch(40% 0.07 150);
+  --btn-primary-bg: linear-gradient(180deg, var(--accent-strong) 0%, var(--accent) 58%, var(--accent-deep) 100%);
+  --btn-primary-bg-hover: linear-gradient(180deg, color-mix(in oklch, var(--accent) 88%, #fff) 0%, var(--accent) 60%, var(--accent-strong) 100%);
+  --btn-primary-border: color-mix(in oklch, var(--accent) 44%, transparent);
+  --btn-primary-border-hover: color-mix(in oklch, var(--accent) 64%, transparent);
+  --btn-primary-border-focus: var(--accent);
+  --btn-border-hover: var(--border-soft);
+  --btn-press-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.28);
+  --btn-ghost-press-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.22);
+  --btn-primary-press-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 1px 3px rgba(20, 50, 35, 0.4);
+  --btn-primary-focus-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 1px color-mix(in oklch, var(--accent) 70%, transparent);
+
+  /* Status semanticos do regime light (AA, identicos ao :root claro). */
+  --ok: #047857;
+  --ok-bg: #d1fae5;
+  --run: #1d4ed8;
+  --run-bg: #dbeafe;
+  --warn: #b45309;
+  --warn-bg: #fef3c7;
+  --err: #b91c1c;
+  --err-bg: #fee2e2;
+  --idle: #52525b;
+  --idle-bg: #f4f4f5;
+
+  --shadow-card: 0 0 0 transparent;
+  --shadow-card-hover: 0 0 0 transparent;
+  --shadow-overlay: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-tooltip: 0 0 0 transparent;
+  --modal-backdrop: rgba(0, 0, 0, 0.4);
+  --hairline-top: inset 0 1px 0 rgba(0, 0, 0, 0.05);
+  --hairline-control: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  --shadow-primary: 0 1px 2px rgba(30, 55, 40, 0.18), 0 4px 12px -6px color-mix(in oklch, var(--accent) 32%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  --shadow-primary-hover: 0 2px 4px rgba(30, 55, 40, 0.22), 0 8px 18px -8px color-mix(in oklch, var(--accent) 40%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+/* ---------------------------------------------------------------------
+   Acessibilidade: cancela toda transicao para usuarios com
+   prefers-reduced-motion (gate RF-25 / E14 da SPEC).
+   --------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  :root * {
+    transition-duration: 0ms !important;
+  }
 }
 
 * {
@@ -71,6 +393,9 @@ body {
   /* O scroll do conteudo vive em .main (overflow-y:auto); travar o documento
      evita a segunda barra de rolagem (a do body) sobre a do .main. */
   overflow: hidden;
+  /* Herda color-scheme do :root (light) ou .dark (dark) para que scrollbar
+     nativa, autofill, cursor do SO e canvas sigam o regime visual ativo. */
+  color-scheme: inherit;
 }
 body {
   background: var(--bg);
@@ -127,12 +452,12 @@ button {
 }
 .btn:hover {
   background: var(--surface-3);
-  border-color: #3a3a46;
+  border-color: var(--btn-border-hover);
   transform: translateY(-1px);
 }
 .btn:active {
   transform: translateY(0);
-  box-shadow: var(--hairline-control), inset 0 1px 3px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--hairline-control), var(--btn-press-shadow);
 }
 /* Foco de teclado visivel (acessibilidade), discreto no hover de mouse. */
 .btn:focus-visible {
@@ -146,24 +471,24 @@ button {
   flex: none;
 }
 .btn-primary {
-  background: linear-gradient(180deg, #e2a44a 0%, var(--accent) 58%, #cf8e32 100%);
-  border-color: #b67e2b;
-  color: #1a140a;
+  background: var(--btn-primary-bg);
+  border-color: var(--accent-line);
+  color: var(--accent-fg);
   font-weight: 600;
   box-shadow: var(--shadow-primary);
 }
 .btn-primary:hover {
-  background: linear-gradient(180deg, #efb257 0%, #e6a948 60%, #d6982f 100%);
-  border-color: #c98c30;
+  background: var(--btn-primary-bg-hover);
+  border-color: var(--btn-primary-border-hover);
   box-shadow: var(--shadow-primary-hover);
 }
 .btn-primary:active {
-  background: linear-gradient(180deg, #d99a3c 0%, #cf8e32 100%);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 1px 3px rgba(120, 70, 10, 0.4);
+  background: var(--btn-primary-bg);
+  box-shadow: var(--shadow-primary), var(--btn-primary-press-shadow);
 }
 .btn-primary:focus-visible {
-  box-shadow: var(--shadow-primary), 0 0 0 3px var(--accent-soft), 0 0 0 1px rgba(217, 154, 60, 0.7);
-  border-color: #b67e2b;
+  box-shadow: var(--shadow-primary), var(--btn-primary-focus-shadow);
+  border-color: var(--btn-primary-border-focus);
 }
 .btn-ghost {
   background: transparent;
@@ -177,7 +502,7 @@ button {
 }
 .btn-ghost:active {
   background: var(--surface-2);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--btn-ghost-press-shadow);
 }
 .btn-sm {
   height: 30px;
@@ -248,30 +573,56 @@ button {
 .pill.ok {
   color: var(--ok);
   background: var(--ok-bg);
-  border-color: rgba(92, 191, 134, 0.22);
+  border-color: rgba(4, 120, 87, 0.22);
 }
 .pill.run {
   color: var(--run);
   background: var(--run-bg);
-  border-color: rgba(111, 155, 217, 0.24);
+  border-color: rgba(29, 78, 216, 0.22);
 }
 .pill.warn {
   color: var(--warn);
   background: var(--warn-bg);
-  border-color: rgba(217, 177, 74, 0.24);
+  border-color: rgba(180, 83, 9, 0.22);
 }
 .pill.err {
   color: var(--err);
   background: var(--err-bg);
-  border-color: rgba(221, 107, 98, 0.24);
+  border-color: rgba(185, 28, 28, 0.22);
 }
 .pill.idle {
   color: var(--idle);
   background: var(--idle-bg);
-  border-color: rgba(125, 125, 136, 0.22);
+  border-color: rgba(82, 82, 91, 0.22);
+}
+.pill.accent {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
 }
 .pill.run .dot {
   animation: pulse 1.4s ease-in-out infinite;
+}
+/* Destacar pendencias: quando ligado (default), todo estado pendente
+   (.pill.warn) ganha contorno e peso reais; desligado, volta ao tom quieto da
+   base. Espelha a regra travada no artifact do Design Lock. */
+body.highlight-pending .pill.warn {
+  background: color-mix(in oklch, var(--warn) 34%, transparent);
+  color: color-mix(in oklch, var(--warn) 76%, var(--fg));
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--warn) 48%, transparent);
+}
+/* Densidade do ambiente (preferencia global, reaplicada no boot por
+   PreferencesSync). Espelha o setDensity travado no artifact: padding vertical
+   9px (compacta) / 16px (confortavel) em th,td. Tabelas montadas pelo
+   componente <Table> definem sua densidade local com !important e nao sao
+   afetadas; aqui governamos as tabelas simples do app. */
+body.compact :is(th, td) {
+  padding-top: 9px;
+  padding-bottom: 9px;
+}
+body.comfortable :is(th, td) {
+  padding-top: 16px;
+  padding-bottom: 16px;
 }
 @keyframes pulse {
   0%,
@@ -283,35 +634,125 @@ button {
   }
 }
 
-/* ---------- login ---------- */
-/* Tela de entrada premium: glow dourado ambiente atras do card (duas fontes
-   radiais discretas, GPU-friendly: so pinta o fundo fixo, sem repaint de
-   scroll), respirando uma profundidade quente sem competir com o conteudo. */
-.login-root {
-  position: fixed;
-  inset: 0;
+/* ---------- logo canonico (tile + orbita + faisca) ---------- */
+/* Contrato de Design, secao 1: variantes .logo (login/destaque) e .mini-logo
+   (sidebar/topbar) — mesmo desenho, escalas diferentes. A cor segue o --accent
+   do tema; tile/nos/faisca derivam das superficies via CSS (sem var() em
+   atributo SVG). A orbita gira no hover e respeita prefers-reduced-motion. */
+.logo,
+.mini-logo {
   display: grid;
   place-items: center;
-  padding: 24px;
-  background: radial-gradient(60% 50% at 50% 38%, rgba(217, 154, 60, 0.1), transparent 70%),
-    radial-gradient(120% 90% at 80% -10%, rgba(217, 154, 60, 0.06), transparent 60%),
-    radial-gradient(100% 80% at 12% 108%, rgba(217, 154, 60, 0.04), transparent 62%), var(--bg);
+  flex: none;
 }
-/* Vinheta sutil que aprofunda as bordas e foca o olho no card central. */
-.login-root::before {
+.logo svg,
+.mini-logo svg {
+  color: var(--accent);
+  transition: color 0.45s ease;
+}
+.logo .orbit,
+.mini-logo .orbit {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dlh-orbit 24s linear infinite;
+}
+.logo:hover .orbit,
+.mini-logo:hover .orbit {
+  animation-duration: 6s;
+}
+@keyframes dlh-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .logo .orbit,
+  .mini-logo .orbit {
+    animation: none;
+  }
+}
+.logo .tile-from,
+.mini-logo .tile-from {
+  stop-color: var(--surface-3);
+}
+.logo .tile-to,
+.mini-logo .tile-to {
+  stop-color: var(--surface-2);
+}
+.logo .spark-from,
+.mini-logo .spark-from {
+  stop-color: var(--accent-strong);
+}
+.logo .spark-to,
+.mini-logo .spark-to {
+  stop-color: var(--accent);
+}
+.logo .logo-tile,
+.mini-logo .logo-tile {
+  stroke: var(--border-strong);
+  transition: stroke 0.45s ease;
+}
+.logo .logo-node,
+.mini-logo .logo-node {
+  fill: var(--surface);
+  transition: fill 0.45s ease;
+}
+
+/* ---------- login (LionClaw) ---------- */
+/* Tela de entrada com identidade LionClaw. A paleta da marca (carvao zinc +
+   laranja amber) e escopada na .login-screen, entao o /login renderiza SEMPRE
+   em LionClaw, independentemente do tema da sessao (SPEC 4.3.1 / 5.1.1 — tema
+   LionClaw default tambem no login). Tokens copiados do artifact (RNF-17:
+   replica, nunca importa). */
+.login-screen {
+  /* Paleta LionClaw escopada: 2 escuros (zinc) + 2 laranjas (amber) + textos. */
+  --ll-bg: #09090b;
+  --ll-bg-2: #0d0d0f;
+  --ll-surface: #18181b;
+  --ll-accent: #e27300;
+  --ll-accent-strong: #ff8a1f;
+  --ll-accent-deep: #b85c00;
+  --ll-on-accent: #ffffff;
+  --ll-fg: #fafafa;
+  --ll-muted: #a1a1aa;
+  --ll-soft: #71717a;
+  --ll-border: #27272a;
+  --ll-border-strong: #3f3f46;
+  --ll-danger: #f87171;
+  --login-glow: color-mix(in oklch, var(--ll-accent) 24%, transparent);
+
+  position: relative;
+  min-height: 100vh;
+  width: 100%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 48px;
+  isolation: isolate;
+  color: var(--ll-fg);
+  color-scheme: dark;
+  /* Glow laranja central + base radial + diagonal carvao (paleta LionClaw). */
+  background: radial-gradient(circle at 50% 44%, var(--login-glow), transparent 19rem),
+    radial-gradient(circle at 50% 100%, color-mix(in oklch, var(--ll-bg-2) 70%, transparent), transparent 26rem),
+    linear-gradient(145deg, var(--ll-bg-2), var(--ll-bg) 62%);
+}
+/* Moldura hairline que assenta o conteudo dentro de um marco discreto. */
+.login-screen::before {
   content: "";
   position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(130% 100% at 50% 42%, transparent 52%, rgba(0, 0, 0, 0.32) 100%);
+  inset: 30px;
+  z-index: -1;
+  border: 1px solid color-mix(in oklch, var(--ll-fg) 6%, transparent);
+  border-radius: 34px;
 }
-.login-card {
-  position: relative;
-  width: 100%;
-  max-width: 392px;
-  animation: rise 0.62s var(--ease-spring) both;
+.login-unit {
+  display: grid;
+  justify-items: center;
+  gap: 26px;
+  width: min(520px, calc(100vw - 48px));
+  animation: settle 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
-@keyframes rise {
+@keyframes settle {
   from {
     opacity: 0;
     transform: translateY(14px) scale(0.99);
@@ -321,207 +762,231 @@ button {
     transform: none;
   }
 }
-.brandmark {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  margin-bottom: 30px;
-  animation: rise 0.62s var(--ease-spring) both;
-  animation-delay: 60ms;
-}
-/* Glyph da marca: assenta com hairline-top + brilho dourado suave projetado,
-   parecendo um selo usinado e nao um quadrado chapado. */
-.brandmark .glyph {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  border: 1px solid var(--accent-line);
-  background: linear-gradient(180deg, rgba(217, 154, 60, 0.2), var(--accent-soft));
+.brand {
   display: grid;
+  justify-items: center;
+  gap: 18px;
+}
+/* Selo da marca: glow laranja projetado, dando profundidade ao logo LionClaw. */
+.brand .logo {
+  display: grid;
+  width: 76px;
+  height: 76px;
   place-items: center;
-  color: var(--accent);
-  box-shadow: var(--hairline-control), 0 0 18px -6px rgba(217, 154, 60, 0.45),
-    0 1px 2px rgba(0, 0, 0, 0.3);
+  filter: drop-shadow(0 10px 30px color-mix(in oklch, var(--ll-accent) 30%, transparent));
 }
-.brandmark .glyph svg {
-  width: 18px;
-  height: 18px;
-  filter: drop-shadow(0 0 6px rgba(217, 154, 60, 0.35));
-}
-.brandmark .name {
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-.brandmark .name span {
-  color: var(--faint);
-  font-weight: 500;
-}
-/* Painel com profundidade real: sombra em camadas + fio de luz no topo, e um
-   trilho dourado fininho na borda superior (::before) que assina a marca. */
-.login-panel {
-  position: relative;
-  background: linear-gradient(180deg, var(--surface-2), var(--surface));
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  padding: 30px;
-  box-shadow: var(--hairline-top), var(--shadow-card);
-  animation: rise 0.62s var(--ease-spring) both;
-  animation-delay: 110ms;
-}
-.login-panel::before {
-  content: "";
-  position: absolute;
-  inset-inline: 22px;
-  top: -1px;
-  height: 1px;
-  border-radius: 1px;
-  background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
-  opacity: 0.7;
-}
-.login-panel h1 {
-  font-size: 22px;
-  margin-bottom: 7px;
-  letter-spacing: -0.022em;
-}
-.login-panel .sub {
-  color: var(--muted);
-  font-size: 13.5px;
-  line-height: 1.55;
-  margin-bottom: 26px;
-}
-/* Botao Google polido: hairline-control + assentamento, lift no hover com a
-   curva de mola, foco de teclado com o anel padrao e estados loading/error. */
-.gbtn {
-  position: relative;
+.brand .logo svg {
   width: 100%;
-  height: 46px;
-  display: flex;
+  height: 100%;
+  display: block;
+}
+/* O /login renderiza SEMPRE em LionClaw dark (paleta --ll-* escopada): o logo
+   canonico mapeia para esses tokens em vez do --accent/--surface do tema. */
+.login-screen .logo svg {
+  color: var(--ll-accent);
+}
+.login-screen .logo .tile-from {
+  stop-color: var(--ll-surface);
+}
+.login-screen .logo .tile-to {
+  stop-color: var(--ll-bg-2);
+}
+.login-screen .logo .spark-from {
+  stop-color: var(--ll-accent-strong);
+}
+.login-screen .logo .spark-to {
+  stop-color: var(--ll-accent);
+}
+.login-screen .logo .logo-tile {
+  stroke: var(--ll-border-strong);
+}
+.login-screen .logo .logo-node {
+  fill: var(--ll-surface);
+}
+.login-unit h1 {
+  font-size: 38px;
+  line-height: 1;
+  font-weight: 760;
+  letter-spacing: -0.02em;
+  text-align: center;
+  color: var(--ll-fg);
+}
+.login-sub {
+  margin-top: -10px;
+  max-width: 40ch;
+  text-align: center;
+  color: var(--ll-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+/* Grupo botao + erro: mantem a mensagem de falha ancorada ao botao. */
+.login-action {
+  display: grid;
+  gap: 14px;
+  width: min(360px, 100%);
+  justify-items: stretch;
+}
+/* Botao Google: superficie branca (contraste com o carvao), lift no hover,
+   foco de teclado no acento LionClaw e estados submitting/error. */
+.google-login {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 11px;
+  gap: 14px;
+  width: 100%;
+  min-height: 58px;
+  border: 1px solid color-mix(in oklch, #000 14%, transparent);
+  border-radius: 14px;
   background: #fff;
-  color: #1f1f1f;
-  border: 1px solid transparent;
-  border-radius: var(--r-sm);
-  font-size: 14.5px;
-  font-weight: 500;
-  cursor: pointer;
-  box-shadow: var(--hairline-control), 0 1px 2px rgba(0, 0, 0, 0.28),
-    0 8px 20px -14px rgba(0, 0, 0, 0.6);
-  transition: background 0.18s var(--ease-spring), box-shadow 0.18s var(--ease-spring),
-    border-color 0.18s var(--ease-spring), transform 0.16s var(--ease-spring),
-    opacity 0.18s var(--ease-spring);
+  color: #20262f;
+  font-size: 17px;
+  font-weight: 680;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+  transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease,
+    border-color 180ms ease;
 }
-.gbtn:hover {
-  background: #f4f4f5;
-  transform: translateY(-1px);
-  box-shadow: var(--hairline-control), 0 2px 4px rgba(0, 0, 0, 0.3),
-    0 14px 28px -14px rgba(0, 0, 0, 0.66);
+.google-login:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.3);
 }
-.gbtn:active {
+.google-login:active {
   transform: translateY(0);
-  background: #ececee;
-  box-shadow: var(--hairline-control), inset 0 1px 3px rgba(0, 0, 0, 0.18);
 }
-.gbtn:focus-visible {
+.google-login:focus-visible {
   outline: none;
-  border-color: var(--accent-line);
-  box-shadow: var(--hairline-control), var(--focus-ring);
+  border-color: var(--ll-accent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ll-accent) 35%, transparent),
+    0 12px 28px rgba(0, 0, 0, 0.24);
 }
-.gbtn[disabled] {
+.google-login:disabled {
   cursor: wait;
-}
-/* Estado loading (aria-busy): atenua sutilmente e neutraliza o lift. */
-.gbtn[aria-busy="true"],
-.gbtn[data-state="loading"] {
-  opacity: 0.82;
+  opacity: 0.72;
   transform: none;
-  cursor: progress;
 }
-/* Estado de erro: borda de --err sinaliza a falha sem trocar o rotulo. */
-.gbtn[data-state="error"] {
-  border-color: var(--err);
-  box-shadow: var(--hairline-control), 0 0 0 1px rgba(221, 107, 98, 0.25),
-    0 1px 2px rgba(0, 0, 0, 0.28);
-}
-.gbtn svg {
-  width: 19px;
-  height: 19px;
+.google-g {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
 }
 .login-foot {
-  margin-top: 18px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--faint);
-  font-size: 12px;
-  animation: rise 0.62s var(--ease-spring) both;
-  animation-delay: 160ms;
+  color: var(--ll-soft);
+  font-size: 12.5px;
+  text-align: center;
 }
 .login-foot svg {
-  width: 13px;
-  height: 13px;
+  width: 14px;
+  height: 14px;
   flex: none;
 }
-.login-err {
-  margin-top: 14px;
-  font-size: 12.5px;
-  color: var(--err);
-  background: var(--err-bg);
-  border: 1px solid rgba(221, 107, 98, 0.24);
-  border-radius: var(--r-sm);
-  padding: 9px 12px;
+/* Estado de erro do OAuth: faixa danger ancorada abaixo do botao. */
+.login-error {
   display: flex;
-  gap: 8px;
-  box-shadow: var(--hairline-control);
-  animation: rise 0.32s var(--ease-spring) both;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in oklch, var(--ll-danger) 38%, transparent);
+  background: color-mix(in oklch, var(--ll-danger) 14%, transparent);
+  color: color-mix(in oklch, var(--ll-danger) 72%, var(--ll-fg));
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+  animation: settle 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
-.login-err svg {
-  width: 15px;
-  height: 15px;
+.login-error svg {
+  width: 17px;
+  height: 17px;
   flex: none;
-  margin-top: 1px;
-  color: var(--err);
+  color: var(--ll-danger);
 }
-.login-err .deny-action {
+.login-error .deny-action {
   margin-left: auto;
   align-self: center;
-  color: var(--err);
-  font-weight: 600;
+  color: inherit;
+  font-weight: 700;
   text-decoration: underline;
   text-underline-offset: 2px;
   background: none;
   border: none;
   cursor: pointer;
   padding: 0;
-  border-radius: 3px;
   white-space: nowrap;
-  transition: color 0.16s var(--ease-spring);
 }
-.login-err .deny-action:hover {
-  color: #e98a82;
+.login-error .deny-action:focus-visible {
+  outline: 2px solid var(--ll-danger);
+  outline-offset: 2px;
+  border-radius: 3px;
 }
-.login-err .deny-action:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+/* Aviso honesto de expiracao por inatividade (EC-03): faixa neutra ancorada
+   acima do botao, distinta do erro danger do OAuth. */
+.login-notice {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: min(360px, 100%);
+  padding: 11px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in oklch, var(--ll-accent) 32%, transparent);
+  background: color-mix(in oklch, var(--ll-accent) 12%, transparent);
+  color: color-mix(in oklch, var(--ll-accent) 60%, var(--ll-fg));
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+  animation: settle 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.login-notice svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  color: var(--ll-accent);
+}
+@media (max-width: 760px) {
+  .login-screen {
+    padding: 28px;
+  }
+  .login-screen::before {
+    inset: 16px;
+    border-radius: 24px;
+  }
+  .login-unit h1 {
+    font-size: 31px;
+  }
+  .brand .logo {
+    width: 64px;
+    height: 64px;
+  }
 }
 
 /* ---------- app shell ---------- */
 .app-shell {
   display: grid;
-  grid-template-columns: 236px 1fr;
+  grid-template-columns: var(--rail) 1fr;
   height: 100vh;
+  /* Rail recolhido (so icones) que expande no hover sem reflow do conteudo: a
+     coluna reserva --rail e a .side (fixed) sobrepoe ate --rail-open. */
+  --rail: 78px;
+  --rail-open: 288px;
 }
 .side {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 60;
+  width: var(--rail);
   background: var(--surface);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
   /* Fio de luz interno na borda direita: separa a sidebar do conteudo com a
      mesma linguagem fisica usinada dos cards, sem peso de sombra. */
   box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.018);
+  transition: width 220ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 220ms ease;
 }
 .side > nav {
   flex: 1 1 auto;
@@ -536,21 +1001,10 @@ button {
   border-bottom: 1px solid var(--border-soft);
   flex-shrink: 0;
 }
-.side-head .glyph {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  border: 1px solid var(--accent-line);
-  background: var(--accent-soft);
-  display: grid;
-  place-items: center;
-  color: var(--accent);
-  /* Fio de luz no topo do glyph: hardware usinado, fonte de luz vinda de cima. */
-  box-shadow: var(--hairline-top), 0 0 18px -8px rgba(217, 154, 60, 0.5);
-}
-.side-head .glyph svg {
-  width: 16px;
-  height: 16px;
+.side-head .mini-logo {
+  width: 40px;
+  height: 40px;
+  flex: none;
 }
 .side-head .name {
   font-size: 14px;
@@ -725,101 +1179,45 @@ button {
   height: 16px;
 }
 
-/* Botao de recolher/expandir o menu lateral (somente desktop). */
-.side-collapse {
-  margin-left: auto;
-  border: none;
-  background: transparent;
-  color: var(--faint);
-  cursor: pointer;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--r-sm);
-  display: grid;
-  place-items: center;
-  flex: none;
-  transition: background 0.18s var(--ease-spring), color 0.18s var(--ease-spring);
-}
-.side-collapse:hover {
-  background: var(--surface-2);
-  color: var(--fg);
-}
-.side-collapse:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-  color: var(--fg);
-}
-.side-collapse svg {
-  width: 16px;
-  height: 16px;
-  transition: transform 0.28s var(--ease-spring);
-}
-.side-collapse:hover svg {
-  transform: translateX(-1px);
-}
-
 /*
- * Modo recolhido (somente icones). Aplicado apenas no desktop: no mobile a
- * sidebar vira drawer e o recolhimento nao faz sentido.
+ * Rail que expande no hover (somente desktop). No mobile a sidebar vira drawer
+ * (translateX) e o rail nao se aplica.
  */
 @media (min-width: 921px) {
-  .app-shell.collapsed {
-    grid-template-columns: 64px 1fr;
+  .side:hover {
+    width: var(--rail-open);
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.018),
+      24px 0 60px -24px rgba(0, 0, 0, 0.5);
   }
-  .side.is-collapsed .name,
-  .side.is-collapsed .nav-text,
-  .side.is-collapsed .nav-group .label,
-  .side.is-collapsed .user-row .who {
-    display: none;
+  /* Labels somem no rail recolhido e surgem ao expandir (opacity, nunca
+     display: o conteudo segue clipado por overflow ate o hover). */
+  .side-head .name,
+  .sidebar-cta .nav-text,
+  .module-header .module-name,
+  .submodule .nav-text,
+  .user-row .who {
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 140ms ease;
   }
-  .side.is-collapsed .side-head {
-    flex-direction: column;
-    gap: 12px;
-    padding: 16px 8px 12px;
+  .side:hover .side-head .name,
+  .side:hover .sidebar-cta .nav-text,
+  .side:hover .module-header .module-name,
+  .side:hover .submodule .nav-text,
+  .side:hover .user-row .who {
+    opacity: 1;
   }
-  .side.is-collapsed .side-collapse {
-    margin-left: 0;
-  }
-  .side.is-collapsed .nav-group {
-    padding: 14px 8px 4px;
-  }
-  .side.is-collapsed .nav-link {
-    justify-content: center;
-    padding: 9px 0;
-    gap: 0;
-  }
-  /* No modo recolhido a barra lateral nao cabe no link centralizado: o estado
-     ativo ja se le pelo fundo accent-soft + cor do icone. */
-  .side.is-collapsed .nav-link::before {
-    display: none;
-  }
-  /* Badge vira um ponto sobre o icone no modo recolhido. */
-  .side.is-collapsed .nav-badge {
-    position: absolute;
-    margin-left: 0;
-    top: 4px;
-    right: 10px;
-    min-width: 8px;
-    width: 8px;
-    height: 8px;
-    padding: 0;
-    font-size: 0;
-    border-radius: 50%;
-    box-shadow: 0 0 0 2px var(--surface);
-  }
-  .side.is-collapsed .nav-link {
-    position: relative;
-  }
-  .side.is-collapsed .user-row {
-    justify-content: center;
-    padding: 7px 0;
-  }
-  .side.is-collapsed .user-row button {
+  /* Submodulos so aparecem com a sidebar expandida (o modulo aberto e o unico
+     com .submodule-list renderizada). */
+  .side:not(:hover) .submodule-list {
     display: none;
   }
 }
 
 .main {
+  /* A .side e fixed (fora do fluxo do grid): ancora o conteudo na coluna 2
+     para nao cair na faixa de 78px reservada pelo rail. */
+  grid-column: 2;
   overflow-y: auto;
   min-width: 0;
 }
@@ -827,7 +1225,7 @@ button {
   position: sticky;
   top: 0;
   z-index: 5;
-  background: rgba(11, 11, 14, 0.78);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
   backdrop-filter: blur(14px) saturate(1.4);
   -webkit-backdrop-filter: blur(14px) saturate(1.4);
   border-bottom: 1px solid var(--border);
@@ -941,6 +1339,71 @@ button {
   margin-left: auto;
   display: flex;
   gap: 9px;
+}
+
+/* ---------- cockpit subnav (chrome persistente) ---------- */
+/* Trilha de navegacao + faixa de acoes contextuais acima das views internas.
+   Discreta por design: complementa o titulo da topbar sem competir com o
+   page-head de cada tela. */
+.cockpit-subnav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px var(--sp);
+  border-bottom: 1px solid var(--border);
+}
+.cockpit-subnav .crumb {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cockpit-subnav .crumb li {
+  display: inline-flex;
+  align-items: center;
+}
+.cockpit-subnav .crumb a {
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 0.16s ease;
+}
+.cockpit-subnav .crumb a:hover {
+  color: var(--fg);
+}
+.cockpit-subnav-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---------- estado honesto: sem organizacao (EC-06) ---------- */
+.org-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: var(--sp) var(--sp) 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in oklch, var(--warn) 48%, transparent);
+  background: var(--warn-bg);
+  border-radius: 12px;
+}
+.org-banner svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--warn);
+}
+.org-banner-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.org-banner-copy strong {
+  color: color-mix(in oklch, var(--warn) 78%, var(--fg));
+  font-size: 13.5px;
+}
+.org-banner-copy span {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 /* ---------- cards / grid ---------- */
@@ -1459,17 +1922,14 @@ button {
     opacity: 1;
     animation: none;
   }
-  /* Login premium: sem fade/rise de entrada nem lift do botao Google. */
-  .login-card,
-  .brandmark,
-  .login-panel,
-  .login-foot,
-  .login-err {
+  /* Login LionClaw: sem settle de entrada nem lift do botao Google. */
+  .login-unit,
+  .login-error {
     animation: none;
     opacity: 1;
   }
-  .gbtn:hover,
-  .gbtn:active {
+  .google-login:hover,
+  .google-login:active {
     transform: none;
   }
   /* Etapa formularios: anula lift/translate e entradas animadas dos controles. */
@@ -1489,9 +1949,6 @@ button {
   }
   .conn.run .dot {
     animation: none;
-  }
-  .side-collapse:hover svg {
-    transform: none;
   }
   .menu-btn:active {
     transform: none;
@@ -1731,6 +2188,9 @@ button {
   .app-shell {
     grid-template-columns: 1fr;
   }
+  .main {
+    grid-column: 1;
+  }
   .side {
     position: fixed;
     left: 0;
@@ -1912,13 +2372,38 @@ textarea:hover {
 }
 input[type="time"],
 input[type="date"] {
+  color-scheme: light;
+}
+/* Regra espelhada nos temas escuros para inverter o regime dos pickers nativos. */
+.dark input[type="time"],
+.dark input[type="date"],
+:root[data-theme="lionclaw"] input[type="time"],
+:root[data-theme="lionclaw"] input[type="date"],
+:root[data-theme="grafite"] input[type="time"],
+:root[data-theme="grafite"] input[type="date"],
+:root[data-theme="salvia"] input[type="time"],
+:root[data-theme="salvia"] input[type="date"] {
   color-scheme: dark;
 }
 input[type="time"]::-webkit-calendar-picker-indicator,
 input[type="date"]::-webkit-calendar-picker-indicator {
   cursor: pointer;
   opacity: 0.6;
-  filter: invert(0.7);
+  /* Light: icone nativo ja vem em tom escuro sobre surface clara, sem
+     precisao de filtro. */
+  filter: invert(0);
+}
+.dark input[type="time"]::-webkit-calendar-picker-indicator,
+.dark input[type="date"]::-webkit-calendar-picker-indicator,
+:root[data-theme="lionclaw"] input[type="time"]::-webkit-calendar-picker-indicator,
+:root[data-theme="lionclaw"] input[type="date"]::-webkit-calendar-picker-indicator,
+:root[data-theme="grafite"] input[type="time"]::-webkit-calendar-picker-indicator,
+:root[data-theme="grafite"] input[type="date"]::-webkit-calendar-picker-indicator,
+:root[data-theme="salvia"] input[type="time"]::-webkit-calendar-picker-indicator,
+:root[data-theme="salvia"] input[type="date"]::-webkit-calendar-picker-indicator {
+  /* Dark: icone nativo continua escuro por padrao; inverte quase totalmente
+     para garantir contraste com o surface escuro. */
+  filter: invert(0.9);
 }
 input[type="time"]::-webkit-calendar-picker-indicator:hover,
 input[type="date"]::-webkit-calendar-picker-indicator:hover {
@@ -2351,8 +2836,8 @@ select:focus {
 .segmented > .btn-primary:hover,
 .segmented > .btn-primary:active,
 .segmented > .btn-primary:focus-visible {
-  background: linear-gradient(180deg, #e2a44a 0%, var(--accent) 58%, #cf8e32 100%);
-  color: #1a140a;
+  background: var(--btn-primary-bg);
+  color: var(--accent-fg);
   border-color: transparent;
   box-shadow: var(--shadow-primary);
 }
@@ -2383,6 +2868,14 @@ select:focus {
   color: var(--accent);
   background: var(--accent-soft);
   border-color: var(--accent-line);
+}
+/* Grifo da palavra-chave que o Effecti casou, dentro da descricao do portal. */
+mark.hl-effecti {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--r-sm);
+  padding: 0 2px;
+  font-weight: 600;
 }
 .tag.nomus {
   color: var(--run);
@@ -3177,4 +3670,1493 @@ tr.row-match td {
   @page {
     margin: 12mm 14mm 14mm;
   }
+}
+
+/* =====================================================================
+   COCKPIT LIONCLAW — casca de navegacao (Sprint 6 / SPEC 4.3.2 / 4.8.3)
+
+   CTA "Cockpit", navegacao em accordion (3 modulos) e cluster de acoes
+   globais da topbar. Reutiliza a moldura ja existente (.side / .app-shell /
+   .topbar / .scrim) e os tokens de cor — nenhum valor avulso, tudo deriva
+   de var(--*) para acompanhar os 4 temas.
+   ===================================================================== */
+
+/* ---------- CTA do Cockpit (atalho fixo para o dashboard) ---------- */
+.sidebar-cta {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin: 12px 12px 4px;
+  padding: 9px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--fg);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.2s var(--ease-spring), border-color 0.2s var(--ease-spring),
+    color 0.2s var(--ease-spring);
+}
+.sidebar-cta svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  color: var(--accent);
+}
+.sidebar-cta:hover {
+  background: var(--surface-3);
+  border-color: var(--btn-border-hover);
+}
+.sidebar-cta:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.sidebar-cta.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+/* ---------- navegacao em accordion ---------- */
+.primary-nav {
+  padding: 8px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.module {
+  display: flex;
+  flex-direction: column;
+}
+.module-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 9px 10px;
+  border-radius: var(--r-sm);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.2s var(--ease-spring), color 0.2s var(--ease-spring);
+}
+.module-header .lead {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  opacity: 0.85;
+  transition: opacity 0.2s var(--ease-spring);
+}
+.module-header .module-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.module-header .chev {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  opacity: 0.6;
+  transition: transform 0.26s var(--ease-spring), opacity 0.2s var(--ease-spring);
+}
+.module-header[aria-expanded="true"] .chev {
+  transform: rotate(180deg);
+  opacity: 0.85;
+}
+.module-header:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+.module-header:hover .lead {
+  opacity: 1;
+}
+.module-header:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  color: var(--fg);
+}
+/* Modulo que contem a rota ativa: icone em accent mesmo recolhido. */
+.module-header.has-active {
+  color: var(--fg);
+}
+.module-header.has-active .lead {
+  color: var(--accent);
+  opacity: 1;
+}
+
+/* lista de submodulos (revelada quando o modulo esta aberto) */
+.submodule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 0 6px 0;
+  margin-left: 13px;
+  /* Trilho fino alinhado ao centro do icone do modulo: ancora visual da
+     hierarquia sem peso. */
+  border-left: 1px solid var(--border-soft);
+  animation: fade 0.2s ease;
+}
+.submodule {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px 7px 16px;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 0.18s var(--ease-spring), color 0.18s var(--ease-spring);
+}
+.submodule .nav-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.submodule:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+.submodule:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  color: var(--fg);
+}
+.submodule.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+/* Marcador de submodulo ativo sobre o trilho. */
+.submodule.active::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 50%;
+  width: 2px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--accent);
+  transform: translateY(-50%);
+}
+
+/* =====================================================================
+   TOPBAR — titulo da view + cluster de acoes globais
+   ===================================================================== */
+
+/* titulo/subtitulo da view ativa */
+.topbar-title {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+}
+.topbar-title h2 {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.topbar-title p {
+  font-size: 12px;
+  color: var(--faint);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* marca LionClaw na topbar (lionclawBrand) */
+.topbar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  text-decoration: none;
+  color: var(--fg);
+  padding: 4px 8px 4px 4px;
+  border-radius: var(--r-sm);
+  flex: none;
+  transition: background 0.18s var(--ease-spring);
+}
+.topbar-brand:hover {
+  background: var(--surface-2);
+}
+.topbar-brand:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.topbar-brand-glyph {
+  width: 30px;
+  height: 30px;
+  flex: none;
+}
+.topbar-brand-name {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+@media (max-width: 920px) {
+  /* No mobile o nome cede espaco; o glifo permanece como marca compacta. */
+  .topbar-brand-name {
+    display: none;
+  }
+}
+
+/* cluster de acoes globais a direita */
+.global-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.action-cluster {
+  position: relative;
+}
+.icon-button {
+  position: relative;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-sm);
+  display: grid;
+  place-items: center;
+  transition: background 0.18s var(--ease-spring), color 0.18s var(--ease-spring),
+    border-color 0.18s var(--ease-spring);
+}
+.icon-button svg {
+  width: 18px;
+  height: 18px;
+}
+.icon-button:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+.icon-button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  color: var(--fg);
+}
+.icon-button[aria-expanded="true"] {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--fg);
+}
+.icon-button:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+/* Giro durante o sync manual (syncButton). */
+.icon-button .spin {
+  animation: spin 0.9s linear infinite;
+  color: var(--accent);
+}
+/* Sinalizador de alerta (qualquer fonte em erro): ponto sobre o icone. */
+.icon-button[data-alert="true"]::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--err);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+/* dropdown de acao (submenu client-side) */
+.action-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  min-width: 248px;
+  max-width: min(320px, calc(100vw - 24px));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md, 12px);
+  box-shadow: var(--shadow-overlay);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  animation: fade 0.16s ease;
+}
+.action-menu-head {
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.action-menu-head strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--fg);
+}
+.action-menu-head small {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.action-menu-empty {
+  padding: 10px;
+  font-size: 12.5px;
+  color: var(--faint);
+}
+/* campo de busca global no submenu (globalSearchButton) */
+.action-menu-search {
+  min-width: 280px;
+}
+.action-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.action-search svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--faint);
+}
+.action-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font-size: 13px;
+  outline: none;
+}
+.action-search input::placeholder {
+  color: var(--faint);
+}
+/* itens acionaveis do menu (links e botoes) */
+.action-menu > a,
+.action-menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  padding: 9px 10px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.16s var(--ease-spring), color 0.16s var(--ease-spring);
+}
+.action-menu > a svg,
+.action-menu-item svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  margin-top: 1px;
+  opacity: 0.8;
+}
+.action-menu > a strong,
+.action-menu-item strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+.action-menu > a small,
+.action-menu-item small {
+  display: block;
+  font-size: 12px;
+  color: var(--faint);
+}
+.action-menu > a:hover,
+.action-menu-item:hover {
+  background: var(--surface-2);
+}
+.action-menu > a:focus-visible,
+.action-menu-item:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.action-menu-item:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+/* opcoes do seletor de tema (themeMenu) — copy a esquerda + swatch-row a direita */
+.action-menu-theme {
+  min-width: 268px;
+}
+.theme-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fg);
+  padding: 9px 10px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.16s var(--ease-spring), border-color 0.16s var(--ease-spring);
+}
+.theme-option > span:first-child {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.theme-option strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.theme-option small {
+  font-size: 12px;
+  color: var(--faint);
+}
+.theme-option .swatch-row {
+  display: inline-flex;
+  flex: none;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.theme-option .swatch-row i {
+  width: 14px;
+  height: 18px;
+  display: block;
+}
+.theme-option:hover {
+  background: var(--surface-2);
+}
+.theme-option[data-active="true"] {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+.theme-option:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* linha de conexao de fonte (menu de notificacoes) */
+.conn-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  color: var(--fg);
+}
+.conn-row strong {
+  font-weight: 600;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conn-row span {
+  font-size: 12px;
+  color: var(--faint);
+  flex: none;
+}
+.conn-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--idle);
+  box-shadow: 0 0 0 3px var(--idle-bg);
+}
+.conn-dot.ok {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-bg);
+}
+.conn-dot.warn {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px var(--warn-bg);
+}
+.conn-dot.run {
+  background: var(--run);
+  box-shadow: 0 0 0 3px var(--run-bg);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.conn-dot.err {
+  background: var(--err);
+  box-shadow: 0 0 0 3px var(--err-bg);
+}
+.conn-dot.idle {
+  background: var(--idle);
+  box-shadow: 0 0 0 3px var(--idle-bg);
+}
+
+/* =====================================================================
+   Cockpit — view default (rota /): cards de modulo data-driven + paineis
+   fixos em empty-state honesto (Fase 0). Aditivo: reusa .card / .grid-dlh
+   e os tokens de espacamento/radii do design.
+   ===================================================================== */
+
+/* ---- card de modulo (data-driven) ---- */
+.modulo-card-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+.modulo-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+  transition: border-color 0.18s var(--ease-spring),
+    box-shadow 0.18s var(--ease-spring), transform 0.16s var(--ease-spring);
+}
+.modulo-card-link:hover .modulo-card {
+  border-color: var(--accent-line);
+}
+.modulo-card-link:active .modulo-card {
+  transform: scale(0.99);
+}
+.modulo-card-link:focus-visible {
+  outline: none;
+}
+.modulo-card-link:focus-visible .modulo-card {
+  box-shadow: var(--shadow-card), var(--hairline-top), var(--focus-ring);
+}
+.modulo-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+.modulo-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.modulo-card-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.modulo-card-titles h3 {
+  font-size: 15px;
+  font-weight: 600;
+}
+.modulo-card-titles p {
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.modulo-card-metric {
+  margin-top: auto;
+}
+
+/* ---- empty-state honesto dentro de cards (card-no-data) ---- */
+.card-no-data {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  padding: 18px 14px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+.card-no-data .cnd-icon {
+  display: inline-flex;
+  color: var(--faint);
+}
+.card-no-data .cnd-icon svg {
+  width: 20px;
+  height: 20px;
+}
+.card-no-data .cnd-msg {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.card-no-data .cnd-hint {
+  font-size: 11.5px;
+  color: var(--faint);
+  max-width: 34ch;
+}
+
+/* ---- paineis fixos ---- */
+.cockpit-panels {
+  display: grid;
+  grid-template-columns: 1.7fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+.cockpit-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cockpit-widget {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cockpit-widget-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cockpit-widget-titles h3 {
+  font-size: 15px;
+  font-weight: 600;
+}
+.cockpit-widget-titles p {
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.cockpit-widget-link {
+  align-self: flex-start;
+}
+.cockpit-widget-error {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+.cockpit-widget-error svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: var(--err);
+}
+.cockpit-widget-error-copy b {
+  font-size: 13.5px;
+}
+.cockpit-widget-error-copy p {
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+@media (max-width: 920px) {
+  .cockpit-panels {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* =====================================================================
+   View cockpit (dashboard) — métricas (.metrics) e grade (.dashboard-grid).
+   Espelha a section #principal do Design Lock (artifact.html).
+   ===================================================================== */
+
+/* Faixa de cards de métrica (auto-fit acomoda contagem variável). */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+.metrics-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 18px 16px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+.metrics-empty b {
+  color: var(--fg);
+  font-weight: 640;
+}
+.metric {
+  display: grid;
+  gap: 10px;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+  min-height: 104px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  transition: border-color 160ms ease;
+}
+.metric:hover {
+  border-color: var(--border-strong);
+}
+.metric > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.metric > span svg {
+  width: 15px;
+  height: 15px;
+}
+.metric > strong {
+  font-size: 28px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.metric > small {
+  color: var(--soft);
+  font-size: 12px;
+}
+.metric.is-danger {
+  border-color: color-mix(in oklch, var(--err) 50%, var(--border));
+}
+.metric.is-danger > span,
+.metric.is-danger > span svg {
+  color: var(--err);
+}
+.metric-danger-copy {
+  color: var(--err) !important;
+}
+.metric-shimmer {
+  width: 72px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--border) 35%, transparent) 25%,
+    color-mix(in oklch, var(--border) 70%, transparent) 37%,
+    color-mix(in oklch, var(--border) 35%, transparent) 63%
+  );
+  background-size: 400% 100%;
+  animation: metric-shimmer 1.4s ease infinite;
+}
+@keyframes metric-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .metric-shimmer {
+    animation: none;
+  }
+}
+
+/* Grade principal: mapa de sinais + coluna lateral, com colapso. */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr);
+  gap: 14px;
+  align-items: start;
+  margin-top: 14px;
+}
+.dashboard-grid.no-map,
+.dashboard-grid.no-side {
+  grid-template-columns: minmax(0, 1fr);
+}
+.dashboard-grid .side-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+@media (max-width: 920px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Filtro de timeline do mapa de sinais. */
+.signal-filter {
+  display: inline-flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.signal-filter button {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
+}
+.signal-filter button:hover {
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+.signal-filter button.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+}
+
+/* Timeline de sinais. */
+.signal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.signal-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.signal-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+.signal-led.warn {
+  background: var(--warn);
+}
+.signal-led.err {
+  background: var(--err);
+}
+.signal-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.signal-copy strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.signal-copy span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Saúde do cockpit: score + barra de progresso. */
+.score-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.score-row strong {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.progress {
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--border) 60%, transparent);
+  overflow: hidden;
+}
+.progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ok);
+}
+
+/* =====================================================================
+   Configuração geral — paineis, controles cc-* e theme-picker.
+   Espelha o Design Lock (artifact.html). Tokens do artefato mapeados aos
+   tokens do codebase: --soft -> --muted, --border-strong -> --border,
+   --font-mono -> --mono.
+   ===================================================================== */
+
+/* Stack de paineis da view */
+.config-geral-view {
+  display: grid;
+  gap: 18px;
+}
+
+/* Painel (card de seção) */
+.cfg-panel-card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.cfg-panel-card .panel-header {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+  background: color-mix(in oklch, var(--bg) 45%, var(--surface));
+}
+.cfg-panel-card .panel-title {
+  display: grid;
+  gap: 3px;
+}
+.cfg-panel-card .panel-title h3 {
+  font-size: 14px;
+  font-weight: 680;
+  letter-spacing: -0.01em;
+}
+.cfg-panel-card .panel-title p {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Módulo de controles (grupo de cc-rows) */
+.cc-mod {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 16px;
+}
+.cc-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+.cc-row + .cc-row {
+  border-top: 1px dashed var(--border);
+}
+.cc-row.is-sub {
+  padding-left: 30px;
+  background: color-mix(in oklch, var(--fg) 2%, transparent);
+}
+/* Linha dependente desativada: esmaece e bloqueia interação */
+.cc-row.is-muted {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.cc-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.cc-copy strong {
+  font-size: 13px;
+  font-weight: 620;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cc-copy strong .cc-level {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 6px;
+}
+.cc-copy span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.cc-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cc-select {
+  appearance: none;
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 28px 7px 10px;
+  font: inherit;
+  font-size: 12px;
+  max-width: 230px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+}
+.cc-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.cc-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.cc-toggle {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--fg) 8%, transparent);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+.cc-toggle::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--muted);
+  transition: transform 150ms ease, background 150ms ease;
+}
+.cc-toggle[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.cc-toggle[aria-pressed="true"]::after {
+  transform: translateX(16px);
+  background: #fff;
+}
+.cc-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.cc-toggle:disabled {
+  cursor: not-allowed;
+}
+.cc-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: color-mix(in oklch, var(--fg) 4%, transparent);
+  flex-shrink: 0;
+}
+.cc-seg button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.cc-seg button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+}
+.cc-seg button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.cc-preview {
+  margin: 0 16px 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.cc-preview strong {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------
+   Configuração do cockpit (cards/widgets) + Blocos por tela (block-matrix)
+   --------------------------------------------------------------------- */
+
+/* Subtítulo de grupo (Cards de módulo / Painéis fixos / nome da tela) */
+.cc-grouptitle {
+  margin: 14px 16px 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Matriz de blocos por tela */
+.block-matrix {
+  display: grid;
+  gap: 18px;
+  padding: 16px;
+}
+.block-matrix .bm-loading {
+  font-size: 13px;
+  color: var(--muted);
+}
+.bm-screen {
+  display: grid;
+  gap: 10px;
+}
+.bm-screen > .cc-grouptitle {
+  margin: 0 0 2px;
+}
+.bm-band {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.bm-band-head {
+  padding: 8px 14px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px dashed var(--border);
+  background: color-mix(in oklch, var(--bg) 45%, var(--surface));
+}
+
+/* Cluster de controles de um bloco/card/widget (ordem + banda + visibilidade) */
+.bm-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.bm-order {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: color-mix(in oklch, var(--fg) 4%, transparent);
+  flex-shrink: 0;
+}
+.bm-arrow {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.bm-arrow:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--fg);
+}
+.bm-arrow:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.bm-arrow:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Estado do módulo (read-only) */
+.estado-modulo .stack-list {
+  display: grid;
+  gap: 0;
+  margin: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.estado-modulo .stack-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+.estado-modulo .stack-item + .stack-item {
+  border-top: 1px dashed var(--border);
+}
+.estado-modulo .stack-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.estado-modulo .stack-copy strong {
+  font-size: 13px;
+  font-weight: 620;
+}
+.estado-modulo .stack-copy span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---------------------------------------------------------------------
+   Views globais da casca (atividade-global / integracoes-global / conta-google)
+   --------------------------------------------------------------------- */
+.global-view {
+  display: grid;
+  gap: 18px;
+}
+.global-view-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.4fr);
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 860px) {
+  .global-view-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.global-view .stack-list {
+  display: grid;
+  gap: 0;
+  margin: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.global-view .stack-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+.global-view .stack-item + .stack-item {
+  border-top: 1px dashed var(--border);
+}
+.global-view .stack-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.global-view .stack-copy strong {
+  font-size: 13px;
+  font-weight: 620;
+}
+.global-view .stack-copy span {
+  font-size: 12px;
+  color: var(--muted);
+}
+/* Card lateral de leitura (próxima janela, etc.) */
+.system-card {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 16px;
+}
+.system-card > span {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.system-card > strong {
+  font-size: 24px;
+  font-weight: 680;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.system-card > small {
+  font-size: 12px;
+  color: var(--muted);
+}
+/* Ações do painel de conta */
+.conta-google-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 16px 16px;
+}
+
+/* Aparência: theme-picker + paleta */
+.appearance-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.62fr);
+  gap: 18px;
+  padding: 18px;
+}
+.theme-picker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.theme-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in oklch, var(--fg) 4%, transparent);
+  padding: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
+}
+.theme-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-soft);
+}
+.theme-card[data-active="true"] {
+  border-color: color-mix(in oklch, var(--accent) 42%, transparent);
+  background: var(--accent-soft);
+}
+.theme-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.theme-card .swatch-row {
+  display: flex;
+  gap: 6px;
+}
+.theme-card .swatch-row i {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  border: 1px solid color-mix(in oklch, var(--fg) 12%, transparent);
+}
+.theme-card-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.theme-card-name strong {
+  font-size: 14px;
+  font-weight: 740;
+}
+.theme-card-name span {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.theme-card p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.palette-card {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in oklch, var(--fg) 4%, transparent);
+  padding: 16px;
+}
+.palette-card .palette-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.palette-grid {
+  display: grid;
+  gap: 10px;
+}
+.swatch-chip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 10px 12px;
+}
+.swatch-dot {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  border: 1px solid color-mix(in oklch, var(--fg) 16%, transparent);
+}
+.swatch-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.swatch-copy strong {
+  font-size: 13px;
+  font-weight: 700;
+}
+.swatch-copy .code {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+/* Toast efêmero de confirmação (config geral) */
+.cfg-toast {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: var(--shadow-card);
+  animation: fade 0.2s ease;
+}
+.cfg-toast.is-ok {
+  color: var(--ok);
+}
+.cfg-toast.is-err {
+  color: var(--err);
+}
+
+@media (max-width: 760px) {
+  .appearance-grid {
+    grid-template-columns: 1fr;
+  }
+  .theme-picker {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Reduzir movimento: corta animações/transições em todo o ambiente. */
+body.reduce-motion *,
+body.reduce-motion *::before,
+body.reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
 }
