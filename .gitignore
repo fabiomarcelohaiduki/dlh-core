@@ -16,6 +16,11 @@ next-env.d.ts
 .DS_Store
 *.pem
 
+# certificados digitais (nunca commitar)
+*.pfx
+*.p12
+docs/CP/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

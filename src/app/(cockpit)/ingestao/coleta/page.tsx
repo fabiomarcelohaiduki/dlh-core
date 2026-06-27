@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { ExecucoesClient } from "@/app/(cockpit)/execucoes/execucoes-client";
+import { ColetaClient } from "@/components/cockpit/workbench/coleta-client";
 
 export const metadata: Metadata = { title: "Coleta" };
 
 export default function IngestaoColetaPage() {
-  return <ExecucoesClient />;
+  return <ColetaClient />;
 }
