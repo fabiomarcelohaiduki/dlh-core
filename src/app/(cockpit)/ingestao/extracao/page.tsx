@@ -45,15 +45,6 @@ interface AgendamentoExtracaoRow {
   dia_mes: number | null;
 }
 
-/** Colunas de agendamento do OCR (mesmo singleton, prefixo ocr_*). */
-interface AgendamentoOcrRow {
-  ocr_agendamento_ativo: boolean | null;
-  ocr_frequencia: string | null;
-  ocr_horario_referencia: string | null;
-  ocr_dia_semana: number | null;
-  ocr_dia_mes: number | null;
-}
-
 /**
  * Hidratacao server-side (RLS) do estado da credencial Nomus. Deriva apenas
  * `configurado` (token_cifrado != null) para bloquear/liberar a descoberta;
@@ -131,42 +122,12 @@ async function loadAgendamentoExtracao(): Promise<AgendamentoExtracaoState> {
   };
 }
 
-/**
- * Hidratacao server-side (RLS) do agendamento do OCR (colunas ocr_* do mesmo
- * singleton config_extracao). Sem linha cai nos defaults do produto (desligado,
- * diaria 01:00). `frequencia` invalida -> 'manual' (desligado). Reusa
- * AgendamentoExtracaoState (forma identica).
- */
-async function loadAgendamentoOcr(): Promise<AgendamentoExtracaoState> {
-  const supabase = await createClient();
-  const { data: raw } = await supabase
-    .from("config_extracao")
-    .select(
-      "ocr_agendamento_ativo, ocr_frequencia, ocr_horario_referencia, ocr_dia_semana, ocr_dia_mes",
-    )
-    .limit(1)
-    .maybeSingle();
-
-  const data = (raw ?? null) as AgendamentoOcrRow | null;
-  const freq = data?.ocr_frequencia;
-
-  return {
-    ativo: data?.ocr_agendamento_ativo ?? false,
-    frequencia:
-      freq && FREQUENCIAS_VALIDAS.has(freq) ? (freq as Frequencia) : "manual",
-    horarioReferencia: data?.ocr_horario_referencia ?? null,
-    diaSemana: data?.ocr_dia_semana ?? null,
-    diaMes: data?.ocr_dia_mes ?? null,
-  };
-}
-
 export default async function IngestaoExtracaoPage() {
-  const [nomusConfigurado, configExtracao, agendamentoExtracao, agendamentoOcr] =
+  const [nomusConfigurado, configExtracao, agendamentoExtracao] =
     await Promise.all([
       loadNomusConfigurado(),
       loadConfigExtracao(),
       loadAgendamentoExtracao(),
-      loadAgendamentoOcr(),
     ]);
 
   return (
@@ -174,7 +135,6 @@ export default async function IngestaoExtracaoPage() {
       nomusConfigurado={nomusConfigurado}
       configExtracao={configExtracao}
       agendamentoExtracao={agendamentoExtracao}
-      agendamentoOcr={agendamentoOcr}
     />
   );
 }

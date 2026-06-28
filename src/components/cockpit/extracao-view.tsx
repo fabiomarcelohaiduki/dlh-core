@@ -5,28 +5,28 @@ import { SlidersHorizontal, X } from "lucide-react";
 import { ExtracaoPanel } from "@/components/cockpit/extracao-panel";
 import { ExtracaoConfigForm } from "@/components/cockpit/extracao-config-form";
 import { AgendamentoExtracaoForm } from "@/components/cockpit/agendamento-extracao-form";
-import { AgendamentoOcrForm } from "@/components/cockpit/agendamento-ocr-form";
 import type { AgendamentoExtracaoState, ConfigExtracaoState } from "@/lib/api/types";
 
 /**
  * cmp-extracao-view — Tela de Extração com os parâmetros embutidos.
  *
- * Os parâmetros (agendamento da extração, agendamento do OCR e config da
- * camada 1) sao da propria extracao, entao vivem AQUI, atras de um botao
- * "Parâmetros" que abre um drawer lateral — sem virar aba separada. O disparo
- * manual nao entra no drawer: o painel ja tem "Extrair pendentes agora" e
- * "Extrair OCR agora".
+ * Os parâmetros (agendamento da extração e config da camada 1) sao da propria
+ * extracao, entao vivem AQUI, atras de um botao "Parâmetros" que abre um drawer
+ * lateral — sem virar aba separada. O disparo manual nao entra no drawer: o
+ * painel ja tem "Extrair pendentes agora" e "Extrair OCR agora".
+ *
+ * Pos-migracao local (28/06): UM unico agendamento de extracao. No PC, o
+ * comando tika-ocr roda a extracao rapida + OCR juntos, entao nao ha mais
+ * relogio de OCR separado.
  */
 export function ExtracaoView({
   nomusConfigurado,
   configExtracao,
   agendamentoExtracao,
-  agendamentoOcr,
 }: {
   nomusConfigurado: boolean;
   configExtracao: ConfigExtracaoState;
   agendamentoExtracao: AgendamentoExtracaoState;
-  agendamentoOcr: AgendamentoExtracaoState;
 }) {
   const [aberto, setAberto] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -102,7 +102,6 @@ export function ExtracaoView({
 
             <div style={{ display: "grid", gap: 16 }}>
               <AgendamentoExtracaoForm initial={agendamentoExtracao} />
-              <AgendamentoOcrForm initial={agendamentoOcr} />
               <ExtracaoConfigForm initial={configExtracao} />
             </div>
           </div>

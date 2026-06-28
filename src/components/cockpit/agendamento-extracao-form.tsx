@@ -65,13 +65,16 @@ function toDefaults(initial: AgendamentoExtracaoState): AgValues {
 }
 
 /**
- * cmp-agendamento-extracao-form — Agendamento da EXTRACAO (camada 1).
+ * cmp-agendamento-extracao-form — Agendamento da EXTRACAO (Tika/OCR).
  *
  * O extrator e GLOBAL (drena a fila inteira, multi-fonte), por isso nao ha
- * fonte/recurso: um unico relogio (job pg_cron 'extrair-anexos') que dispara o
- * workflow extrair-anexos.yml. O toggle "ativo" liga/desliga a drenagem
- * automatica; frequencia + horario definem a cadencia. Salvar reescreve o
- * pg_cron no substrato (sem redeploy) via PUT /extracao-agendamento.
+ * fonte/recurso: um unico relogio (job pg_cron 'extrair-anexos'). Pos-migracao
+ * local (28/06), na hora marcada o pg_cron ENFILEIRA o comando 'tika-ocr' na
+ * fila comando_local e o PC roda extrair-tika.ps1 (extracao rapida + OCR
+ * juntos) — por isso ha UM unico agendamento, sem relogio de OCR separado. O
+ * toggle "ativo" liga/desliga a drenagem automatica; frequencia + horario
+ * definem a cadencia. Salvar reescreve o pg_cron no substrato (sem redeploy)
+ * via PUT /extracao-agendamento.
  */
 export function AgendamentoExtracaoForm({ initial }: { initial: AgendamentoExtracaoState }) {
   const salvar = useSalvarAgendamentoExtracao();
