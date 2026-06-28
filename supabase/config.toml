@@ -150,3 +150,20 @@ verify_jwt = false
 # --no-verify-jwt reabre o bug.
 [functions.triagem-favoritar-retry]
 verify_jwt = false
+
+# Coleta (descoberta) do Gmail migrada do GitHub Actions para Edge nativo: o
+# pg_cron (coleta-gmail) e a Edge gmail-disparar acionam este Edge via pg_net
+# com X-Cron-Secret PURO (sem Authorization). Com verify_jwt no default (ON) o
+# gateway barraria com 401 {UNAUTHORIZED_NO_AUTH_HEADER} antes do codigo -> ciclo
+# agendado morto em silencio. A funcao se autentica sozinha (matchesCronSecret:
+# X-Cron-Secret do Vault). Sem este pin, deploy sem --no-verify-jwt reabre o bug.
+[functions.gmail-coletar]
+verify_jwt = false
+
+# Mesma razao do gmail-coletar: a descoberta do Drive migrou para Edge nativo e e
+# acionada por pg_cron (coleta-drive) / Edge drive-disparar via pg_net com
+# X-Cron-Secret PURO (sem Authorization). verify_jwt no default barraria no
+# gateway com 401 antes do codigo. A funcao se autentica sozinha
+# (matchesCronSecret). Sem este pin, deploy sem --no-verify-jwt reabre o bug.
+[functions.drive-coletar]
+verify_jwt = false
