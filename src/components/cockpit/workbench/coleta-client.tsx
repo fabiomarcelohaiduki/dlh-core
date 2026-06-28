@@ -14,10 +14,8 @@
 // =====================================================================
 
 import { useEffect, useMemo, useState } from "react";
-import { Check } from "lucide-react";
 import { Subtabs } from "@/components/ui/subtabs";
 import { Tabs } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
 import { useExecucoes } from "@/hooks/use-monitoring";
 import { useExecucoesRealtime } from "@/hooks/use-execucoes-realtime";
 import {
@@ -29,10 +27,18 @@ import {
 } from "@/lib/status";
 import type { Execucao } from "@/lib/api/types";
 import { WorkbenchTemplate } from "./workbench-template";
-import { RunsTable } from "./runs-table";
-import { DadosTable, type DadoColetado } from "./dados-table";
-import { BulkBar, type BulkAction } from "./bulk-bar";
+import { RunsTable, RUNS_COLUMNS } from "./runs-table";
+import { DadosTable, DADOS_COLUMNS, type DadoColetado } from "./dados-table";
+import { RecursoFilter, type RecursoOption } from "./recurso-filter";
 import { ActionModal, type ActionOption } from "./action-modal";
+import {
+  ColumnToggleMenu,
+  FieldFilterMenu,
+  TOOLBAR_SEARCH_CLASS,
+} from "./table-toolbar-menus";
+import { columnMeta, filterableMeta, matchFieldFilters } from "./table-column";
+import { usePagination, TablePager, DEFAULT_PAGE_SIZE } from "./table-pagination";
+import { CockpitToast } from "./cockpit-toast";
 import type { WorkbenchScopeRef } from "./use-workbench-layout";
 
 const RUNNING_POLL_MS = 3000;
@@ -47,19 +53,6 @@ const FONTE_TABS: { value: FonteTab; label: string }[] = [
   { value: "nomus", label: "Nomus" },
   { value: "gmail", label: "Gmail" },
   { value: "drive", label: "Drive" },
-];
-
-const STATUS_OPCOES = [
-  { value: "todos", label: "Todos os status" },
-  { value: "concluida", label: "Concluída" },
-  { value: "em_andamento", label: "Em execução" },
-  { value: "erro", label: "Erro" },
-] as const;
-
-const BULK_ACTIONS: readonly BulkAction[] = [
-  { id: "reexecutar", label: "Reexecutar agora" },
-  { id: "conferir", label: "Marcar como conferida" },
-  { id: "arquivar", label: "Arquivar" },
 ];
 
 const RUN_ACTIONS: readonly ActionOption[] = [
@@ -105,11 +98,17 @@ const EXECUCOES_BLOCKS = [
   "busca",
   "filtros",
   "acao-principal",
-  "lote",
   "acoes-linha",
 ] as const;
 
 const DADOS_BLOCKS = ["fontes", "recurso", "busca", "filtros", "acoes-linha"] as const;
+
+// Metadados das colunas para os menus icon-only da toolbar (visibilidade e
+// filtro por campo). Derivados das mesmas listas que as tabelas renderizam.
+const RUNS_COL_META = columnMeta(RUNS_COLUMNS);
+const RUNS_FILTER_META = filterableMeta(RUNS_COLUMNS);
+const DADOS_COL_META = columnMeta(DADOS_COLUMNS);
+const DADOS_FILTER_META = filterableMeta(DADOS_COLUMNS);
 
 const EXECUCOES_SCOPE: WorkbenchScopeRef = {
   modulo: "ingestao",
@@ -142,24 +141,48 @@ type ModalState =
   | { kind: "dado"; id: string; title: string }
   | null;
 
-type Toast = { kind: "ok" | "info"; message: string } | null;
+type Toast = { message: string } | null;
 
 export function ColetaClient() {
   const [subtab, setSubtab] = useState<Subtab>("execucoes");
 
-  // Filtros da guia Execuções.
+  // Filtros da guia Execuções (recurso = sub-filtro single-select da fonte).
   const [fonte, setFonte] = useState<FonteTab>("todas");
+  const [recurso, setRecurso] = useState("todos");
   const [busca, setBusca] = useState("");
-  const [status, setStatus] = useState<string>("todos");
 
   // Filtros da guia Dados.
   const [dFonte, setDFonte] = useState<FonteTab>("todas");
+  const [dRecurso, setDRecurso] = useState("todos");
   const [dBusca, setDBusca] = useState("");
-  const [dTipo, setDTipo] = useState<string>("todos");
 
-  // Selecao em lote (Execuções) + acao contextual.
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [bulkAction, setBulkAction] = useState<string>(BULK_ACTIONS[0].id);
+  // Trocar de fonte zera o recurso (single-select por fonte, igual protótipo).
+  const handleFonteChange = (next: FonteTab) => {
+    setFonte(next);
+    setRecurso("todos");
+  };
+  const handleDFonteChange = (next: FonteTab) => {
+    setDFonte(next);
+    setDRecurso("todos");
+  };
+
+  // Colunas ocultas + filtros por campo (controles icon-only da toolbar).
+  const [runsHidden, setRunsHidden] = useState<Set<string>>(() => new Set());
+  const [runsFieldFilters, setRunsFieldFilters] = useState<Record<string, string>>(
+    {},
+  );
+  const [dadosHidden, setDadosHidden] = useState<Set<string>>(() => new Set());
+  const [dadosFieldFilters, setDadosFieldFilters] = useState<
+    Record<string, string>
+  >({});
+
+  const toggleHidden = (set: typeof setRunsHidden) => (id: string) =>
+    set((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const [modal, setModal] = useState<ModalState>(null);
   const [toast, setToast] = useState<Toast>(null);
@@ -182,55 +205,116 @@ export function ColetaClient() {
     return () => clearTimeout(t);
   }, [toast]);
 
+  // Recursos da fonte selecionada (Execuções), derivados do dado real.
+  const recursoOptions = useMemo<RecursoOption[]>(() => {
+    if (fonte === "todas") return [];
+    const counts = new Map<string, number>();
+    for (const r of allRuns) {
+      if (normalizeOrigem(r.origem) !== fonte || !r.recurso) continue;
+      counts.set(r.recurso, (counts.get(r.recurso) ?? 0) + 1);
+    }
+    return [...counts.entries()].map(([value, count]) => ({
+      value,
+      label: value,
+      count,
+    }));
+  }, [allRuns, fonte]);
+
+  const recursoTotal = useMemo(
+    () =>
+      fonte === "todas"
+        ? 0
+        : allRuns.filter((r) => normalizeOrigem(r.origem) === fonte).length,
+    [allRuns, fonte],
+  );
+
   // ---- Execuções: filtro client-side ----
   const runs = useMemo(
     () =>
       allRuns.filter((r) => {
         if (fonte !== "todas" && normalizeOrigem(r.origem) !== fonte) return false;
-        if (status !== "todos" && r.status !== status) return false;
+        if (recurso !== "todos" && (r.recurso ?? "") !== recurso) return false;
         if (busca.trim()) {
           const q = busca.trim().toLowerCase();
           const hay = `${origemLabel(normalizeOrigem(r.origem))} ${r.recurso ?? ""} ${r.gatilho ?? ""}`.toLowerCase();
           if (!hay.includes(q)) return false;
         }
+        if (!matchFieldFilters(r, RUNS_COLUMNS, runsFieldFilters)) return false;
         return true;
       }),
-    [allRuns, fonte, status, busca],
+    [allRuns, fonte, recurso, busca, runsFieldFilters],
   );
 
   // ---- Dados: projecao honesta das execucoes ----
   const allDados = useMemo<DadoColetado[]>(
     () =>
       allRuns.map((r) => {
-        const origem = origemLabel(normalizeOrigem(r.origem));
+        const origemKey = normalizeOrigem(r.origem);
+        const origem = origemLabel(origemKey);
         return {
           id: r.id,
           titulo: `Coleta ${origem}${r.recurso ? ` · ${r.recurso}` : ""}`,
           origem,
+          origemKey,
           recurso: r.recurso,
-          tipo: "Registro",
           captadoEm: r.fim ?? r.inicio,
-          tamanho: `${r.novos + r.alterados} itens`,
+          itens: String(r.novos + r.alterados),
           status: dadoStatus(r),
         };
       }),
     [allRuns],
   );
 
+  // Recursos da fonte selecionada (Dados), derivados do dado real.
+  const dRecursoOptions = useMemo<RecursoOption[]>(() => {
+    if (dFonte === "todas") return [];
+    const counts = new Map<string, number>();
+    for (const d of allDados) {
+      if (d.origemKey !== dFonte || !d.recurso) continue;
+      counts.set(d.recurso, (counts.get(d.recurso) ?? 0) + 1);
+    }
+    return [...counts.entries()].map(([value, count]) => ({
+      value,
+      label: value,
+      count,
+    }));
+  }, [allDados, dFonte]);
+
+  const dRecursoTotal = useMemo(
+    () =>
+      dFonte === "todas"
+        ? 0
+        : allDados.filter((d) => d.origemKey === dFonte).length,
+    [allDados, dFonte],
+  );
+
   const dados = useMemo(
     () =>
       allDados.filter((d) => {
-        if (dFonte !== "todas" && normalizeOrigem(d.origem.toLowerCase()) !== dFonte)
-          return false;
-        if (dTipo !== "todos" && d.tipo !== dTipo) return false;
+        if (dFonte !== "todas" && d.origemKey !== dFonte) return false;
+        if (dRecurso !== "todos" && (d.recurso ?? "") !== dRecurso) return false;
         if (dBusca.trim()) {
           const q = dBusca.trim().toLowerCase();
-          const hay = `${d.titulo} ${d.recurso ?? ""} ${d.tipo}`.toLowerCase();
+          const hay = `${d.titulo} ${d.recurso ?? ""}`.toLowerCase();
           if (!hay.includes(q)) return false;
         }
+        if (!matchFieldFilters(d, DADOS_COLUMNS, dadosFieldFilters)) return false;
         return true;
       }),
-    [allDados, dFonte, dTipo, dBusca],
+    [allDados, dFonte, dRecurso, dBusca, dadosFieldFilters],
+  );
+
+  // Paginacao client-side (25 por pagina) sobre as listas ja filtradas. O
+  // resetKey volta a pagina 1 sempre que o criterio de filtro muda.
+  const runsPage = usePagination(
+    runs,
+    DEFAULT_PAGE_SIZE,
+    `${fonte}|${recurso}|${busca}|${JSON.stringify(runsFieldFilters)}`,
+  );
+  const dadosPage = usePagination(
+    dados,
+    DEFAULT_PAGE_SIZE,
+    `${dFonte}|${dRecurso}|${dBusca}|${JSON.stringify(dadosFieldFilters)}`,
   );
 
   // Contagem por fonte (badge das guias do topo), sobre o universo carregado.
@@ -239,17 +323,11 @@ export function ColetaClient() {
       ? raw.length
       : raw.filter((r) => normalizeOrigem(r.origem) === tab).length;
 
-  // ---- Selecao (EC-12) ----
-  const toggle = (id: string) =>
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  const toggleAll = (ids: string[], checked: boolean) =>
-    setSelectedIds(() => (checked ? new Set(ids) : new Set()));
-  const clearSelection = () => setSelectedIds(new Set());
+  // Contagem por fonte para a guia Dados (universo da propria guia).
+  const dadoFonteCount = (tab: FonteTab) =>
+    tab === "todas"
+      ? allDados.length
+      : allDados.filter((d) => d.origemKey === tab).length;
 
   // EC-13: item obsoleto quando saiu da lista entre o clique e a abertura.
   const modalObsolete = useMemo(() => {
@@ -258,7 +336,7 @@ export function ColetaClient() {
   }, [modal, allRuns]);
 
   function handleReadOnly(message: string) {
-    setToast({ kind: "info", message });
+    setToast({ message });
   }
 
   return (
@@ -278,11 +356,11 @@ export function ColetaClient() {
           <WorkbenchTemplate
             scope={EXECUCOES_SCOPE}
             workbenchKey="coleta"
-            title="Execuções"
-            description="Execuções dos agendamentos de coleta por fonte. Cada linha é uma rodada disparada — confira se rodou, o que trouxe e quanto durou."
+            description="Execuções dos agendamentos de coleta por fonte."
             countLabel={`${runs.length} execuções`}
             actionLabel="Coletar agora"
             onAction={() => handleReadOnly("Apenas leitura — a coleta não foi disparada.")}
+            toastClassName="bottom-[5.5rem]"
             blocks={EXECUCOES_BLOCKS}
             slots={{
               fontes: (
@@ -290,7 +368,7 @@ export function ColetaClient() {
                   ariaLabel="Filtrar execuções por fonte"
                   className="border-b-0 px-0"
                   value={fonte}
-                  onValueChange={setFonte}
+                  onValueChange={handleFonteChange}
                   items={FONTE_TABS.map((t) => ({
                     value: t.value,
                     label: t.label,
@@ -298,6 +376,16 @@ export function ColetaClient() {
                   }))}
                 />
               ),
+              recurso:
+                recursoOptions.length > 0 ? (
+                  <RecursoFilter
+                    ariaLabel="Filtrar execuções por recurso da fonte"
+                    options={recursoOptions}
+                    total={recursoTotal}
+                    value={recurso}
+                    onValueChange={setRecurso}
+                  />
+                ) : null,
               busca: (
                 <input
                   type="search"
@@ -305,38 +393,35 @@ export function ColetaClient() {
                   onChange={(e) => setBusca(e.target.value)}
                   placeholder="Buscar por origem, recurso ou gatilho"
                   aria-label="Buscar execuções de coleta"
-                  className="h-[30px] w-full max-w-[280px] rounded-sm border border-border bg-surface px-2.5 text-[13px] text-fg placeholder:text-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-line"
+                  className={TOOLBAR_SEARCH_CLASS}
                 />
               ),
               filtros: (
-                <FiltrosStatus
-                  value={status}
-                  onChange={setStatus}
-                  onClear={() => {
-                    setBusca("");
-                    setStatus("todos");
-                  }}
-                />
-              ),
-              lote: (
-                <BulkBar
-                  selectedCount={selectedIds.size}
-                  actions={BULK_ACTIONS}
-                  actionId={bulkAction}
-                  onActionChange={setBulkAction}
-                  onClear={clearSelection}
-                  onExecute={() =>
-                    handleReadOnly("Apenas leitura — nenhuma ação em lote foi aplicada.")
-                  }
-                />
+                <span className="flex items-center gap-2.5">
+                  <FieldFilterMenu
+                    columns={RUNS_FILTER_META}
+                    values={runsFieldFilters}
+                    onChange={(id, value) =>
+                      setRunsFieldFilters((p) => ({ ...p, [id]: value }))
+                    }
+                    onClear={() => setRunsFieldFilters({})}
+                  />
+                  <ColumnToggleMenu
+                    columns={RUNS_COL_META}
+                    hidden={runsHidden}
+                    onToggle={toggleHidden(setRunsHidden)}
+                    onShowAll={() => setRunsHidden(new Set())}
+                  />
+                </span>
               ),
             }}
           >
             <RunsTable
-              runs={runs}
+              runs={runsPage.pageItems}
               loading={execucoes.isLoading}
               error={execucoes.isError}
               onRetry={() => execucoes.refetch()}
+              hidden={runsHidden}
               onItemClick={(run) =>
                 setModal({
                   kind: "run",
@@ -344,20 +429,22 @@ export function ColetaClient() {
                   title: `Execução · ${execucaoDescriptor(run).label}`,
                 })
               }
-              selectedIds={selectedIds}
-              onToggle={toggle}
-              onToggleAll={toggleAll}
               emptyTitle={
-                fonte !== "todas" || status !== "todos" || busca.trim()
+                fonte !== "todas" ||
+                busca.trim() ||
+                Object.values(runsFieldFilters).some((v) => v.trim())
                   ? "Nenhuma execução para o filtro"
                   : "Nenhuma execução nesta guia"
               }
               emptyDescription={
-                fonte !== "todas" || status !== "todos" || busca.trim()
-                  ? "Ajuste a busca, o status ou a fonte para ver outras execuções."
+                fonte !== "todas" ||
+                busca.trim() ||
+                Object.values(runsFieldFilters).some((v) => v.trim())
+                  ? "Ajuste a busca, o filtro ou a fonte para ver outras execuções."
                   : "Ainda não há coletas registradas. Use “Coletar agora” para gerar uma execução."
               }
             />
+            <TablePager {...runsPage} />
           </WorkbenchTemplate>
         </div>
       ) : (
@@ -365,10 +452,9 @@ export function ColetaClient() {
           <WorkbenchTemplate
             scope={DADOS_SCOPE}
             workbenchKey="coleta-dados"
-            title="Dados"
             description="Itens efetivamente capturados pelas coletas. Cada linha é um documento ou registro trazido de uma fonte de ingestão."
             countLabel={`${dados.length} itens`}
-            actionLabel="Coletar agora"
+            toastClassName="bottom-[5.5rem]"
             blocks={DADOS_BLOCKS}
             slots={{
               fontes: (
@@ -376,14 +462,24 @@ export function ColetaClient() {
                   ariaLabel="Filtrar dados por fonte"
                   className="border-b-0 px-0"
                   value={dFonte}
-                  onValueChange={setDFonte}
+                  onValueChange={handleDFonteChange}
                   items={FONTE_TABS.map((t) => ({
                     value: t.value,
                     label: t.label,
-                    count: fonteCount(t.value, allRuns),
+                    count: dadoFonteCount(t.value),
                   }))}
                 />
               ),
+              recurso:
+                dRecursoOptions.length > 0 ? (
+                  <RecursoFilter
+                    ariaLabel="Filtrar dados por recurso da fonte"
+                    options={dRecursoOptions}
+                    total={dRecursoTotal}
+                    value={dRecurso}
+                    onValueChange={setDRecurso}
+                  />
+                ) : null,
               busca: (
                 <input
                   type="search"
@@ -391,40 +487,54 @@ export function ColetaClient() {
                   onChange={(e) => setDBusca(e.target.value)}
                   placeholder="Buscar por título, recurso ou tipo"
                   aria-label="Buscar dados coletados"
-                  className="h-[30px] w-full max-w-[280px] rounded-sm border border-border bg-surface px-2.5 text-[13px] text-fg placeholder:text-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-line"
+                  className={TOOLBAR_SEARCH_CLASS}
                 />
               ),
               filtros: (
-                <FiltrosTipo
-                  value={dTipo}
-                  onChange={setDTipo}
-                  onClear={() => {
-                    setDBusca("");
-                    setDTipo("todos");
-                  }}
-                />
+                <span className="flex items-center gap-2.5">
+                  <FieldFilterMenu
+                    columns={DADOS_FILTER_META}
+                    values={dadosFieldFilters}
+                    onChange={(id, value) =>
+                      setDadosFieldFilters((p) => ({ ...p, [id]: value }))
+                    }
+                    onClear={() => setDadosFieldFilters({})}
+                  />
+                  <ColumnToggleMenu
+                    columns={DADOS_COL_META}
+                    hidden={dadosHidden}
+                    onToggle={toggleHidden(setDadosHidden)}
+                    onShowAll={() => setDadosHidden(new Set())}
+                  />
+                </span>
               ),
             }}
           >
             <DadosTable
-              dados={dados}
+              dados={dadosPage.pageItems}
               loading={execucoes.isLoading}
               error={execucoes.isError}
               onRetry={() => execucoes.refetch()}
+              hidden={dadosHidden}
               onItemClick={(d) =>
                 setModal({ kind: "dado", id: d.id, title: d.titulo })
               }
               emptyTitle={
-                dFonte !== "todas" || dTipo !== "todos" || dBusca.trim()
+                dFonte !== "todas" ||
+                dBusca.trim() ||
+                Object.values(dadosFieldFilters).some((v) => v.trim())
                   ? "Nenhum item para o filtro"
                   : "Nenhum item nesta guia"
               }
               emptyDescription={
-                dFonte !== "todas" || dTipo !== "todos" || dBusca.trim()
+                dFonte !== "todas" ||
+                dBusca.trim() ||
+                Object.values(dadosFieldFilters).some((v) => v.trim())
                   ? "Ajuste a busca ou o filtro para ver os dados coletados."
                   : "Ainda não há itens capturados. Dispare uma coleta para começar a trazer dados."
               }
             />
+            <TablePager {...dadosPage} />
           </WorkbenchTemplate>
         </div>
       )}
@@ -442,85 +552,7 @@ export function ColetaClient() {
         }}
       />
 
-      {toast ? (
-        <div
-          role="status"
-          aria-live="polite"
-          className="fixed bottom-6 right-6 z-50 inline-flex items-center gap-2 rounded-md border border-border bg-surface px-3.5 py-2.5 text-[13px] text-fg shadow-[var(--shadow-overlay)]"
-        >
-          <Check aria-hidden="true" className="size-4 text-accent-strong" />
-          {toast.message}
-        </div>
-      ) : null}
+      {toast ? <CockpitToast kind="info" message={toast.message} /> : null}
     </>
-  );
-}
-
-/** Filtro de status + Limpar (guia Execuções). */
-function FiltrosStatus({
-  value,
-  onChange,
-  onClear,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  onClear: () => void;
-}) {
-  return (
-    <span className="flex items-center gap-2.5">
-      <label className="sr-only" htmlFor="coleta-status">
-        Filtrar por status
-      </label>
-      <select
-        id="coleta-status"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-[30px] rounded-sm border border-border bg-surface px-2.5 text-[12.5px] text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-line"
-      >
-        {STATUS_OPCOES.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-      <Button variant="default" size="sm" type="button" onClick={onClear}>
-        Limpar
-      </Button>
-    </span>
-  );
-}
-
-/** Filtro de tipo + Limpar (guia Dados). */
-function FiltrosTipo({
-  value,
-  onChange,
-  onClear,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  onClear: () => void;
-}) {
-  const tipos = ["todos", "Edital", "Documento", "Planilha", "E-mail", "Registro"];
-  return (
-    <span className="flex items-center gap-2.5">
-      <label className="sr-only" htmlFor="dados-tipo">
-        Filtrar por tipo
-      </label>
-      <select
-        id="dados-tipo"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-[30px] rounded-sm border border-border bg-surface px-2.5 text-[12.5px] text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-line"
-      >
-        {tipos.map((t) => (
-          <option key={t} value={t}>
-            {t === "todos" ? "Todos os tipos" : t}
-          </option>
-        ))}
-      </select>
-      <Button variant="default" size="sm" type="button" onClick={onClear}>
-        Limpar
-      </Button>
-    </span>
   );
 }

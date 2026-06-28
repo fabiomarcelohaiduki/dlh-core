@@ -1,8 +1,9 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronDown, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { NAV_MODULES, type NavModule } from "@/lib/nav";
 import { DlhLogo } from "@/components/cockpit/dlh-logo";
 import { cn } from "@/lib/utils";
@@ -37,9 +38,28 @@ export function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
 
+  // Apenas o submodulo com o prefixo MAIS LONGO casa a rota ativa: evita que
+  // pais (ex: /automacao/avisos) fiquem marcados junto com filhos
+  // (ex: /automacao/avisos/backtest).
+  const activeHref = useMemo(() => {
+    if (!pathname) return null;
+    let best: string | null = null;
+    for (const mod of NAV_MODULES) {
+      for (const item of mod.items) {
+        const match = pathname === item.href || pathname.startsWith(`${item.href}/`);
+        if (match && (!best || item.href.length > best.length)) best = item.href;
+      }
+    }
+    return best;
+  }, [pathname]);
+
   function isActive(href: string): boolean {
-    return pathname === href || (pathname?.startsWith(`${href}/`) ?? false);
+    return href === activeHref;
   }
+
+  // O Cockpit (/dashboard) nao pertence a nenhum modulo, entao nao entra no
+  // calculo de activeHref; casa direto pelo pathname.
+  const cockpitActive = pathname === "/dashboard" || (pathname?.startsWith("/dashboard/") ?? false);
 
   return (
     <aside className={cn("side", open && "open")} id="side">
@@ -55,9 +75,9 @@ export function Sidebar({
 
       <Link
         href="/dashboard"
-        className={cn("sidebar-cta", isActive("/dashboard") && "active")}
+        className={cn("sidebar-cta", cockpitActive && "active")}
         onClick={onNavigate}
-        aria-current={isActive("/dashboard") ? "page" : undefined}
+        aria-current={cockpitActive ? "page" : undefined}
       >
         <RefreshCw aria-hidden="true" />
         <span className="nav-text">Cockpit</span>
@@ -78,7 +98,6 @@ export function Sidebar({
               >
                 <Icon className="lead" aria-hidden="true" />
                 <span className="module-name">{mod.label}</span>
-                <ChevronDown className="chev" aria-hidden="true" />
               </button>
 
               {isOpen && (

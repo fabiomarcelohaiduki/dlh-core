@@ -14,16 +14,17 @@
 // roda no hook use-cockpit-metrics.
 // =====================================================================
 
-import type { Execucao } from "@/lib/api/types";
+import type { AutomacaoConfig, Execucao, HealthcheckResponse } from "@/lib/api/types";
 import type { PillState } from "@/lib/status";
 import type { ScopeConfig } from "@/lib/engines/block-vis";
+import { formatNumber } from "@/lib/format";
 
 // ---------------------------------------------------------------------
 // Fontes de dado read-only
 // ---------------------------------------------------------------------
 
 /** Identificador da fonte de dado de uma métrica do cockpit. */
-export type CockpitSourceId = "runs";
+export type CockpitSourceId = "runs" | "health" | "automacao";
 
 /** Descritor de uma fonte de dado read-only do cockpit. */
 export interface CockpitSource {
@@ -34,10 +35,22 @@ export interface CockpitSource {
   readonly: true;
 }
 
-/** Registro estático das fontes do cockpit. `runs` = tabela execucoes. */
+/**
+ * Registro estático das fontes do cockpit. `runs` = tabela execucoes;
+ * `health` = healthcheck consolidado (totais do substrato, status da ingestão).
+ */
 export const COCKPIT_SOURCES: Readonly<Record<CockpitSourceId, CockpitSource>> = {
   runs: { id: "runs", label: "Execuções de ingestão", readonly: true },
+  health: { id: "health", label: "Healthcheck do cockpit", readonly: true },
+  automacao: { id: "automacao", label: "Config de triagem", readonly: true },
 };
+
+/** Dados read-only disponíveis para uma métrica computar. */
+export interface MetricContext {
+  runs: readonly Execucao[];
+  health: HealthcheckResponse | null;
+  automacao: AutomacaoConfig | null;
+}
 
 // ---------------------------------------------------------------------
 // Métricas derivadas
@@ -58,8 +71,8 @@ export interface CockpitMetricDef {
   label: string;
   /** fonte de dado read-only consumida. */
   source: CockpitSourceId;
-  /** deriva o valor a partir das execucoes já carregadas. */
-  compute(runs: readonly Execucao[]): MetricValue;
+  /** deriva o valor a partir dos dados read-only já carregados. */
+  compute(ctx: MetricContext): MetricValue;
 }
 
 /** True quando o ISO cai no dia local de hoje. */
@@ -70,12 +83,12 @@ function isHoje(iso: string | null | undefined): boolean {
   return d.toDateString() === new Date().toDateString();
 }
 
-// Métricas reutilizáveis derivadas da única fonte read-only (execucoes).
+// Métricas reutilizáveis derivadas das execucoes (fonte runs).
 const M_EXEC_HOJE: CockpitMetricDef = {
   id: "exec-hoje",
   label: "Execuções hoje",
   source: "runs",
-  compute: (runs) => {
+  compute: ({ runs }) => {
     const n = runs.filter((r) => isHoje(r.inicio)).length;
     return { value: n, display: String(n), tone: n > 0 ? "ok" : "idle" };
   },
@@ -84,7 +97,7 @@ const M_EM_EXECUCAO: CockpitMetricDef = {
   id: "em-execucao",
   label: "Em execução",
   source: "runs",
-  compute: (runs) => {
+  compute: ({ runs }) => {
     const n = runs.filter((r) => r.status === "em_andamento").length;
     return { value: n, display: String(n), tone: n > 0 ? "run" : "idle" };
   },
@@ -93,7 +106,7 @@ const M_COM_ERRO: CockpitMetricDef = {
   id: "com-erro",
   label: "Com erro",
   source: "runs",
-  compute: (runs) => {
+  compute: ({ runs }) => {
     const n = runs.filter((r) => r.status === "erro").length;
     return { value: n, display: String(n), tone: n > 0 ? "warn" : "ok" };
   },
@@ -102,9 +115,40 @@ const M_CONCLUIDAS: CockpitMetricDef = {
   id: "concluidas",
   label: "Concluídas",
   source: "runs",
-  compute: (runs) => {
+  compute: ({ runs }) => {
     const n = runs.filter((r) => r.status === "concluida").length;
     return { value: n, display: String(n), tone: "ok" };
+  },
+};
+
+// Métrica do módulo Cadastros: total do substrato (avisos + processos +
+// pessoas), lido do healthcheck. Sem leitura ainda -> idle (sem cor forte).
+const M_CADASTROS_TOTAL: CockpitMetricDef = {
+  id: "cadastros-total",
+  label: "Cadastros",
+  source: "health",
+  compute: ({ health }) => {
+    if (!health) return { value: 0, display: "…", tone: "idle" };
+    const n = health.totalAvisos + health.totalProcessos + health.totalPessoas;
+    return { value: n, display: formatNumber(n), tone: n > 0 ? "ok" : "idle" };
+  },
+};
+
+// Métrica do módulo Automações: estado de execução da triagem (modo da IA),
+// lido da config singleton. Autônoma = a triagem roda sozinha (verde); Lion =
+// execução manual pelo agente (neutro). Sem leitura ainda -> idle.
+const M_AUTOMACAO_TRIAGEM: CockpitMetricDef = {
+  id: "automacao-triagem",
+  label: "Triagem",
+  source: "automacao",
+  compute: ({ automacao }) => {
+    if (!automacao) return { value: 0, display: "…", tone: "idle" };
+    const autonoma = automacao.modoExecucaoIa === "autonoma";
+    return {
+      value: autonoma ? 1 : 0,
+      display: autonoma ? "Autônoma" : "Manual",
+      tone: autonoma ? "ok" : "idle",
+    };
   },
 };
 
@@ -120,6 +164,8 @@ export const COCKPIT_METRIC_CATALOG: Readonly<
   ingestao: [M_EXEC_HOJE, M_EM_EXECUCAO, M_COM_ERRO, M_CONCLUIDAS],
   "ingestao.coleta": [M_EM_EXECUCAO, M_EXEC_HOJE, M_COM_ERRO],
   "ingestao.erros": [M_COM_ERRO, M_EXEC_HOJE, M_CONCLUIDAS],
+  cadastros: [M_CADASTROS_TOTAL],
+  automacoes: [M_AUTOMACAO_TRIAGEM],
 };
 
 /** Métricas disponíveis para um escopo (vazio quando sem fonte configurada). */

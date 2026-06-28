@@ -17,14 +17,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check } from "lucide-react";
 import { Tabs } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
 import { WorkbenchTemplate } from "./workbench-template";
 import {
   LinhasProdutosTable,
+  LINHAS_COLUMNS,
   type LinhaProdutoRow,
 } from "./linhas-produtos-table";
-import { BulkBar, type BulkAction } from "./bulk-bar";
 import { ActionModal, type ActionOption } from "./action-modal";
+import {
+  ColumnToggleMenu,
+  FieldFilterMenu,
+  TOOLBAR_SEARCH_CLASS,
+} from "./table-toolbar-menus";
+import { columnMeta, filterableMeta, matchFieldFilters } from "./table-column";
+import { usePagination, TablePager } from "./table-pagination";
 import type { WorkbenchScopeRef } from "./use-workbench-layout";
 
 type Categoria =
@@ -42,27 +48,11 @@ const CATEGORIA_TABS: { value: Categoria; label: string }[] = [
   { value: "infraestrutura", label: "Infraestrutura" },
 ];
 
-const ESTADO_OPCOES = [
-  { value: "todos", label: "Todos os estados" },
-  { value: "ativo", label: "Ativo" },
-  { value: "inativo", label: "Inativo" },
-  { value: "rascunho", label: "Rascunho" },
-] as const;
+// Metadados das colunas para os menus icon-only da toolbar (visibilidade e
+// filtro por campo), derivados das mesmas colunas que a tabela renderiza.
+const LINHAS_COL_META = columnMeta(LINHAS_COLUMNS);
+const LINHAS_FILTER_META = filterableMeta(LINHAS_COLUMNS);
 
-const AREA_OPCOES = [
-  { value: "todas", label: "Todas as áreas" },
-  { value: "Compras", label: "Compras" },
-  { value: "TI", label: "TI" },
-  { value: "Manutenção", label: "Manutenção" },
-  { value: "Serviços Gerais", label: "Serviços Gerais" },
-] as const;
-
-const BULK_ACTIONS: readonly BulkAction[] = [
-  { id: "ativar", label: "Ativar" },
-  { id: "inativar", label: "Inativar" },
-  { id: "exportar", label: "Exportar" },
-  { id: "excluir", label: "Excluir" },
-];
 
 const LINHA_ACTIONS: readonly ActionOption[] = [
   {
@@ -107,7 +97,6 @@ const LINHAS_BLOCKS = [
   "busca",
   "filtros",
   "acao-principal",
-  "lote",
   "acoes-linha",
 ] as const;
 
@@ -123,17 +112,33 @@ type Toast = { message: string } | null;
 export function LinhasProdutosClient() {
   const [categoria, setCategoria] = useState<Categoria>("todas");
   const [busca, setBusca] = useState("");
-  const [estado, setEstado] = useState<string>("todos");
-  const [area, setArea] = useState<string>("todas");
+
+  // Colunas ocultas + filtros por campo (controles icon-only da toolbar).
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  const [fieldFilters, setFieldFilters] = useState<Record<string, string>>({});
+
+  const toggleHidden = (id: string) =>
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [bulkAction, setBulkAction] = useState<string>(BULK_ACTIONS[0].id);
 
   const [modal, setModal] = useState<ModalState>(null);
   const [toast, setToast] = useState<Toast>(null);
 
   // Sem fonte de dados nativa: empty-state honesto (sem fabricar linhas).
-  const linhas = useMemo<LinhaProdutoRow[]>(() => [], []);
+  const allLinhas = useMemo<LinhaProdutoRow[]>(() => [], []);
+  const linhas = useMemo(
+    () => allLinhas.filter((l) => matchFieldFilters(l, LINHAS_COLUMNS, fieldFilters)),
+    [allLinhas, fieldFilters],
+  );
+
+  // Paginacao client-side (25 por pagina) sobre a lista ja filtrada.
+  const linhasPage = usePagination(linhas);
 
   useEffect(() => {
     if (!toast) return;
@@ -150,7 +155,6 @@ export function LinhasProdutosClient() {
     });
   const toggleAll = (ids: string[], checked: boolean) =>
     setSelectedIds(() => (checked ? new Set(ids) : new Set()));
-  const clearSelection = () => setSelectedIds(new Set());
 
   // EC-13: item obsoleto quando saiu da lista entre o clique e a abertura.
   const modalObsolete = useMemo(() => {
@@ -160,9 +164,8 @@ export function LinhasProdutosClient() {
 
   const filtroAtivo =
     categoria !== "todas" ||
-    estado !== "todos" ||
-    area !== "todas" ||
-    busca.trim() !== "";
+    busca.trim() !== "" ||
+    Object.values(fieldFilters).some((v) => v.trim());
 
   function handleReadOnly(message: string) {
     setToast({ message });
@@ -202,76 +205,35 @@ export function LinhasProdutosClient() {
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar por código, linha ou responsável"
               aria-label="Buscar linhas de produtos"
-              className="h-[30px] w-full max-w-[280px] rounded-sm border border-border bg-surface px-2.5 text-[13px] text-fg placeholder:text-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-line"
+              className={TOOLBAR_SEARCH_CLASS}
             />
           ),
           filtros: (
-            <span className="flex flex-wrap items-center gap-2.5">
-              <label className="sr-only" htmlFor="linhas-estado">
-                Filtrar por estado
-              </label>
-              <select
-                id="linhas-estado"
-                value={estado}
-                onChange={(e) => setEstado(e.target.value)}
-                className="h-[30px] rounded-sm border border-border bg-surface px-2.5 text-[12.5px] text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-line"
-              >
-                {ESTADO_OPCOES.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-              <label className="sr-only" htmlFor="linhas-area">
-                Filtrar por área responsável
-              </label>
-              <select
-                id="linhas-area"
-                value={area}
-                onChange={(e) => setArea(e.target.value)}
-                className="h-[30px] rounded-sm border border-border bg-surface px-2.5 text-[12.5px] text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-line"
-              >
-                {AREA_OPCOES.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-              <Button
-                variant="default"
-                size="sm"
-                type="button"
-                onClick={() => {
-                  setBusca("");
-                  setEstado("todos");
-                  setArea("todas");
-                }}
-              >
-                Limpar
-              </Button>
+            <span className="flex items-center gap-2.5">
+              <FieldFilterMenu
+                columns={LINHAS_FILTER_META}
+                values={fieldFilters}
+                onChange={(id, value) =>
+                  setFieldFilters((p) => ({ ...p, [id]: value }))
+                }
+                onClear={() => setFieldFilters({})}
+              />
+              <ColumnToggleMenu
+                columns={LINHAS_COL_META}
+                hidden={hidden}
+                onToggle={toggleHidden}
+                onShowAll={() => setHidden(new Set())}
+              />
             </span>
-          ),
-          lote: (
-            <BulkBar
-              selectedCount={selectedIds.size}
-              actions={BULK_ACTIONS}
-              actionId={bulkAction}
-              onActionChange={setBulkAction}
-              onClear={clearSelection}
-              onExecute={() =>
-                handleReadOnly(
-                  "Apenas leitura — nenhuma ação em lote foi aplicada.",
-                )
-              }
-            />
           ),
         }}
       >
         <LinhasProdutosTable
-          linhas={linhas}
+          linhas={linhasPage.pageItems}
           loading={false}
           error={false}
           onRetry={() => undefined}
+          hidden={hidden}
           onItemClick={(linha) =>
             setModal({ id: linha.id, title: `Linha · ${linha.descricao}` })
           }
@@ -289,6 +251,7 @@ export function LinhasProdutosClient() {
               : "Ainda não há linhas cadastradas. Use “Nova linha de produto” para agrupar produtos do catálogo."
           }
         />
+        <TablePager {...linhasPage} />
       </WorkbenchTemplate>
 
       <ActionModal

@@ -34,7 +34,6 @@ export const NAV_MODULES: NavModule[] = [
     label: "Ingestão",
     icon: Inbox,
     items: [
-      { id: "nav-dashboard", label: "Dashboard", href: "/dashboard" },
       { id: "nav-coleta", label: "Coleta", href: "/ingestao/coleta" },
       { id: "nav-extracao", label: "Extração", href: "/ingestao/extracao" },
       { id: "nav-indexacao", label: "Indexação", href: "/ingestao/indexacao" },

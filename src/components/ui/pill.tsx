@@ -21,6 +21,7 @@ export const pillVariants = cva("pill", {
       warn: "warn",
       danger: "err",
       accent: "accent",
+      neutral: "neutral",
     },
   },
   defaultVariants: {

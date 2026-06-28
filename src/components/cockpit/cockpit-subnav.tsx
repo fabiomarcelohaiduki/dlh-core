@@ -19,7 +19,8 @@ export function CockpitSubnav() {
   const moduleId = moduleForPath(pathname);
   const mod = NAV_MODULES.find((m) => m.id === moduleId);
 
-  if (!mod) return null;
+  // O dashboard e a home do cockpit (sem trilha, espelha o Design Lock).
+  if (!mod || pathname === "/dashboard") return null;
 
   const { title } = screenMeta(pathname);
 

@@ -17,11 +17,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check } from "lucide-react";
 import { Tabs } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
 import { WorkbenchTemplate } from "./workbench-template";
-import { ProdutosTable, type ProdutoRow } from "./produtos-table";
-import { BulkBar, type BulkAction } from "./bulk-bar";
+import { ProdutosTable, PRODUTOS_COLUMNS, type ProdutoRow } from "./produtos-table";
 import { ActionModal, type ActionOption } from "./action-modal";
+import {
+  ColumnToggleMenu,
+  FieldFilterMenu,
+  TOOLBAR_SEARCH_CLASS,
+} from "./table-toolbar-menus";
+import { columnMeta, filterableMeta, matchFieldFilters } from "./table-column";
+import { usePagination, TablePager } from "./table-pagination";
 import type { WorkbenchScopeRef } from "./use-workbench-layout";
 
 type Categoria =
@@ -39,28 +44,10 @@ const CATEGORIA_TABS: { value: Categoria; label: string }[] = [
   { value: "infraestrutura", label: "Infraestrutura" },
 ];
 
-const ESTADO_OPCOES = [
-  { value: "todos", label: "Todos os estados" },
-  { value: "ativo", label: "Ativo" },
-  { value: "inativo", label: "Inativo" },
-  { value: "rascunho", label: "Rascunho" },
-] as const;
-
-const UNIDADE_OPCOES = [
-  { value: "todas", label: "Todas as unidades" },
-  { value: "UN", label: "UN — unidade" },
-  { value: "CX", label: "CX — caixa" },
-  { value: "KG", label: "KG — quilograma" },
-  { value: "M", label: "M — metro" },
-  { value: "SV", label: "SV — serviço" },
-] as const;
-
-const BULK_ACTIONS: readonly BulkAction[] = [
-  { id: "ativar", label: "Ativar" },
-  { id: "inativar", label: "Inativar" },
-  { id: "exportar", label: "Exportar" },
-  { id: "excluir", label: "Excluir" },
-];
+// Metadados das colunas para os menus icon-only da toolbar (visibilidade e
+// filtro por campo), derivados das mesmas colunas que a tabela renderiza.
+const PRODUTOS_COL_META = columnMeta(PRODUTOS_COLUMNS);
+const PRODUTOS_FILTER_META = filterableMeta(PRODUTOS_COLUMNS);
 
 const PRODUTO_ACTIONS: readonly ActionOption[] = [
   {
@@ -100,7 +87,6 @@ const PRODUTOS_BLOCKS = [
   "busca",
   "filtros",
   "acao-principal",
-  "lote",
   "acoes-linha",
 ] as const;
 
@@ -116,17 +102,33 @@ type Toast = { message: string } | null;
 export function ProdutosClient() {
   const [categoria, setCategoria] = useState<Categoria>("todas");
   const [busca, setBusca] = useState("");
-  const [estado, setEstado] = useState<string>("todos");
-  const [unidade, setUnidade] = useState<string>("todas");
+
+  // Colunas ocultas + filtros por campo (controles icon-only da toolbar).
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  const [fieldFilters, setFieldFilters] = useState<Record<string, string>>({});
+
+  const toggleHidden = (id: string) =>
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [bulkAction, setBulkAction] = useState<string>(BULK_ACTIONS[0].id);
 
   const [modal, setModal] = useState<ModalState>(null);
   const [toast, setToast] = useState<Toast>(null);
 
   // Sem fonte de dados nativa: empty-state honesto (sem fabricar produtos).
-  const produtos = useMemo<ProdutoRow[]>(() => [], []);
+  const allProdutos = useMemo<ProdutoRow[]>(() => [], []);
+  const produtos = useMemo(
+    () => allProdutos.filter((p) => matchFieldFilters(p, PRODUTOS_COLUMNS, fieldFilters)),
+    [allProdutos, fieldFilters],
+  );
+
+  // Paginacao client-side (25 por pagina) sobre a lista ja filtrada.
+  const produtosPage = usePagination(produtos);
 
   useEffect(() => {
     if (!toast) return;
@@ -143,7 +145,6 @@ export function ProdutosClient() {
     });
   const toggleAll = (ids: string[], checked: boolean) =>
     setSelectedIds(() => (checked ? new Set(ids) : new Set()));
-  const clearSelection = () => setSelectedIds(new Set());
 
   // EC-13: item obsoleto quando saiu da lista entre o clique e a abertura.
   const modalObsolete = useMemo(() => {
@@ -153,9 +154,8 @@ export function ProdutosClient() {
 
   const filtroAtivo =
     categoria !== "todas" ||
-    estado !== "todos" ||
-    unidade !== "todas" ||
-    busca.trim() !== "";
+    busca.trim() !== "" ||
+    Object.values(fieldFilters).some((v) => v.trim());
 
   function handleReadOnly(message: string) {
     setToast({ message });
@@ -195,76 +195,35 @@ export function ProdutosClient() {
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar por código, nome ou fornecedor"
               aria-label="Buscar produtos"
-              className="h-[30px] w-full max-w-[280px] rounded-sm border border-border bg-surface px-2.5 text-[13px] text-fg placeholder:text-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-line"
+              className={TOOLBAR_SEARCH_CLASS}
             />
           ),
           filtros: (
-            <span className="flex flex-wrap items-center gap-2.5">
-              <label className="sr-only" htmlFor="produtos-estado">
-                Filtrar por estado
-              </label>
-              <select
-                id="produtos-estado"
-                value={estado}
-                onChange={(e) => setEstado(e.target.value)}
-                className="h-[30px] rounded-sm border border-border bg-surface px-2.5 text-[12.5px] text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-line"
-              >
-                {ESTADO_OPCOES.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-              <label className="sr-only" htmlFor="produtos-unidade">
-                Filtrar por unidade
-              </label>
-              <select
-                id="produtos-unidade"
-                value={unidade}
-                onChange={(e) => setUnidade(e.target.value)}
-                className="h-[30px] rounded-sm border border-border bg-surface px-2.5 text-[12.5px] text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-line"
-              >
-                {UNIDADE_OPCOES.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-              <Button
-                variant="default"
-                size="sm"
-                type="button"
-                onClick={() => {
-                  setBusca("");
-                  setEstado("todos");
-                  setUnidade("todas");
-                }}
-              >
-                Limpar
-              </Button>
+            <span className="flex items-center gap-2.5">
+              <FieldFilterMenu
+                columns={PRODUTOS_FILTER_META}
+                values={fieldFilters}
+                onChange={(id, value) =>
+                  setFieldFilters((p) => ({ ...p, [id]: value }))
+                }
+                onClear={() => setFieldFilters({})}
+              />
+              <ColumnToggleMenu
+                columns={PRODUTOS_COL_META}
+                hidden={hidden}
+                onToggle={toggleHidden}
+                onShowAll={() => setHidden(new Set())}
+              />
             </span>
-          ),
-          lote: (
-            <BulkBar
-              selectedCount={selectedIds.size}
-              actions={BULK_ACTIONS}
-              actionId={bulkAction}
-              onActionChange={setBulkAction}
-              onClear={clearSelection}
-              onExecute={() =>
-                handleReadOnly(
-                  "Apenas leitura — nenhuma ação em lote foi aplicada.",
-                )
-              }
-            />
           ),
         }}
       >
         <ProdutosTable
-          produtos={produtos}
+          produtos={produtosPage.pageItems}
           loading={false}
           error={false}
           onRetry={() => undefined}
+          hidden={hidden}
           onItemClick={(produto) =>
             setModal({ id: produto.id, title: `Produto · ${produto.descricao}` })
           }
@@ -282,6 +241,7 @@ export function ProdutosClient() {
               : "Ainda não há produtos cadastrados. Use “Novo produto” para começar o catálogo."
           }
         />
+        <TablePager {...produtosPage} />
       </WorkbenchTemplate>
 
       <ActionModal

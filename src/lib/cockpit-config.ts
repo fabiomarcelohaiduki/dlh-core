@@ -126,7 +126,7 @@ export interface BlockDef {
 export const BLOCK_LIBRARY: readonly BlockDef[] = [
   { id: "fontes", label: "Guias do topo", desc: "Abas de fonte ou categoria no topo.", banda: "topo" },
   { id: "recurso", label: "Filtro de recurso", desc: "Sub-filtro de recursos da fonte.", banda: "topo" },
-  { id: "tempo-real", label: "Tempo real", desc: "Indicador de execução ao vivo.", banda: "status" },
+  { id: "tempo-real", label: "Tempo real", desc: "Indicador de execução ao vivo.", banda: "topo" },
   { id: "busca", label: "Busca", desc: "Campo de pesquisa da lista.", banda: "ferramentas" },
   { id: "filtros", label: "Filtros", desc: "Seletores de status, tipo e período.", banda: "ferramentas" },
   { id: "acao-principal", label: "Ação principal", desc: "Botão de ação principal da tela.", banda: "acao" },
@@ -173,7 +173,7 @@ export const MODULE_CONFIGS: Readonly<Record<ModuloId, ModuleConfig>> = {
       {
         id: "coleta",
         label: "Coleta",
-        blocks: ["fontes", "recurso", "tempo-real", "busca", "filtros", "acao-principal", "lote", "acoes-linha"],
+        blocks: ["fontes", "recurso", "tempo-real", "busca", "filtros", "acao-principal", "acoes-linha"],
       },
       { id: "extracao", label: "Extração", blocks: ["busca", "filtros", "acao-principal", "lote", "acoes-linha"] },
       { id: "indexacao", label: "Indexação", blocks: ["busca", "filtros", "acao-principal", "acoes-linha"] },
@@ -190,8 +190,8 @@ export const MODULE_CONFIGS: Readonly<Record<ModuloId, ModuleConfig>> = {
     id: "cadastros",
     label: "Cadastros",
     screens: [
-      { id: "produtos", label: "Produtos", blocks: ["fontes", "busca", "filtros", "acao-principal", "lote", "acoes-linha"] },
-      { id: "linhas-produtos", label: "Linhas de produtos", blocks: ["fontes", "busca", "filtros", "acao-principal", "lote", "acoes-linha"] },
+      { id: "produtos", label: "Produtos", blocks: ["fontes", "busca", "filtros", "acao-principal", "acoes-linha"] },
+      { id: "linhas-produtos", label: "Linhas de produtos", blocks: ["fontes", "busca", "filtros", "acao-principal", "acoes-linha"] },
       { id: "insumos", label: "Lista de Materiais", blocks: ["busca", "filtros", "acao-principal", "lote", "acoes-linha"] },
       { id: "revenda", label: "Revenda", blocks: ["busca", "acao-principal", "acoes-linha"] },
     ],

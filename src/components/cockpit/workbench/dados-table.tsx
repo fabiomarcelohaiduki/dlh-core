@@ -21,24 +21,29 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { StatusPill } from "@/components/cockpit/status-pill";
-import type { PillState } from "@/lib/status";
+import type { OrigemKey, PillState } from "@/lib/status";
 import { useWorkbench } from "./workbench-template";
+import type { TableColumn } from "./table-column";
 import {
   WorkbenchSkeletonRows,
   WorkbenchTableEmpty,
   WorkbenchTableError,
   formatDateTime,
+  splitDateTime,
 } from "./table-states";
 
 /** Item capturado por uma coleta (projecao read-only de dados reais). */
 export interface DadoColetado {
   id: string;
   titulo: string;
+  /** Rotulo exibivel da origem (ex.: "Effecti"). */
   origem: string;
+  /** Chave normalizada da origem, usada pelo filtro por fonte. */
+  origemKey: OrigemKey;
   recurso: string | null;
-  tipo: string;
   captadoEm: string | null;
-  tamanho: string;
+  /** Quantidade de itens trazidos pela coleta (novos + alterados). */
+  itens: string;
   status: { state: PillState; label: string };
   /** Sinaliza item obsoleto/arquivado (EC-13: aviso honesto no ActionModal). */
   obsoleto?: boolean;
@@ -50,9 +55,64 @@ export interface DadosTableProps {
   error: boolean;
   onRetry: () => void;
   onItemClick: (dado: DadoColetado) => void;
+  /** Ids das colunas ocultas (controle da toolbar). */
+  hidden?: ReadonlySet<string>;
   emptyTitle: string;
   emptyDescription: string;
 }
+
+/** Colunas de dado da tabela de Dados (fonte unica p/ render + toolbar). */
+export const DADOS_COLUMNS: readonly TableColumn<DadoColetado>[] = [
+  {
+    id: "titulo",
+    label: "Item",
+    cellClass: "font-medium",
+    cell: (d) => d.titulo,
+    text: (d) => d.titulo,
+  },
+  {
+    id: "origem",
+    label: "Origem",
+    cell: (d) => <span className="pill src">{d.origem}</span>,
+    text: (d) => d.origem,
+  },
+  {
+    id: "recurso",
+    label: "Recurso",
+    cellClass: "text-muted",
+    cell: (d) => d.recurso ?? "—",
+    text: (d) => d.recurso ?? "",
+  },
+  {
+    id: "captadoEm",
+    label: "Captado em",
+    cellClass: "run-start",
+    cell: (d) => {
+      const { data, hora } = splitDateTime(d.captadoEm);
+      return (
+        <>
+          <strong>{data}</strong>
+          {hora ? <span>{hora}</span> : null}
+        </>
+      );
+    },
+    text: (d) => formatDateTime(d.captadoEm),
+  },
+  {
+    id: "itens",
+    label: "Itens",
+    headClass: "text-right",
+    cellClass: "text-right tabular-nums text-muted",
+    cell: (d) => d.itens,
+    text: (d) => d.itens,
+  },
+  {
+    id: "status",
+    label: "Status",
+    cell: (d) => <StatusPill state={d.status.state} label={d.status.label} />,
+    text: (d) => d.status.label,
+  },
+];
 
 export function DadosTable({
   dados,
@@ -60,26 +120,25 @@ export function DadosTable({
   error,
   onRetry,
   onItemClick,
+  hidden,
   emptyTitle,
   emptyDescription,
 }: DadosTableProps) {
   const { isVisible } = useWorkbench();
   const showActions = isVisible("acoes-linha");
 
-  // 7 colunas de dado + acoes (condicional).
-  const colSpan = 7 + (showActions ? 1 : 0);
+  const columns = DADOS_COLUMNS.filter((c) => !hidden?.has(c.id));
+  const colSpan = columns.length + (showActions ? 1 : 0);
 
   return (
     <Table aria-label="Dados coletados">
       <TableHeader>
         <TableRow>
-          <TableHead>Item</TableHead>
-          <TableHead>Origem</TableHead>
-          <TableHead>Recurso</TableHead>
-          <TableHead>Tipo</TableHead>
-          <TableHead>Captado em</TableHead>
-          <TableHead className="text-right">Tamanho</TableHead>
-          <TableHead>Status</TableHead>
+          {columns.map((col) => (
+            <TableHead key={col.id} className={col.headClass}>
+              {col.label}
+            </TableHead>
+          ))}
           {showActions ? (
             <TableHead data-block="acoes-linha" className="w-[1%] text-right">
               <span className="sr-only">Ações</span>
@@ -110,19 +169,11 @@ export function DadosTable({
               data-clickable=""
               onClick={() => onItemClick(dado)}
             >
-              <TableCell className="font-medium">{dado.titulo}</TableCell>
-              <TableCell>{dado.origem}</TableCell>
-              <TableCell className="text-muted">{dado.recurso ?? "—"}</TableCell>
-              <TableCell className="text-muted">{dado.tipo}</TableCell>
-              <TableCell className="whitespace-nowrap text-muted">
-                {formatDateTime(dado.captadoEm)}
-              </TableCell>
-              <TableCell className="text-right tabular-nums text-muted">
-                {dado.tamanho}
-              </TableCell>
-              <TableCell>
-                <StatusPill state={dado.status.state} label={dado.status.label} />
-              </TableCell>
+              {columns.map((col) => (
+                <TableCell key={col.id} className={col.cellClass}>
+                  {col.cell(dado)}
+                </TableCell>
+              ))}
               {showActions ? (
                 <TableCell
                   data-block="acoes-linha"

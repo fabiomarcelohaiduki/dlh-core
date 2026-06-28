@@ -1,16 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { Menu, Activity, Settings, UserRound, LogOut, Building2, SlidersHorizontal, LayoutDashboard, Plug, Search, RefreshCw } from "lucide-react";
-import { screenMeta, SCREEN_TITLES } from "@/lib/nav";
+import { Menu, Settings, UserRound, LogOut, Building2, SlidersHorizontal, LayoutDashboard, Plug } from "lucide-react";
+import { screenMeta } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 import type { FonteConexao } from "@/lib/status";
 import { logout } from "@/app/actions/auth";
 import { useConfiguracao } from "@/hooks/use-configuracao";
-import { DlhLogo } from "@/components/cockpit/dlh-logo";
 
 /**
  * Menu de tema carregado client-only (`ssr: false`): ele embute `useTema` ->
@@ -32,19 +31,17 @@ const ESTADO_LABEL: Record<string, string> = {
   idle: "não configurado",
 };
 
-type MenuId = "search" | "activity" | "settings" | "account" | "theme";
+type MenuId = "activity" | "settings" | "account" | "theme";
 
 /**
- * Topbar de acoes globais (SPEC 4.3.2 / delta-04/05/25/26).
+ * Topbar de acoes globais (SPEC 4.3.2). Espelha o Design Lock: titulo +
+ * subtitulo da view + quatro acoes (atividade, configuracoes, tema, conta).
  *
- * - `lionclawBrand`: marca LionClaw a esquerda, atalho para o cockpit.
  * - Titulo/subtitulo da view ativa.
- * - Cluster de acoes globais com submenus client-side: `globalSearchButton`
- *   (busca de telas), `activityButton` (Notificacoes, delta-25 - ponto de
- *   alerta), `globalSettingsButton` (Configuracoes) e `accountButton` (Conta).
- *   Mais o `syncButton` (delta-26 - sync manual do cockpit via router.refresh,
- *   com ponto de alerta). No maximo 1 submenu aberto por vez, fecha por
- *   clique-fora, Escape ou navegacao.
+ * - Cluster de acoes globais com submenus client-side: `activityButton`
+ *   (Notificacoes - ponto de alerta), `globalSettingsButton` (Configuracoes),
+ *   `themeButton` (tema) e `accountButton` (Conta). No maximo 1 submenu aberto
+ *   por vez, fecha por clique-fora, Escape ou navegacao.
  * - Logout chama `supabase.auth.signOut()` e redireciona para `/login`.
  * - Links de view interna usam o router do Next (Link) sem I/O.
  */
@@ -58,41 +55,17 @@ export function Topbar({
   conexoes?: FonteConexao[];
 }) {
   const pathname = usePathname();
-  const router = useRouter();
   const { title, subtitle } = screenMeta(pathname);
   const { data: cfg } = useConfiguracao();
 
   const [openMenu, setOpenMenu] = useState<MenuId | null>(null);
-  const [query, setQuery] = useState("");
   const [isPending, startTransition] = useTransition();
-  const [isSyncing, startSync] = useTransition();
   const clusterRef = useRef<HTMLDivElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
-  // Indice de busca global (delta-04/05): mapeia rotas reais -> titulo. Exclui
-  // rotas parametrizadas (com segmento dinamico) que nao sao navegaveis direto.
-  const searchIndex = useMemo(
-    () =>
-      Object.entries(SCREEN_TITLES)
-        .filter(([href]) => !href.includes("["))
-        .map(([href, label]) => ({ href, label })),
-    []
-  );
-  const normalizedQuery = query.trim().toLowerCase();
-  const searchResults = normalizedQuery
-    ? searchIndex.filter((e) => e.label.toLowerCase().includes(normalizedQuery)).slice(0, 8)
-    : searchIndex.slice(0, 6);
 
   // Fecha o submenu ao trocar de rota (navegacao interna via Link).
   useEffect(() => {
     setOpenMenu(null);
-    setQuery("");
   }, [pathname]);
-
-  // Foca o campo de busca ao abrir o submenu de busca global.
-  useEffect(() => {
-    if (openMenu === "search") searchInputRef.current?.focus();
-  }, [openMenu]);
 
   // Fecha por clique-fora e por Escape.
   useEffect(() => {
@@ -114,20 +87,7 @@ export function Topbar({
   }, [openMenu]);
 
   function toggle(id: MenuId) {
-    setOpenMenu((cur) => {
-      const next = cur === id ? null : id;
-      if (next !== "search") setQuery("");
-      return next;
-    });
-  }
-
-  // Sync manual do cockpit (delta-26): reexecuta os Server Components do shell
-  // (router.refresh) para reconsolidar sinais/estado sem recarregar a pagina.
-  function handleSync() {
-    setOpenMenu(null);
-    startSync(() => {
-      router.refresh();
-    });
+    setOpenMenu((cur) => (cur === id ? null : id));
   }
 
   function handleLogout() {
@@ -151,80 +111,12 @@ export function Topbar({
         <Menu aria-hidden="true" />
       </button>
 
-      {/* Marca LionClaw — atalho para o cockpit (SPEC 4.3.2, lionclawBrand). */}
-      <Link id="lionclawBrand" href="/dashboard" className="topbar-brand" aria-label="LionClaw — ir para o cockpit">
-        <span className="mini-logo topbar-brand-glyph" aria-hidden="true">
-          <DlhLogo size={30} />
-        </span>
-        <span className="topbar-brand-name">DLH Core</span>
-      </Link>
-
       <div className="topbar-title">
         <h2>{title}</h2>
         {subtitle ? <p>{subtitle}</p> : null}
       </div>
 
       <div className="global-actions" ref={clusterRef} aria-label="Ações globais">
-        {/* Busca global (delta-04/05) — submenu com campo e atalhos de tela. */}
-        <div className="action-cluster">
-          <button
-            id="globalSearchButton"
-            type="button"
-            className="icon-button"
-            aria-label="Busca global"
-            title="Busca global"
-            aria-haspopup="menu"
-            aria-expanded={openMenu === "search"}
-            onClick={() => toggle("search")}
-          >
-            <Search aria-hidden="true" />
-          </button>
-          {openMenu === "search" && (
-            <div className="action-menu action-menu-search" role="menu">
-              <div className="action-search">
-                <Search aria-hidden="true" />
-                <input
-                  ref={searchInputRef}
-                  type="search"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Buscar telas do cockpit"
-                  aria-label="Buscar telas do cockpit"
-                />
-              </div>
-              {searchResults.length === 0 ? (
-                <div className="action-menu-empty">Nenhuma tela encontrada.</div>
-              ) : (
-                searchResults.map((r) => (
-                  <Link key={r.href} href={r.href} role="menuitem" onClick={() => setOpenMenu(null)}>
-                    <LayoutDashboard aria-hidden="true" />
-                    <span>
-                      <strong>{r.label}</strong>
-                      <small>{r.href}</small>
-                    </span>
-                  </Link>
-                ))
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Sync manual do cockpit (delta-26) — ponto de alerta quando ha sinal pendente. */}
-        <div className="action-cluster">
-          <button
-            id="syncButton"
-            type="button"
-            className="icon-button"
-            aria-label="Sincronizar cockpit"
-            title="Sincronizar cockpit"
-            data-alert={alerta ? "true" : "false"}
-            onClick={handleSync}
-            disabled={isSyncing}
-          >
-            <RefreshCw aria-hidden="true" className={cn(isSyncing && "spin")} />
-          </button>
-        </div>
-
         {/* Notificacoes / atividade */}
         <div className="action-cluster">
           <button
@@ -238,12 +130,20 @@ export function Topbar({
             data-alert={alerta ? "true" : "false"}
             onClick={() => toggle("activity")}
           >
-            <Activity aria-hidden="true" />
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M4 19V5" />
+              <path d="M4 19h16" />
+              <path d="M8 15l3-4 3 2 4-7" />
+            </svg>
           </button>
           {openMenu === "activity" && (
             <div className="action-menu" role="menu">
               <Link href="/atividade-global" role="menuitem" onClick={() => setOpenMenu(null)}>
-                <Activity aria-hidden="true" />
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M4 19V5" />
+                  <path d="M4 19h16" />
+                  <path d="M8 15l3-4 3 2 4-7" />
+                </svg>
                 <span>
                   <strong>Atividade global</strong>
                   <small>Sinais recentes de automações e ingestão.</small>

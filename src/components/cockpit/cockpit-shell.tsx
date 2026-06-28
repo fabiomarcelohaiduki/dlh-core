@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Sidebar } from "@/components/cockpit/sidebar";
 import { Topbar } from "@/components/cockpit/topbar";
-import { CockpitSubnav } from "@/components/cockpit/cockpit-subnav";
 import { OrgBanner } from "@/components/cockpit/org-banner";
 import { ReduceMotionSync } from "@/components/cockpit/config/reduce-motion-sync";
 import { PreferencesSync } from "@/components/cockpit/config/preferences-sync";
@@ -69,10 +68,11 @@ export function CockpitShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Ao navegar, abre automaticamente o modulo que contem a rota ativa.
+  // Ao navegar, abre o modulo da rota ativa; em rotas fora dos modulos
+  // (ex: Cockpit /dashboard) fecha o accordion para nao destacar um modulo
+  // que nao contem a rota atual.
   useEffect(() => {
-    const mod = moduleForPath(pathname);
-    if (mod) setExpanded(mod);
+    setExpanded(moduleForPath(pathname));
   }, [pathname]);
 
   function toggleModule(id: NavModule["id"]) {
@@ -103,7 +103,6 @@ export function CockpitShell({
         />
         <main className="main">
           <Topbar onMenu={() => setMenuOpen((v) => !v)} user={user} conexoes={conexoes} />
-          <CockpitSubnav />
           <OrgBanner />
           {children}
         </main>

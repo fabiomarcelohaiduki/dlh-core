@@ -98,6 +98,17 @@ export function WorkbenchTableError({
   );
 }
 
+/** Quebra um ISO em data (dd/mm) + hora (HH:MM) curtos, tolerante a nulos. */
+export function splitDateTime(iso: string | null): { data: string; hora: string } {
+  if (!iso) return { data: "—", hora: "" };
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return { data: "—", hora: "" };
+  return {
+    data: d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
+    hora: d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+  };
+}
+
 /** Formata um ISO em data+hora curtas (pt-BR), tolerante a nulos. */
 export function formatDateTime(iso: string | null): string {
   if (!iso) return "—";

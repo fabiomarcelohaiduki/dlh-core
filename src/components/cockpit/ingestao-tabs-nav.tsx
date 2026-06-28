@@ -22,12 +22,7 @@ export function IngestaoTabsNav() {
   const pathname = usePathname();
 
   return (
-    <div
-      className="filter-group segmented"
-      role="tablist"
-      aria-label="Seção da ingestão"
-      style={{ display: "inline-flex", margin: "4px 0 16px" }}
-    >
+    <div className="screen-tabs" role="tablist" aria-label="Seção da ingestão">
       {TABS.map((t) => {
         const active = pathname === t.href || pathname?.startsWith(`${t.href}/`);
         return (
@@ -36,7 +31,7 @@ export function IngestaoTabsNav() {
             href={t.href}
             role="tab"
             aria-selected={active}
-            className={cn("btn", "btn-sm", active && "btn-primary")}
+            className={cn("screen-tab", active && "is-active")}
           >
             {t.label}
           </Link>

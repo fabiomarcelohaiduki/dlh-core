@@ -24,6 +24,7 @@ import {
 import { StatusPill } from "@/components/cockpit/status-pill";
 import type { PillState } from "@/lib/status";
 import { useWorkbench } from "./workbench-template";
+import type { TableColumn } from "./table-column";
 import {
   WorkbenchSkeletonRows,
   WorkbenchTableEmpty,
@@ -40,6 +41,35 @@ export interface ProdutoRow {
   estado: { state: PillState; label: string };
 }
 
+/** Colunas de dado da tabela de Produtos (fonte unica p/ render + toolbar). */
+export const PRODUTOS_COLUMNS: readonly TableColumn<ProdutoRow>[] = [
+  {
+    id: "codigo",
+    label: "Código",
+    cellClass: "whitespace-nowrap font-medium tabular-nums",
+    cell: (p) => p.codigo,
+    text: (p) => p.codigo,
+  },
+  {
+    id: "descricao",
+    label: "Descrição",
+    cell: (p) => p.descricao,
+    text: (p) => p.descricao,
+  },
+  {
+    id: "origem",
+    label: "Origem",
+    cell: (p) => <span className="pill src">{p.origem}</span>,
+    text: (p) => p.origem,
+  },
+  {
+    id: "estado",
+    label: "Estado",
+    cell: (p) => <StatusPill state={p.estado.state} label={p.estado.label} />,
+    text: (p) => p.estado.label,
+  },
+];
+
 export interface ProdutosTableProps {
   produtos: ProdutoRow[];
   loading: boolean;
@@ -51,6 +81,8 @@ export interface ProdutosTableProps {
   selectedIds: ReadonlySet<string>;
   onToggle: (id: string) => void;
   onToggleAll: (ids: string[], checked: boolean) => void;
+  /** Ids das colunas ocultas (controle da toolbar). */
+  hidden?: ReadonlySet<string>;
   emptyTitle: string;
   emptyDescription: string;
 }
@@ -64,6 +96,7 @@ export function ProdutosTable({
   selectedIds,
   onToggle,
   onToggleAll,
+  hidden,
   emptyTitle,
   emptyDescription,
 }: ProdutosTableProps) {
@@ -71,8 +104,8 @@ export function ProdutosTable({
   const selectable = isVisible("lote");
   const showActions = isVisible("acoes-linha");
 
-  // 4 colunas de dado + selecao + acoes (condicionais).
-  const colSpan = 4 + (selectable ? 1 : 0) + (showActions ? 1 : 0);
+  const columns = PRODUTOS_COLUMNS.filter((c) => !hidden?.has(c.id));
+  const colSpan = columns.length + (selectable ? 1 : 0) + (showActions ? 1 : 0);
 
   const allIds = produtos.map((p) => p.id);
   const allChecked =
@@ -93,10 +126,11 @@ export function ProdutosTable({
               />
             </TableHead>
           ) : null}
-          <TableHead>Código</TableHead>
-          <TableHead>Descrição</TableHead>
-          <TableHead>Origem</TableHead>
-          <TableHead>Estado</TableHead>
+          {columns.map((col) => (
+            <TableHead key={col.id} className={col.headClass}>
+              {col.label}
+            </TableHead>
+          ))}
           {showActions ? (
             <TableHead data-block="acoes-linha" className="w-[1%] text-right">
               <span className="sr-only">Ações</span>
@@ -140,17 +174,11 @@ export function ProdutosTable({
                     />
                   </TableCell>
                 ) : null}
-                <TableCell className="whitespace-nowrap font-medium tabular-nums">
-                  {produto.codigo}
-                </TableCell>
-                <TableCell>{produto.descricao}</TableCell>
-                <TableCell className="text-muted">{produto.origem}</TableCell>
-                <TableCell>
-                  <StatusPill
-                    state={produto.estado.state}
-                    label={produto.estado.label}
-                  />
-                </TableCell>
+                {columns.map((col) => (
+                  <TableCell key={col.id} className={col.cellClass}>
+                    {col.cell(produto)}
+                  </TableCell>
+                ))}
                 {showActions ? (
                   <TableCell
                     data-block="acoes-linha"

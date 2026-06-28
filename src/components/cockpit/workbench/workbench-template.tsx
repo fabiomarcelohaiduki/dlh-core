@@ -23,13 +23,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  ArrowDown,
-  ArrowUp,
-  Check,
-  Settings2,
-  TriangleAlert,
-} from "lucide-react";
+import { ArrowDown, ArrowUp, Settings2 } from "lucide-react";
 import { BLOCK_DEF, BAND_LABELS } from "@/lib/cockpit-config";
 import type { BlocoBanda } from "@/types/database";
 import { Button } from "@/components/ui/button";
@@ -40,6 +34,7 @@ import {
   useWorkbenchLayout,
   type WorkbenchScopeRef,
 } from "./use-workbench-layout";
+import { CockpitToast } from "./cockpit-toast";
 
 /** Slots de conteudo por bloco (o template injeta o "miolo" de cada bloco). */
 export interface WorkbenchSlots {
@@ -58,17 +53,23 @@ export interface WorkbenchTemplateProps {
   scope: WorkbenchScopeRef;
   /** Valor de data-workbench (ex.: "coleta"). */
   workbenchKey: string;
-  title: string;
+  /** Titulo do cabecalho. Omitido quando ja existe uma aba com o mesmo rotulo. */
+  title?: string;
   description: string;
   /** Conteudo do pill de contagem no cabecalho (ex.: "12 execuções"). */
   countLabel: ReactNode;
-  /** Rotulo da acao principal ("Coletar agora"/"Extrair agora"/"Indexar agora"). */
-  actionLabel: string;
+  /**
+   * Rotulo da acao principal ("Coletar agora"/...). Opcional: views sem o bloco
+   * `acao-principal` nao renderizam o botao e podem omiti-lo.
+   */
+  actionLabel?: string;
   /** Acao principal (read-only por padrao: apenas leitura). */
   onAction?: () => void;
   /** Lista de blocos aplicaveis a esta view (ids do BLOCK_LIBRARY). */
   blocks: readonly string[];
   slots: WorkbenchSlots;
+  /** Posicao do toast (default bottom-6); empilha quando a view tem outro toast. */
+  toastClassName?: string;
   /** Regiao da tabela (RunsTable/DadosTable). */
   children: ReactNode;
 }
@@ -104,6 +105,7 @@ export function WorkbenchTemplate({
   onAction,
   blocks,
   slots,
+  toastClassName,
   children,
 }: WorkbenchTemplateProps) {
   const [toast, setToast] = useState<Toast | null>(null);
@@ -154,14 +156,13 @@ export function WorkbenchTemplate({
   );
 
   const byBand = new Map<BlocoBanda, string[]>();
-  middleBlocks.forEach((id, catalogIndex) => {
+  middleBlocks.forEach((id) => {
     const def = BLOCK_DEF[id];
     if (!def) return;
     const banda = layout.bandaOf(id, def.banda);
     const list = byBand.get(banda) ?? [];
     list.push(id);
     byBand.set(banda, list);
-    void catalogIndex;
   });
   // Ordena cada banda pela ordem horizontal resolvida (estavel pelo catalogo).
   for (const [banda, list] of byBand) {
@@ -175,7 +176,12 @@ export function WorkbenchTemplate({
   }
 
   const orderedBands = layout.bandOrder();
-  const ctx: WorkbenchContextValue = { isVisible: layout.isVisible };
+  // Descendentes (tabelas) so enxergam blocos declarados nesta tela: um bloco
+  // fora do `blocks` nunca conta como visivel (alinha a coluna de selecao/acoes
+  // a presenca real do bloco, nao so a cascata de config).
+  const ctx: WorkbenchContextValue = {
+    isVisible: (id: string) => blockSet.has(id) && layout.isVisible(id),
+  };
 
   const actionVisible = blockSet.has(HEADER_BLOCK) && layout.isVisible(HEADER_BLOCK);
   const loteVisible = blockSet.has("lote") && layout.isVisible("lote");
@@ -190,16 +196,18 @@ export function WorkbenchTemplate({
         {/* Banda de acao / cabecalho */}
         <div
           data-band="acao"
-          className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-[18px] py-4"
+          className="flex flex-wrap items-start justify-between gap-4 border-b border-border bg-[color-mix(in_oklch,var(--bg)_45%,var(--surface))] px-[18px] py-4"
         >
           <div className="min-w-0">
-            <h3 className="text-[15px] font-bold tracking-[-0.01em] text-fg">
-              {title}
-            </h3>
-            <p className="mt-1 max-w-[60ch] text-[13px] text-muted">{description}</p>
+            {title ? (
+              <h3 className="text-[15px] font-bold tracking-[-0.01em] text-fg">
+                {title}
+              </h3>
+            ) : null}
+            <p className="max-w-[60ch] text-[13px] text-muted">{description}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
-            <Pill variant="accent">{countLabel}</Pill>
+            <Pill variant="neutral">{countLabel}</Pill>
             <Button
               variant={layout.customizing ? "primary" : "default"}
               size="sm"
@@ -239,12 +247,16 @@ export function WorkbenchTemplate({
         {orderedBands.map((band) => {
           const ids = (byBand.get(band) ?? []).filter((id) => layout.isVisible(id));
           if (ids.length === 0) return null;
+          // A banda "topo" carrega as guias (que ja trazem altura propria via
+          // padding das abas) + o indicador de tempo real alinhado a direita,
+          // tudo numa linha so — espelha a .tabs do prototipo (sem padding
+          // vertical). As demais bandas mantem o respiro padrao.
+          const bandClass =
+            band === "topo"
+              ? "flex flex-wrap items-center gap-2.5 border-b border-border px-[18px]"
+              : "flex flex-wrap items-center gap-2.5 border-b border-border px-[18px] py-3";
           return (
-            <div
-              key={band}
-              data-band={band}
-              className="flex flex-wrap items-center gap-2.5 border-b border-border px-[18px] py-3"
-            >
+            <div key={band} data-band={band} className={bandClass}>
               {ids.map((id) => (
                 <div key={id} data-block={id} className="contents">
                   {slotFor(id)}
@@ -262,22 +274,11 @@ export function WorkbenchTemplate({
       </section>
 
       {toast ? (
-        <div
-          role="status"
-          aria-live="polite"
-          className={`fixed bottom-6 right-6 z-50 inline-flex items-center gap-2 rounded-md border px-3.5 py-2.5 text-[13px] shadow-[var(--shadow-overlay)] ${
-            toast.kind === "err"
-              ? "border-err bg-err-bg text-err"
-              : "border-ok bg-ok-bg text-ok"
-          }`}
-        >
-          {toast.kind === "err" ? (
-            <TriangleAlert aria-hidden="true" width={16} height={16} />
-          ) : (
-            <Check aria-hidden="true" width={16} height={16} />
-          )}
-          {toast.message}
-        </div>
+        <CockpitToast
+          kind={toast.kind}
+          message={toast.message}
+          className={toastClassName}
+        />
       ) : null}
     </WorkbenchContext.Provider>
   );

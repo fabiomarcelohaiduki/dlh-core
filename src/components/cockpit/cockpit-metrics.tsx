@@ -15,14 +15,7 @@
 //   - nenhum card ativo                      -> empty honesto, grid intacto (EC-17)
 // =====================================================================
 
-import { useMemo, type ReactNode } from "react";
-import {
-  Boxes,
-  Database,
-  DownloadCloud,
-  TriangleAlert,
-  Zap,
-} from "lucide-react";
+import { useMemo } from "react";
 import { makeScopeConfig, scopeValueId } from "@/lib/engines/block-vis";
 import { useBlocoConfig } from "@/hooks/use-configuracao";
 import { useCockpitMetrics } from "@/hooks/use-cockpit-metrics";
@@ -32,48 +25,47 @@ import {
   type CockpitMetricDef,
   type CockpitScopeDef,
 } from "@/lib/cockpit/sources";
-import type { Execucao } from "@/lib/api/types";
+import type { AutomacaoConfig, Execucao, HealthcheckResponse } from "@/lib/api/types";
+import type { PillState } from "@/lib/status";
 
-/** Ícone por escopo de card. */
-const SCOPE_ICONS: Record<string, ReactNode> = {
-  ingestao: <Database aria-hidden="true" />,
-  "ingestao.coleta": <DownloadCloud aria-hidden="true" />,
-  "ingestao.erros": <TriangleAlert aria-hidden="true" />,
-  cadastros: <Boxes aria-hidden="true" />,
-  automacoes: <Zap aria-hidden="true" />,
-};
+/** Severidade do CSS (cor do dot) suportada pelos cards de métrica. */
+type Severity = "ok" | "warn" | "danger" | "neutral";
 
-function iconFor(escopo: string): ReactNode {
-  return SCOPE_ICONS[escopo] ?? <Database aria-hidden="true" />;
+/** tom da métrica (pill) -> severidade do dot do card (espelha o Design Lock). */
+function toneToSeverity(tone: PillState): Severity {
+  if (tone === "err") return "danger";
+  if (tone === "warn" || tone === "run") return "warn";
+  if (tone === "ok") return "ok";
+  return "neutral";
 }
 
 function MetricCard({
   scope,
   metric,
   runs,
+  health,
+  automacao,
   isLoading,
   isError,
 }: {
   scope: CockpitScopeDef;
   metric: CockpitMetricDef | null;
   runs: Execucao[];
+  health: HealthcheckResponse | null;
+  automacao: AutomacaoConfig | null;
   isLoading: boolean;
   isError: boolean;
 }) {
-  const icon = iconFor(scope.escopo);
-
   // EC-15: erro de leitura tem estado próprio, distinto do "Sem dado".
   if (metric && isError) {
     return (
       <article
         className="metric is-danger"
         role="alert"
+        data-severity="danger"
         data-cockpit-card={scope.escopo}
       >
-        <span>
-          <TriangleAlert aria-hidden="true" />
-          {metric.label}
-        </span>
+        <span>{metric.label}</span>
         <small className="metric-danger-copy">Falha ao ler execuções</small>
       </article>
     );
@@ -82,25 +74,28 @@ function MetricCard({
   // EC-16: carregando mostra shimmer no corpo do card.
   if (metric && isLoading) {
     return (
-      <article className="metric" aria-busy="true" data-cockpit-card={scope.escopo}>
-        <span>
-          {icon}
-          {metric.label}
-        </span>
+      <article
+        className="metric"
+        aria-busy="true"
+        data-severity="neutral"
+        data-cockpit-card={scope.escopo}
+      >
+        <span>{metric.label}</span>
         <span className="metric-shimmer" aria-hidden="true" />
       </article>
     );
   }
 
-  // Métrica configurada com dado disponível.
+  // Métrica configurada com dado disponível: dot colorido pelo tom da métrica.
   if (metric) {
-    const v = metric.compute(runs);
+    const v = metric.compute({ runs, health, automacao });
     return (
-      <article className="metric" data-cockpit-card={scope.escopo}>
-        <span>
-          {icon}
-          {metric.label}
-        </span>
+      <article
+        className="metric"
+        data-severity={toneToSeverity(v.tone)}
+        data-cockpit-card={scope.escopo}
+      >
+        <span>{metric.label}</span>
         <strong>{v.display}</strong>
       </article>
     );
@@ -108,11 +103,8 @@ function MetricCard({
 
   // Fallback honesto: escopo ativo sem métrica configurada (delta-16).
   return (
-    <article className="metric" data-cockpit-card={scope.escopo}>
-      <span>
-        {icon}
-        {scope.label}
-      </span>
+    <article className="metric" data-severity="neutral" data-cockpit-card={scope.escopo}>
+      <span>{scope.label}</span>
       <small className="metric-empty-mark">Sem dado configurado</small>
     </article>
   );
@@ -122,7 +114,7 @@ export function CockpitMetrics() {
   const { data } = useBlocoConfig(undefined, "card");
   const cfg = useMemo(() => makeScopeConfig("card", data ?? []), [data]);
   const scopes = useMemo(() => discoverCockpitScopes(cfg), [cfg]);
-  const { runs, isLoading, isError } = useCockpitMetrics();
+  const { runs, health, automacao, isLoading, isError } = useCockpitMetrics();
 
   // EC-17: nenhum card ativo -> empty honesto ocupando a faixa, sem quebrar grid.
   if (scopes.length === 0) {
@@ -144,6 +136,8 @@ export function CockpitMetrics() {
           scope={scope}
           metric={resolveMetric(scope.escopo, scopeValueId(cfg.valorOf(scope.escopo)))}
           runs={runs}
+          health={health}
+          automacao={automacao}
           isLoading={isLoading}
           isError={isError}
         />

@@ -24,6 +24,7 @@ import {
 import { StatusPill } from "@/components/cockpit/status-pill";
 import type { PillState } from "@/lib/status";
 import { useWorkbench } from "./workbench-template";
+import type { TableColumn } from "./table-column";
 import {
   WorkbenchSkeletonRows,
   WorkbenchTableEmpty,
@@ -40,6 +41,42 @@ export interface LinhaProdutoRow {
   estado: { state: PillState; label: string };
 }
 
+/** Colunas de dado da tabela de Linhas (fonte unica p/ render + toolbar). */
+export const LINHAS_COLUMNS: readonly TableColumn<LinhaProdutoRow>[] = [
+  {
+    id: "codigo",
+    label: "Código",
+    cellClass: "whitespace-nowrap font-medium tabular-nums",
+    cell: (l) => l.codigo,
+    text: (l) => l.codigo,
+  },
+  {
+    id: "descricao",
+    label: "Descrição",
+    cell: (l) => l.descricao,
+    text: (l) => l.descricao,
+  },
+  {
+    id: "produtosAssociados",
+    label: "Produtos associados",
+    headClass: "text-right",
+    cellClass: "text-right tabular-nums",
+    cell: (l) =>
+      l.produtosAssociados > 0 ? (
+        l.produtosAssociados
+      ) : (
+        <span className="num-zero">0</span>
+      ),
+    text: (l) => String(l.produtosAssociados),
+  },
+  {
+    id: "estado",
+    label: "Estado",
+    cell: (l) => <StatusPill state={l.estado.state} label={l.estado.label} />,
+    text: (l) => l.estado.label,
+  },
+];
+
 export interface LinhasProdutosTableProps {
   linhas: LinhaProdutoRow[];
   loading: boolean;
@@ -51,6 +88,8 @@ export interface LinhasProdutosTableProps {
   selectedIds: ReadonlySet<string>;
   onToggle: (id: string) => void;
   onToggleAll: (ids: string[], checked: boolean) => void;
+  /** Ids das colunas ocultas (controle da toolbar). */
+  hidden?: ReadonlySet<string>;
   emptyTitle: string;
   emptyDescription: string;
 }
@@ -64,6 +103,7 @@ export function LinhasProdutosTable({
   selectedIds,
   onToggle,
   onToggleAll,
+  hidden,
   emptyTitle,
   emptyDescription,
 }: LinhasProdutosTableProps) {
@@ -71,8 +111,8 @@ export function LinhasProdutosTable({
   const selectable = isVisible("lote");
   const showActions = isVisible("acoes-linha");
 
-  // 4 colunas de dado + selecao + acoes (condicionais).
-  const colSpan = 4 + (selectable ? 1 : 0) + (showActions ? 1 : 0);
+  const columns = LINHAS_COLUMNS.filter((c) => !hidden?.has(c.id));
+  const colSpan = columns.length + (selectable ? 1 : 0) + (showActions ? 1 : 0);
 
   const allIds = linhas.map((l) => l.id);
   const allChecked =
@@ -93,10 +133,11 @@ export function LinhasProdutosTable({
               />
             </TableHead>
           ) : null}
-          <TableHead>Código</TableHead>
-          <TableHead>Descrição</TableHead>
-          <TableHead className="text-right">Produtos associados</TableHead>
-          <TableHead>Estado</TableHead>
+          {columns.map((col) => (
+            <TableHead key={col.id} className={col.headClass}>
+              {col.label}
+            </TableHead>
+          ))}
           {showActions ? (
             <TableHead data-block="acoes-linha" className="w-[1%] text-right">
               <span className="sr-only">Ações</span>
@@ -140,19 +181,11 @@ export function LinhasProdutosTable({
                     />
                   </TableCell>
                 ) : null}
-                <TableCell className="whitespace-nowrap font-medium tabular-nums">
-                  {linha.codigo}
-                </TableCell>
-                <TableCell>{linha.descricao}</TableCell>
-                <TableCell className="text-right tabular-nums text-muted">
-                  {linha.produtosAssociados}
-                </TableCell>
-                <TableCell>
-                  <StatusPill
-                    state={linha.estado.state}
-                    label={linha.estado.label}
-                  />
-                </TableCell>
+                {columns.map((col) => (
+                  <TableCell key={col.id} className={col.cellClass}>
+                    {col.cell(linha)}
+                  </TableCell>
+                ))}
                 {showActions ? (
                   <TableCell
                     data-block="acoes-linha"
