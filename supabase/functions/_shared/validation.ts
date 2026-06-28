@@ -2146,3 +2146,49 @@ export const conhecimentoUpdateSchema = z
   .strict();
 
 export type ConhecimentoUpdateInput = z.infer<typeof conhecimentoUpdateSchema>;
+
+// =====================================================================
+// Allowlist de acesso (contas_autorizadas) — CRUD pelo cockpit (US-21).
+// `valor` e normalizado para lowercase no handler antes de gravar; aqui so
+// validamos forma. email -> precisa de '@'; dominio -> sem '@' e com ponto.
+// =====================================================================
+export const contaAutorizadaCreateSchema = z
+  .object({
+    tipo: z.enum(["email", "dominio"], {
+      errorMap: () => ({ message: "tipo invalido (use: email, dominio)" }),
+    }),
+    valor: z
+      .string({ required_error: "valor e obrigatorio", invalid_type_error: "valor deve ser string" })
+      .trim()
+      .min(1, "valor nao pode ser vazio")
+      .max(254, "valor muito longo"),
+  })
+  .strict()
+  .superRefine((val, ctx) => {
+    const v = val.valor.toLowerCase();
+    if (val.tipo === "email" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["valor"],
+        message: "informe um e-mail valido (ex: nome@dominio.com)",
+      });
+    }
+    if (val.tipo === "dominio" && (v.includes("@") || !/^[^@\s]+\.[^@\s]+$/.test(v))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["valor"],
+        message: "informe um dominio valido sem '@' (ex: dominio.com)",
+      });
+    }
+  });
+
+export type ContaAutorizadaCreateInput = z.infer<typeof contaAutorizadaCreateSchema>;
+
+export const contaAutorizadaToggleSchema = z
+  .object({
+    id: z.string({ invalid_type_error: "id deve ser string" }).uuid("id invalido"),
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }),
+  })
+  .strict();
+
+export type ContaAutorizadaToggleInput = z.infer<typeof contaAutorizadaToggleSchema>;

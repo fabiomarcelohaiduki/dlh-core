@@ -983,6 +983,26 @@ export interface ConfigEmpresa {
 }
 
 /**
+ * contas_autorizadas — allowlist de acesso do cockpit (US-21). Cada entrada
+ * autoriza por e-mail exato ou por dominio inteiro; `ativo` liga/desliga sem
+ * remover. O gate de login (is_conta_autorizada) so deixa entrar quem casa
+ * com uma entrada ativa.
+ */
+export interface ContaAutorizada {
+  id: string;
+  tipo: "email" | "dominio";
+  valor: string;
+  ativo: boolean;
+  createdAt: string | null;
+}
+
+/** Payload de criacao de uma entrada da allowlist (POST). */
+export interface ContaAutorizadaInput {
+  tipo: "email" | "dominio";
+  valor: string;
+}
+
+/**
  * config_llm — configuracao da IA (LLM) das geracoes assistidas do cockpit
  * (singleton). A chave da API NUNCA trafega no contrato; key_configurada
  * apenas sinaliza se ha segredo gravado no Vault.

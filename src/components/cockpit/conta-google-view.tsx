@@ -16,6 +16,7 @@ import { logout } from "@/app/actions/auth";
 import { useConfiguracao } from "@/hooks/use-configuracao";
 import { useSession } from "@/hooks/use-auth";
 import { useSessaoContext } from "@/components/cockpit/sessao-provider";
+import { ContasAutorizadasCard } from "@/components/cockpit/contas-autorizadas-card";
 import type { PillState } from "@/lib/status";
 
 /**
@@ -84,13 +85,6 @@ export function ContaGoogleView() {
           </li>
           <li className="stack-item">
             <div className="stack-copy">
-              <strong>Provedor</strong>
-              <span>Google OAuth via Supabase Auth.</span>
-            </div>
-            <span className="pill ok">Ativo</span>
-          </li>
-          <li className="stack-item">
-            <div className="stack-copy">
               <strong>Sessão local</strong>
               <span>
                 Expiração por inatividade definida na Configuração geral. Saída
@@ -119,6 +113,8 @@ export function ContaGoogleView() {
           </button>
         </div>
       </section>
+
+      <ContasAutorizadasCard />
     </section>
   );
 }
