@@ -127,43 +127,46 @@ export function ConfiguracoesRerankForm() {
 
   if (isLoading) {
     return (
-      <div className="card form-card form-card--wide">
-        <div
-          className="helper"
-          style={{ display: "flex", alignItems: "center", gap: 8 }}
-        >
-          <Loader2 className="spin" aria-hidden="true" />
-          <span>Carregando configuração de rerank…</span>
+      <section className="cfg-panel-card">
+        <div className="cfg-panel-body">
+          <div
+            className="helper"
+            style={{ display: "flex", alignItems: "center", gap: 8 }}
+          >
+            <Loader2 className="spin" aria-hidden="true" />
+            <span>Carregando configuração de rerank…</span>
+          </div>
         </div>
-      </div>
+      </section>
     );
   }
 
   if (isError) {
     return (
-      <div className="card form-card form-card--wide">
-        <div className="err-msg" style={{ display: "flex" }}>
-          <TriangleAlert aria-hidden="true" />
-          Não foi possível carregar a configuração de rerank.
+      <section className="cfg-panel-card">
+        <div className="cfg-panel-body">
+          <div className="err-msg" style={{ display: "flex" }}>
+            <TriangleAlert aria-hidden="true" />
+            Não foi possível carregar a configuração de rerank.
+          </div>
         </div>
-      </div>
+      </section>
     );
   }
 
   return (
-    <form className="card form-card form-card--wide" onSubmit={onSubmit} noValidate>
-      <div className="section-title">
-        <h3>
-          <ListOrdered aria-hidden="true" />
-          Reranking da busca
-        </h3>
+    <form className="cfg-panel-card" onSubmit={onSubmit} noValidate>
+      <div className="panel-header">
+        <div className="panel-title">
+          <h3>Reranking da busca</h3>
+          <p>
+            Reordena os resultados da busca semântica por relevância real
+            (Cohere), melhorando a precisão. Desligado, a busca usa apenas o
+            vetorial. A chave fica guardada de forma cifrada e nunca é exibida.
+          </p>
+        </div>
       </div>
-      <p className="helper" style={{ marginTop: 2, marginBottom: 14 }}>
-        Reordena os resultados da busca semântica por relevância real (Cohere),
-        melhorando a precisão. Desligado, a busca usa apenas o vetorial. A chave
-        fica guardada de forma cifrada e nunca é exibida.
-      </p>
-
+      <div className="cfg-panel-body">
       <label className="chk" style={{ maxWidth: 320 }}>
         <input
           type="checkbox"
@@ -333,6 +336,7 @@ export function ConfiguracoesRerankForm() {
             {feedback.message}
           </span>
         )}
+      </div>
       </div>
     </form>
   );

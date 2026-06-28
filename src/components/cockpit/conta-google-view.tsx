@@ -17,6 +17,7 @@ import { useConfiguracao } from "@/hooks/use-configuracao";
 import { useSession } from "@/hooks/use-auth";
 import { useSessaoContext } from "@/components/cockpit/sessao-provider";
 import { ContasAutorizadasCard } from "@/components/cockpit/contas-autorizadas-card";
+import { CfgAccordion } from "@/components/cockpit/config/cfg-accordion";
 import type { PillState } from "@/lib/status";
 
 /**
@@ -67,6 +68,7 @@ export function ContaGoogleView() {
 
   return (
     <section className="global-view">
+      <CfgAccordion>
       <section className="cfg-panel-card" aria-labelledby="conta-google-h">
         <div className="panel-header">
           <div className="panel-title">
@@ -115,6 +117,7 @@ export function ContaGoogleView() {
       </section>
 
       <ContasAutorizadasCard />
+      </CfgAccordion>
     </section>
   );
 }

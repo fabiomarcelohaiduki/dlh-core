@@ -4841,6 +4841,68 @@ tr.row-match td {
   color: var(--muted);
   font-size: 13px;
 }
+/* Corpo de um cfg-panel-card que embute conteudo proprio (ex: o painel
+   editavel das fontes em Integracoes), mantendo o respiro lateral dos demais
+   blocos (.stack-list usa margin 16px). */
+.cfg-panel-body {
+  padding: 16px;
+}
+
+/* =====================================================================
+   Acordeao de blocos de configuracao (cfg-accordion) — espelha o prototipo.
+   Empilha os blocos com o mesmo respiro das views de config (gap 18px) e
+   torna o cabecalho de cada bloco clicavel: abre/fecha um por vez, com chevron.
+   Cobre os dois cabecalhos que existem nos blocos: .panel-header (cfg-panel-card)
+   e .section-title (cards de formulario, ex.: IA e reranking em Integracoes).
+   O estado vem do atributo data-collapsed que o componente liga em cada bloco.
+   ===================================================================== */
+.cfg-accordion {
+  display: grid;
+  gap: 18px;
+}
+.cfg-accordion > [data-collapsed] > .panel-header,
+.cfg-accordion > [data-collapsed] > .section-title {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.18s ease;
+}
+.cfg-accordion > [data-collapsed] > .panel-header:hover,
+.cfg-accordion > [data-collapsed] > .section-title:hover {
+  background: color-mix(in oklch, var(--accent) 8%, var(--surface));
+}
+/* O titulo empurra o chevron (e a pill, quando houver) para a direita. */
+.cfg-accordion > [data-collapsed] > .panel-header .panel-title {
+  margin-right: auto;
+}
+.cfg-accordion > [data-collapsed] > .section-title h3 {
+  margin-right: auto;
+}
+/* Chevron (caret) a direita do cabecalho. */
+.cfg-accordion > [data-collapsed] > .panel-header::after,
+.cfg-accordion > [data-collapsed] > .section-title::after {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-left: 12px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform 0.18s ease;
+}
+.cfg-accordion > [data-collapsed="true"] > .panel-header::after,
+.cfg-accordion > [data-collapsed="true"] > .section-title::after {
+  transform: rotate(-45deg);
+}
+/* Colapsado: zera a borda inferior do cabecalho e some o corpo do bloco. */
+.cfg-accordion > [data-collapsed="true"] > .panel-header {
+  border-bottom-color: transparent;
+}
+.cfg-accordion
+  > [data-collapsed="true"]
+  > :not(.panel-header):not(.section-title) {
+  display: none;
+}
 
 /* Módulo de controles (grupo de cc-rows) */
 .cc-mod {

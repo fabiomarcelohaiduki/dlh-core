@@ -32,6 +32,7 @@ import type { BlocoTipo } from "@/types/database";
 import { CcRow } from "./cc-row";
 import { CcToggle } from "./cc-toggle";
 import { CcSelect } from "./cc-select";
+import { CfgAccordion } from "./cfg-accordion";
 
 /** Opção neutra de catálogo (id + rótulo) compartilhada por métricas e dados. */
 interface DataOption {
@@ -159,6 +160,7 @@ export function CockpitSettingsForm() {
 
   return (
     <section className="config-geral-view">
+      <CfgAccordion>
       <section className="cfg-panel-card" aria-labelledby="cockpit-cards">
         <div className="panel-header">
           <div className="panel-title">
@@ -200,6 +202,7 @@ export function CockpitSettingsForm() {
           )}
         </div>
       </section>
+      </CfgAccordion>
 
       {toast ? (
         <div

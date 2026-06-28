@@ -21,6 +21,7 @@ import { CcToggle } from "./cc-toggle";
 import { CcSeg, type CcSegOption } from "./cc-seg";
 import { CcSelect, type CcSelectOption } from "./cc-select";
 import { ThemePicker, useTemaAtivoLabel } from "./theme-picker";
+import { CfgAccordion } from "./cfg-accordion";
 
 // ---------------------------------------------------------------------
 // Opções dos controles
@@ -250,6 +251,7 @@ export function EnvSettingsForm() {
 
   return (
     <section className="config-geral-view">
+      <CfgAccordion>
       {/* 1 — Densidade / área inicial */}
       <section className="cfg-panel-card" aria-labelledby="cfg-geral">
         <div className="panel-header">
@@ -600,6 +602,7 @@ export function EnvSettingsForm() {
           }
         />
       </section>
+      </CfgAccordion>
 
       {toast ? (
         <div

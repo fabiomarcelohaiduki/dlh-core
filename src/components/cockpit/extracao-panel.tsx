@@ -119,7 +119,7 @@ export function ExtracaoPanel({
   // So Nomus depende de credencial; as demais nao tem esse gate aqui.
   const blocked = fonte === "nomus" && !nomusConfigurado;
   const blockedReason =
-    "Cadastre e salve a chave do Nomus (em Fontes e credenciais) antes de descobrir anexos.";
+    "Cadastre e salve a chave do Nomus (em Integrações) antes de descobrir anexos.";
   const disabled = blocked || pending;
   const contagens = resumo.data?.contagens;
   // Itens acionaveis (erro/inobtenivel/precisa_ocr) que o Edge devolve, ja

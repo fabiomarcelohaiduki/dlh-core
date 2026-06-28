@@ -37,7 +37,6 @@ export const NAV_MODULES: NavModule[] = [
       { id: "nav-coleta", label: "Coleta", href: "/ingestao/coleta" },
       { id: "nav-extracao", label: "Extração", href: "/ingestao/extracao" },
       { id: "nav-indexacao", label: "Indexação", href: "/ingestao/indexacao" },
-      { id: "nav-fontes", label: "Fontes e credenciais", href: "/ingestao/fontes" },
       { id: "nav-erros", label: "Erros", href: "/erros", badgeKey: "erros" },
       { id: "nav-api", label: "API LLM-ready", href: "/api" },
       { id: "nav-ingestao-config", label: "Configurações do módulo", href: "/ingestao/configuracoes-do-modulo" },
@@ -96,7 +95,6 @@ export const SCREEN_TITLES: Record<string, string> = {
   "/ingestao/coleta": "Coleta",
   "/ingestao/extracao": "Extração",
   "/ingestao/indexacao": "Indexação",
-  "/ingestao/fontes": "Fontes e credenciais",
   "/ingestao": "Ingestão",
   "/erros": "Erros",
   "/api": "API LLM-ready",
@@ -129,7 +127,6 @@ export const SCREEN_TITLES: Record<string, string> = {
 export const SCREEN_SUBTITLES: Record<string, string> = {
   "/dashboard": "Estado geral das automações, ingestão de documentos e registros operacionais.",
   "/ingestao/coleta": "Execuções dos agendamentos de coleta e itens capturados por fonte.",
-  "/ingestao/fontes": "Credenciais e conexões das fontes de ingestão.",
   "/cadastros/produtos": "Itens cadastrados para licitações, organizados por linha de produtos.",
   "/cadastros/linhas-produtos": "Famílias que agrupam os produtos do catálogo por segmento.",
   "/produtos": "Catálogo de linhas, produtos e SKUs.",

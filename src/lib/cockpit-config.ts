@@ -177,7 +177,6 @@ export const MODULE_CONFIGS: Readonly<Record<ModuloId, ModuleConfig>> = {
       },
       { id: "extracao", label: "Extração", blocks: ["busca", "filtros", "acao-principal", "lote", "acoes-linha"] },
       { id: "indexacao", label: "Indexação", blocks: ["busca", "filtros", "acao-principal", "acoes-linha"] },
-      { id: "fontes", label: "Fontes e credenciais", blocks: ["acao-principal"] },
     ],
     estado: [
       { label: "Origem dos dados", desc: "Como o módulo recebe documentos para ingestão.", valor: "Automática", tom: "neutral" },

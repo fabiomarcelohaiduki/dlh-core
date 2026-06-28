@@ -102,42 +102,46 @@ export function ConfiguracoesIaForm() {
 
   if (isLoading) {
     return (
-      <div className="card form-card form-card--wide">
-        <div
-          className="helper"
-          style={{ display: "flex", alignItems: "center", gap: 8 }}
-        >
-          <Loader2 className="spin" aria-hidden="true" />
-          <span>Carregando configuração de IA…</span>
+      <section className="cfg-panel-card">
+        <div className="cfg-panel-body">
+          <div
+            className="helper"
+            style={{ display: "flex", alignItems: "center", gap: 8 }}
+          >
+            <Loader2 className="spin" aria-hidden="true" />
+            <span>Carregando configuração de IA…</span>
+          </div>
         </div>
-      </div>
+      </section>
     );
   }
 
   if (isError) {
     return (
-      <div className="card form-card form-card--wide">
-        <div className="err-msg" style={{ display: "flex" }}>
-          <TriangleAlert aria-hidden="true" />
-          Não foi possível carregar a configuração de IA.
+      <section className="cfg-panel-card">
+        <div className="cfg-panel-body">
+          <div className="err-msg" style={{ display: "flex" }}>
+            <TriangleAlert aria-hidden="true" />
+            Não foi possível carregar a configuração de IA.
+          </div>
         </div>
-      </div>
+      </section>
     );
   }
 
   return (
-    <form className="card form-card form-card--wide" onSubmit={onSubmit} noValidate>
-      <div className="section-title">
-        <h3>
-          <Sparkles aria-hidden="true" />
-          Inteligência artificial
-        </h3>
+    <form className="cfg-panel-card" onSubmit={onSubmit} noValidate>
+      <div className="panel-header">
+        <div className="panel-title">
+          <h3>Inteligência artificial</h3>
+          <p>
+            Provedor e chave usados nas gerações assistidas (ex.: descrição
+            comercial de produtos). A chave fica guardada de forma cifrada e
+            nunca é exibida.
+          </p>
+        </div>
       </div>
-      <p className="helper" style={{ marginTop: 2, marginBottom: 14 }}>
-        Provedor e chave usados nas gerações assistidas (ex.: descrição comercial
-        de produtos). A chave fica guardada de forma cifrada e nunca é exibida.
-      </p>
-
+      <div className="cfg-panel-body">
       <label className="chk" style={{ maxWidth: 320 }}>
         <input
           type="checkbox"
@@ -255,6 +259,7 @@ export function ConfiguracoesIaForm() {
             {feedback.message}
           </span>
         )}
+      </div>
       </div>
     </form>
   );

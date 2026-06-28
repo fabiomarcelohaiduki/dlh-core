@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { MODULE_CONFIGS, type EstadoTom, type ModuloId } from "@/lib/cockpit-config";
 import { BlockMatrix } from "./block-matrix";
+import { CfgAccordion } from "./cfg-accordion";
 
 /** Mapeia o tom do estado para a classe da pill (neutral usa a pill base). */
 function tomClass(tom: EstadoTom): string {
@@ -42,6 +43,7 @@ export function ModuleConfigView({
         </div>
       </div>
 
+      <CfgAccordion>
       {/* Estado do módulo (read-only) */}
       <section className="cfg-panel-card estado-modulo" aria-labelledby="estado-modulo-h">
         <div className="panel-header">
@@ -79,6 +81,7 @@ export function ModuleConfigView({
       </section>
 
       {children}
+      </CfgAccordion>
     </section>
   );
 }

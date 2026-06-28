@@ -5,9 +5,9 @@ import { redirect } from "next/navigation";
 export const dynamic = "force-dynamic";
 
 /**
- * As fontes e credenciais agora vivem dentro do menu Ingestão (aba
- * "Fontes e credenciais"). Esta rota legada redireciona para o novo lugar.
+ * As fontes e credenciais agora vivem em Integrações (bloco "Conectores de
+ * ingestão"). Esta rota legada redireciona para o novo lugar.
  */
 export default function FontesPage() {
-  redirect("/ingestao/fontes");
+  redirect("/integracoes-global");
 }
