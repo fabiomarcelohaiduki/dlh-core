@@ -1,12 +1,13 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { Factory, Gavel, HardDrive, Mail } from "lucide-react";
+import { Factory, FileText, Gavel, HardDrive, Mail } from "lucide-react";
 import { CfgAccordion } from "@/components/cockpit/config/cfg-accordion";
 import { CfgForm } from "@/components/cockpit/cfg-form";
 import { NomusCfgForm } from "@/components/cockpit/nomus-cfg-form";
 import { DrivePastasForm } from "@/components/cockpit/drive-pastas-form";
 import { GmailConfigForm } from "@/components/cockpit/gmail-config-form";
+import { ComandoLocalDisparo } from "@/components/cockpit/workbench/comando-local-disparo";
 import type { EscopoColetaData } from "@/lib/fontes-credenciais-data";
 
 /**
@@ -91,9 +92,13 @@ export function EscopoColeta({
         id="nomus"
         icon={<Factory aria-hidden="true" style={ICON_STYLE} />}
         nome="Nomus"
-        nota="Recursos e tipos coletados do ERP. O disparo manual fica na guia Execuções."
+        nota="Recursos e tipos coletados do ERP. A coleta roda no PC local (pós-Actions); dispare-a abaixo."
       >
         <NomusCfgForm fonteId={nomusId} disparo={false} />
+        <div style={{ display: "grid", gap: 16, marginTop: 16 }}>
+          <ComandoLocalDisparo comando="nomus-processos" rotulo="Coletar processos" />
+          <ComandoLocalDisparo comando="nomus-pessoas" rotulo="Coletar pessoas" />
+        </div>
       </EscopoCard>
 
       <EscopoCard
@@ -112,6 +117,15 @@ export function EscopoColeta({
         nota="Data inicial, categorias e labels excluídas que filtram os e-mails coletados."
       >
         <GmailConfigForm config={gmailConfig} labels={gmailLabels} />
+      </EscopoCard>
+
+      <EscopoCard
+        id="extracao"
+        icon={<FileText aria-hidden="true" style={ICON_STYLE} />}
+        nome="Extração (Tika/OCR)"
+        nota="Extrai texto e OCR dos anexos. Roda no PC local (pós-Actions); dispare a fila abaixo."
+      >
+        <ComandoLocalDisparo comando="tika-ocr" rotulo="Extrair anexos (rápido + OCR)" />
       </EscopoCard>
     </CfgAccordion>
   );

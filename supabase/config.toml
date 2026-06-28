@@ -167,3 +167,12 @@ verify_jwt = false
 # (matchesCronSecret). Sem este pin, deploy sem --no-verify-jwt reabre o bug.
 [functions.drive-coletar]
 verify_jwt = false
+
+# O servico de poll do PC consome a fila de comandos (comando-local-fila) com
+# X-Cron-Secret PURO (sem Authorization) — o PC nao tem service_role nem sessao
+# de usuario. verify_jwt no default (ON) faria o gateway barrar com 401 antes do
+# codigo. A funcao se autentica sozinha (matchesCronSecret). Sem este pin, deploy
+# sem --no-verify-jwt reabre o bug. (comando-local-enfileirar fica no default ON:
+# e a ponta do cockpit, exige sessao de usuario.)
+[functions.comando-local-fila]
+verify_jwt = false
