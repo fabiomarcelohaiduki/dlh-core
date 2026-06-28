@@ -1,9 +1,9 @@
-name: Coletor Nomus (nuvem)
+name: Coleta · Nomus (ERP)
 
 # run-name inclui o RECURSO e o MODO no titulo do run. Isso e o que permite ao
 # guard do cockpit (Edge nomus-disparar) distinguir runs por recurso pela GitHub
 # API, que NAO expoe os inputs do dispatch na listagem de runs.
-run-name: "Coletor Nomus · ${{ github.event.inputs.recurso || 'processos' }} · ${{ github.event.inputs.modo || 'incremental' }}"
+run-name: "Coleta · Nomus · ${{ github.event.inputs.recurso || 'processos' }} · ${{ github.event.inputs.modo || 'incremental' }}"
 
 # Coleta os processos do Nomus a partir da NUVEM (runner Node/OpenSSL) e faz
 # push para a Edge Function nomus-ingerir, que persiste no Supabase reusando o

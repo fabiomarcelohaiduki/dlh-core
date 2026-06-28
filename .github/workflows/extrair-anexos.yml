@@ -1,4 +1,4 @@
-name: Extrator de anexos (camada 1)
+name: Extração · texto de anexos (rápido · todas as fontes)
 
 # Camada 1 do pipeline de documentos: extracao de TEXTO PURO de anexos
 # (editais, contratos, atas, planilhas...), deterministica e ZERO LLM.

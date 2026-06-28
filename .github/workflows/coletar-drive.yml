@@ -1,4 +1,4 @@
-name: Coletor Drive (nuvem)
+name: Coleta · Drive (descoberta de arquivos)
 
 # DESCOBERTA da fonte Drive (camada 1), INDEPENDENTE da extracao. Roda no runner
 # Node do GitHub Actions porque a lista de arquivos vive na API do Google e a

@@ -1,4 +1,4 @@
-name: Extrator OCR (passo caro isolado)
+name: Extração · OCR de escaneados (todas as fontes)
 
 # Passo OCR DEDICADO da camada 1 (decisao Fabio 2026-06-15). Separa o pipeline
 # RAPIDO (PDF nativo/docx/xlsx, OCR off) do OCR caro (escaneado/imagem):

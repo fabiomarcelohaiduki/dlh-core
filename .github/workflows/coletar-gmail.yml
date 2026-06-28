@@ -1,4 +1,4 @@
-name: Coletor Gmail (nuvem)
+name: Coleta · Gmail (mensagens e anexos)
 
 # COLETA da fonte Gmail (camada 1), INDEPENDENTE da extracao. Roda no runner
 # Node do GitHub Actions porque a lista de mensagens vive na API do Google e a

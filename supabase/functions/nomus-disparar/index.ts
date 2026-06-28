@@ -41,7 +41,7 @@ const NOMUS_RUNS_URL = workflowRunsUrl("coletar-nomus.yml");
  * retorna false -> nao bloqueia.
  *
  * DISTINCAO POR RECURSO: a listagem de runs nao expoe os inputs do dispatch, mas o
- * workflow define run-name "Coletor Nomus · <recurso> · <modo>" — o nome aparece em
+ * workflow define run-name "Coleta · Nomus · <recurso> · <modo>" — o nome aparece em
  * name/display_title. So bloqueia quando um run ativo casa com o recurso alvo;
  * runs de OUTRO recurso (ou legados sem run-name, que nao casam) nao bloqueiam.
  */
