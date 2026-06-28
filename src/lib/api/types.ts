@@ -78,8 +78,20 @@ export interface Erro {
 /** Alias de dominio (secao 4.3): a tabela de erros consome `ErroIngestao[]`. */
 export type ErroIngestao = Erro;
 
+/**
+ * Contagens do universo COMPLETO de execucoes (a lista `items` e so a pagina
+ * `limit`). Os badges das guias/filtros leem daqui para nao travarem no
+ * tamanho da pagina. As chaves de origem espelham OrigemKey (status.ts).
+ */
+export interface ColetaContagens {
+  total: number;
+  porOrigem: Record<"effecti" | "nomus" | "gmail" | "drive", number>;
+  porRecurso: Record<"effecti" | "nomus" | "gmail" | "drive", Record<string, number>>;
+}
+
 export interface ExecucoesResponse {
   items: Execucao[];
+  contagens: ColetaContagens;
 }
 
 export interface ErrosResponse {

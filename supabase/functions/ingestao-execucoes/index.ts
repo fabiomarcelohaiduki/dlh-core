@@ -12,6 +12,33 @@ import type { Execucao, ExecucaoCheckpoint } from "../_shared/types.ts";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
+const PAGE_SIZE = 1000;
+
+/**
+ * Chave de origem dos badges (espelha normalizeOrigem de src/lib/status.ts).
+ * A `origem` crua e o `tipo` da fonte (ou null em execucoes legadas).
+ */
+type OrigemKey = "effecti" | "nomus" | "gmail" | "drive";
+
+function normalizeOrigemKey(origem: string | null): OrigemKey {
+  if (!origem) return "effecti";
+  const o = origem.toLowerCase();
+  if (o === "gmail") return "gmail";
+  if (o === "drive") return "drive";
+  if (o === "nomus" || o.startsWith("processo") || o.startsWith("pessoa")) return "nomus";
+  return "effecti";
+}
+
+/**
+ * Contagens HONESTAS sobre o universo completo de execucoes (a lista `items` e
+ * so a pagina `limit`). Alimenta os badges das guias/filtros para o numero nao
+ * travar no tamanho da pagina.
+ */
+interface ColetaContagens {
+  total: number;
+  porOrigem: Record<OrigemKey, number>;
+  porRecurso: Record<OrigemKey, Record<string, number>>;
+}
 
 /** Normaliza `limit` da query: default 50, faixa [1, 200]. */
 function parseLimit(req: Request): number {
@@ -119,7 +146,38 @@ async function handler(req: Request): Promise<Response> {
     const items = ((data ?? []) as ExecucaoRow[]).map((row) =>
       toExecucao(row, fonteTipo),
     );
-    return jsonResponse({ items }, 200);
+
+    // Contagens do universo COMPLETO para os badges: le so fonte_id e recurso
+    // de todas as execucoes (paginado por .range para passar do teto de 1000),
+    // agrega por origem/recurso. Payload minimo (duas colunas curtas).
+    const contagens: ColetaContagens = {
+      total: 0,
+      porOrigem: { effecti: 0, nomus: 0, gmail: 0, drive: 0 },
+      porRecurso: { effecti: {}, nomus: {}, gmail: {}, drive: {} },
+    };
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const { data: page, error: pageErr } = await db
+        .from("execucoes")
+        .select("fonte_id, recurso")
+        .range(from, from + PAGE_SIZE - 1);
+      if (pageErr) {
+        throw new HttpError(500, "execucoes_count_failed", "falha ao contar execucoes");
+      }
+      const batch = (page ?? []) as { fonte_id: string | null; recurso: string | null }[];
+      for (const row of batch) {
+        const origem = row.fonte_id ? fonteTipo.get(row.fonte_id) ?? null : null;
+        const key = normalizeOrigemKey(origem);
+        contagens.total += 1;
+        contagens.porOrigem[key] += 1;
+        if (row.recurso) {
+          const porRec = contagens.porRecurso[key];
+          porRec[row.recurso] = (porRec[row.recurso] ?? 0) + 1;
+        }
+      }
+      if (batch.length < PAGE_SIZE) break;
+    }
+
+    return jsonResponse({ items, contagens }, 200);
   } catch (err) {
     return await errorResponse(err, { fn: "ingestao-execucoes" });
   }
