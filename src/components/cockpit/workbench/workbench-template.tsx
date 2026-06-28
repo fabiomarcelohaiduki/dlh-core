@@ -55,9 +55,10 @@ export interface WorkbenchTemplateProps {
   workbenchKey: string;
   /** Titulo do cabecalho. Omitido quando ja existe uma aba com o mesmo rotulo. */
   title?: string;
-  description: string;
-  /** Conteudo do pill de contagem no cabecalho (ex.: "12 execuções"). */
-  countLabel: ReactNode;
+  /** Texto descritivo opcional. Views com aba no cabecalho (ex.: coleta) o omitem. */
+  description?: string;
+  /** Pill de contagem opcional no cabecalho (ex.: "12 produtos"). */
+  countLabel?: ReactNode;
   /**
    * Rotulo da acao principal ("Coletar agora"/...). Opcional: views sem o bloco
    * `acao-principal` nao renderizam o botao e podem omiti-lo.
@@ -186,6 +187,15 @@ export function WorkbenchTemplate({
   const actionVisible = blockSet.has(HEADER_BLOCK) && layout.isVisible(HEADER_BLOCK);
   const loteVisible = blockSet.has("lote") && layout.isVisible("lote");
 
+  // A banda "topo" (abas de fonte + tempo real) vive DENTRO do cabecalho, na
+  // mesma linha dos controles — espelha o prototipo (uma faixa unica). Views
+  // sem banda topo mantem o titulo/descricao a esquerda. O bloco `recurso` e a
+  // excecao: ocupa uma linha propria full-width da faixa (abaixo de tudo), por
+  // isso e renderizado como filho direto da banda, fora do grupo esquerdo.
+  const topoIds = (byBand.get("topo") ?? []).filter((id) => layout.isVisible(id));
+  const inlineTopoIds = topoIds.filter((id) => id !== "recurso");
+  const recursoVisible = topoIds.includes("recurso");
+
   return (
     <WorkbenchContext.Provider value={ctx}>
       <section
@@ -193,21 +203,32 @@ export function WorkbenchTemplate({
         data-scope={scopePath}
         className="rounded-b-md rounded-t-none border border-border bg-surface shadow-[var(--shadow-card),var(--hairline-top)]"
       >
-        {/* Banda de acao / cabecalho */}
+        {/* Banda de acao / cabecalho — faixa unica com as abas (banda topo) */}
         <div
           data-band="acao"
-          className="flex flex-wrap items-start justify-between gap-4 border-b border-border bg-[color-mix(in_oklch,var(--bg)_45%,var(--surface))] px-[18px] py-4"
+          className="flex flex-wrap items-center justify-between gap-4 border-b border-border bg-[color-mix(in_oklch,var(--bg)_45%,var(--surface))] px-[18px] py-3"
         >
-          <div className="min-w-0">
-            {title ? (
-              <h3 className="text-[15px] font-bold tracking-[-0.01em] text-fg">
-                {title}
-              </h3>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
+            {title || description ? (
+              <div className="min-w-0">
+                {title ? (
+                  <h3 className="text-[15px] font-bold tracking-[-0.01em] text-fg">
+                    {title}
+                  </h3>
+                ) : null}
+                {description ? (
+                  <p className="max-w-[60ch] text-[13px] text-muted">{description}</p>
+                ) : null}
+              </div>
             ) : null}
-            <p className="max-w-[60ch] text-[13px] text-muted">{description}</p>
+            {inlineTopoIds.map((id) => (
+              <div key={id} data-block={id} className="contents">
+                {slotFor(id)}
+              </div>
+            ))}
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
-            <Pill variant="neutral">{countLabel}</Pill>
+            {countLabel ? <Pill variant="neutral">{countLabel}</Pill> : null}
             <Button
               variant={layout.customizing ? "primary" : "default"}
               size="sm"
@@ -231,6 +252,12 @@ export function WorkbenchTemplate({
               </Button>
             ) : null}
           </div>
+          {/* Filtro de recurso: linha propria full-width abaixo das abas/controles. */}
+          {recursoVisible ? (
+            <div data-block="recurso" className="contents">
+              {slotFor("recurso")}
+            </div>
+          ) : null}
         </div>
 
         {/* Painel de personalizacao (controles de ordem/visibilidade) */}
@@ -245,16 +272,13 @@ export function WorkbenchTemplate({
 
         {/* Bandas reordenaveis do meio (topo/status/ferramentas) */}
         {orderedBands.map((band) => {
+          // A banda "topo" foi fundida no cabecalho (faixa unica); aqui so
+          // renderizamos as demais bandas (status/ferramentas).
+          if (band === "topo") return null;
           const ids = (byBand.get(band) ?? []).filter((id) => layout.isVisible(id));
           if (ids.length === 0) return null;
-          // A banda "topo" carrega as guias (que ja trazem altura propria via
-          // padding das abas) + o indicador de tempo real alinhado a direita,
-          // tudo numa linha so — espelha a .tabs do prototipo (sem padding
-          // vertical). As demais bandas mantem o respiro padrao.
           const bandClass =
-            band === "topo"
-              ? "flex flex-wrap items-center gap-2.5 border-b border-border px-[18px]"
-              : "flex flex-wrap items-center gap-2.5 border-b border-border px-[18px] py-3";
+            "flex flex-wrap items-center gap-2.5 border-b border-border px-[18px] py-3";
           return (
             <div key={band} data-band={band} className={bandClass}>
               {ids.map((id) => (

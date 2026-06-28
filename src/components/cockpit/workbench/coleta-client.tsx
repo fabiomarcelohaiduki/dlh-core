@@ -356,8 +356,6 @@ export function ColetaClient() {
           <WorkbenchTemplate
             scope={EXECUCOES_SCOPE}
             workbenchKey="coleta"
-            description="Execuções dos agendamentos de coleta por fonte."
-            countLabel={`${runs.length} execuções`}
             actionLabel="Coletar agora"
             onAction={() => handleReadOnly("Apenas leitura — a coleta não foi disparada.")}
             toastClassName="bottom-[5.5rem]"
@@ -452,8 +450,6 @@ export function ColetaClient() {
           <WorkbenchTemplate
             scope={DADOS_SCOPE}
             workbenchKey="coleta-dados"
-            description="Itens efetivamente capturados pelas coletas. Cada linha é um documento ou registro trazido de uma fonte de ingestão."
-            countLabel={`${dados.length} itens`}
             toastClassName="bottom-[5.5rem]"
             blocks={DADOS_BLOCKS}
             slots={{
