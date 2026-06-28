@@ -128,7 +128,7 @@ export function OAuthSourceCard({
   callbackErr,
   ajudaDesconectada,
   configurarLabel,
-  configAberto,
+  configAberto = false,
   onConfigurar,
   configPanelId,
   children,
@@ -146,10 +146,12 @@ export function OAuthSourceCard({
   callbackErr: string;
   /** Ajuda exibida enquanto nenhuma conta esta conectada. */
   ajudaDesconectada: string;
-  configurarLabel: string;
-  configAberto: boolean;
-  onConfigurar: () => void;
-  configPanelId: string;
+  /** Rotulo do botao de configuracao. Sem onConfigurar, o botao some. */
+  configurarLabel?: string;
+  configAberto?: boolean;
+  /** Abre/fecha o painel de configuracao. Sem callback, o botao nao aparece. */
+  onConfigurar?: () => void;
+  configPanelId?: string;
   /** Linhas dt/dd especificas da fonte, anexadas ao kv comum. */
   children: ReactNode;
 }) {
@@ -204,16 +206,18 @@ export function OAuthSourceCard({
           </span>
         </button>
 
-        <button
-          className={`btn${configAberto ? " btn-primary" : ""}`}
-          type="button"
-          onClick={onConfigurar}
-          aria-expanded={configAberto}
-          aria-controls={configPanelId}
-        >
-          <SlidersHorizontal aria-hidden="true" />
-          <span>{configurarLabel}</span>
-        </button>
+        {onConfigurar && (
+          <button
+            className={`btn${configAberto ? " btn-primary" : ""}`}
+            type="button"
+            onClick={onConfigurar}
+            aria-expanded={configAberto}
+            aria-controls={configPanelId}
+          >
+            <SlidersHorizontal aria-hidden="true" />
+            <span>{configurarLabel}</span>
+          </button>
+        )}
       </div>
 
       {!conta.conectado && (

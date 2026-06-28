@@ -3,11 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, TriangleAlert } from "lucide-react";
 import { useIngestaoConfig, useSalvarIngestaoConfig } from "@/hooks/use-fontes";
-import { AgendamentoFonteForm } from "@/components/cockpit/agendamento-fonte-form";
 import { NomusDisparoForm } from "@/components/cockpit/nomus-disparo-form";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
-import type { AgendamentoFonteState, RecursoConfig } from "@/lib/api/types";
+import type { RecursoConfig } from "@/lib/api/types";
 
 /**
  * Recursos da fonte Nomus (config_ingestao.recursos). `processos` e `pessoas`
@@ -132,8 +131,10 @@ function TipoToggle({
 /**
  * cmp-nomus-cfg-form — Configuracao da ingestao Nomus (US-04/US-05).
  *
- * Toggles de recursos e de tipos por recurso. A janela deslizante (janela_dias)
- * e exibida apenas como informacao (configurada no banco, 365 dias p/ processos):
+ * Toggles de recursos e de tipos por recurso + disparo manual da coleta por
+ * recurso. A cadencia da coleta automatica (agendamento) saiu daqui e vive na
+ * guia Agendamento do submodulo Coleta. A janela deslizante (janela_dias) e
+ * exibida apenas como informacao (configurada no banco, 365 dias p/ processos):
  * o regime diario re-varre os registros dessa janela e atualiza o que mudou; o
  * backfill completo do historico e disparado pela coleta manual (full).
  * Consome useIngestaoConfig (GET) para hidratar e useSalvarIngestaoConfig (PUT)
@@ -141,13 +142,13 @@ function TipoToggle({
  * Estados de loading (skeleton) e erro (inline) presentes na leitura e gravacao.
  */
 export function NomusCfgForm({
-  agendamento,
-  agendamentoPessoas,
   fonteId,
+  disparo = true,
 }: {
-  agendamento?: AgendamentoFonteState;
-  agendamentoPessoas?: AgendamentoFonteState;
   fonteId?: string | null;
+  /** Mostra o disparo manual embutido por recurso. Off na guia Escopo (filtros
+   *  e disparo foram separados: o disparo vive na guia Execuções da Coleta). */
+  disparo?: boolean;
 }) {
   const config = useIngestaoConfig("nomus");
   const salvar = useSalvarIngestaoConfig();
@@ -249,10 +250,10 @@ export function NomusCfgForm({
 
   return (
     <>
-      {/* Container NAO e <form>: este card aninha o AgendamentoFonteForm e o
-          NomusDisparoForm (que sao <form> proprios) dentro do recurso
-          "processos". <form> dentro de <form> e invalido em HTML e quebra a
-          hidratacao do React. O salvar vira um onClick no botao abaixo. */}
+      {/* Container NAO e <form>: este card aninha o NomusDisparoForm (que e um
+          <form> proprio) dentro dos recursos. <form> dentro de <form> e
+          invalido em HTML e quebra a hidratacao do React. O salvar vira um
+          onClick no botao abaixo. */}
       <div className="card form-card">
       <div style={{ display: "grid", gap: 16 }}>
         {RECURSOS.map((r) => {
@@ -260,14 +261,6 @@ export function NomusCfgForm({
           const ativo = s?.ativo ?? false;
           const tipos = TIPOS_POR_RECURSO[r.key] ?? [];
           const janelaDias = config.data?.recursos?.[r.key]?.janelaDias ?? null;
-          // O agendamento diario do Nomus roda sempre INCREMENTAL (barato).
-          // Pessoas tem dataModificacao, entao o incremental pega novos +
-          // edicoes. Processos NAO tem data de alteracao, entao o incremental
-          // pega so os novos; as edicoes vem da coleta full manual.
-          const notaAgendamento =
-            r.key === "pessoas"
-              ? "Coleta incremental: pega pessoas novas e edições desde a última coleta."
-              : "Coleta incremental: pega processos novos desde a última coleta. As edições são capturadas pela coleta full manual.";
           return (
             <div
               key={r.key}
@@ -303,20 +296,8 @@ export function NomusCfgForm({
                 </div>
               )}
 
-              {r.key === "processos" && ativo && agendamento && (
+              {disparo && (r.key === "processos" || r.key === "pessoas") && ativo && (
                 <div style={{ marginTop: 16 }}>
-                  <AgendamentoFonteForm initial={agendamento} nota={notaAgendamento} />
-                  <NomusDisparoForm
-                    recurso={r.key}
-                    janelaDias={janelaDias}
-                    fonteId={fonteId ?? null}
-                  />
-                </div>
-              )}
-
-              {r.key === "pessoas" && ativo && agendamentoPessoas && (
-                <div style={{ marginTop: 16 }}>
-                  <AgendamentoFonteForm initial={agendamentoPessoas} nota={notaAgendamento} />
                   <NomusDisparoForm
                     recurso={r.key}
                     janelaDias={janelaDias}

@@ -66,6 +66,10 @@ export interface WorkbenchTemplateProps {
   actionLabel?: string;
   /** Acao principal (read-only por padrao: apenas leitura). */
   onAction?: () => void;
+  /** Tooltip do botao de acao. Default "Apenas leitura" (views read-only). */
+  actionTitle?: string;
+  /** Desabilita o botao de acao (ex.: enquanto a coleta dispara). */
+  actionDisabled?: boolean;
   /** Lista de blocos aplicaveis a esta view (ids do BLOCK_LIBRARY). */
   blocks: readonly string[];
   slots: WorkbenchSlots;
@@ -104,6 +108,8 @@ export function WorkbenchTemplate({
   countLabel,
   actionLabel,
   onAction,
+  actionTitle,
+  actionDisabled,
   blocks,
   slots,
   toastClassName,
@@ -206,7 +212,7 @@ export function WorkbenchTemplate({
         {/* Banda de acao / cabecalho — faixa unica com as abas (banda topo) */}
         <div
           data-band="acao"
-          className="flex flex-wrap items-center justify-between gap-4 border-b border-border bg-[color-mix(in_oklch,var(--bg)_45%,var(--surface))] px-[18px] py-3"
+          className="flex flex-wrap items-center justify-between gap-4 border-b border-border bg-[color-mix(in_oklch,var(--bg)_45%,var(--surface))] px-[18px] py-1"
         >
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
             {title || description ? (
@@ -246,7 +252,8 @@ export function WorkbenchTemplate({
                 size="sm"
                 type="button"
                 onClick={onAction}
-                title="Apenas leitura"
+                disabled={actionDisabled}
+                title={actionTitle ?? "Apenas leitura"}
               >
                 {actionLabel}
               </Button>

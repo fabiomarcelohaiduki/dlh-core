@@ -1,0 +1,120 @@
+"use client";
+
+import type { ReactNode } from "react";
+import { Factory, Gavel, HardDrive, Mail } from "lucide-react";
+import { AgendamentoFonteForm } from "@/components/cockpit/agendamento-fonte-form";
+import { CfgAccordion } from "@/components/cockpit/config/cfg-accordion";
+import { StatusPill } from "@/components/cockpit/status-pill";
+import type { AgendamentosColetaData } from "@/lib/fontes-credenciais-data";
+import type { AgendamentoFonteState } from "@/lib/api/types";
+
+/**
+ * cmp-agendamento-coleta — guia Agendamento do submodulo Coleta.
+ *
+ * Reune SO a cadencia da coleta automatica de cada fonte (Effecti, Nomus
+ * Processos, Nomus Pessoas, Gmail, Drive). Saiu das Integracoes, onde ficavam
+ * misturados com credenciais, disparo manual e filtros — estes seguem la. Cada
+ * card edita um relogio independente (AgendamentoFonteForm grava o pg_cron da
+ * fonte/recurso via PUT /agendamento-fonte-config).
+ */
+
+interface FonteAgendamento {
+  id: string;
+  icon: ReactNode;
+  nome: string;
+  nota: string;
+  agendamento: AgendamentoFonteState;
+}
+
+const ICON_STYLE = { width: 17, height: 17 } as const;
+
+export function AgendamentoColeta({
+  effecti,
+  effectiJanelaDias,
+  nomusProcessos,
+  nomusPessoas,
+  gmail,
+  drive,
+}: AgendamentosColetaData) {
+  const fontes: FonteAgendamento[] = [
+    {
+      id: "effecti",
+      icon: <Gavel aria-hidden="true" style={ICON_STYLE} />,
+      nome: "Effecti",
+      nota: `A cada execução re-varre os últimos ${effectiJanelaDias} dias e ingere avisos novos; atualiza os que mudaram.`,
+      agendamento: effecti,
+    },
+    {
+      id: "nomus-processos",
+      icon: <Factory aria-hidden="true" style={ICON_STYLE} />,
+      nome: "Nomus · Processos",
+      nota: "Coleta incremental: pega processos novos desde a última coleta. As edições são capturadas pela coleta full manual.",
+      agendamento: nomusProcessos,
+    },
+    {
+      id: "nomus-pessoas",
+      icon: <Factory aria-hidden="true" style={ICON_STYLE} />,
+      nome: "Nomus · Pessoas",
+      nota: "Coleta incremental: pega pessoas novas e edições desde a última coleta.",
+      agendamento: nomusPessoas,
+    },
+    {
+      id: "gmail",
+      icon: <Mail aria-hidden="true" style={ICON_STYLE} />,
+      nome: "Gmail",
+      nota: "A cada execução busca os e-mails novos desde a última coleta e enfileira corpo e anexos.",
+      agendamento: gmail,
+    },
+    {
+      id: "drive",
+      icon: <HardDrive aria-hidden="true" style={ICON_STYLE} />,
+      nome: "Google Drive",
+      nota: "A cada execução re-lista as pastas ativas e enfileira arquivos novos e editados para extração.",
+      agendamento: drive,
+    },
+  ];
+
+  return (
+    <CfgAccordion>
+      {fontes.map((f) => (
+        <section
+          key={f.id}
+          className="cfg-panel-card"
+          aria-labelledby={`agendamento-${f.id}-h`}
+        >
+          <div className="panel-header">
+            <div
+              className="panel-title"
+              style={{ display: "flex", alignItems: "center", gap: 12 }}
+            >
+              <span
+                className="avatar"
+                style={{
+                  borderRadius: 9,
+                  width: 34,
+                  height: 34,
+                  color: "var(--accent)",
+                  background: "var(--accent-soft)",
+                  borderColor: "var(--accent-line)",
+                }}
+              >
+                {f.icon}
+              </span>
+              <div>
+                <h3 id={`agendamento-${f.id}-h`}>{f.nome}</h3>
+                <p>{f.nota}</p>
+              </div>
+            </div>
+            <StatusPill
+              state={f.agendamento.ativo ? "ok" : "idle"}
+              label={f.agendamento.ativo ? "Ativa" : "Pausada"}
+            />
+          </div>
+          <div className="cfg-panel-body">
+            <AgendamentoFonteForm initial={f.agendamento} />
+          </div>
+        </section>
+      ))}
+    </CfgAccordion>
+  );
+}

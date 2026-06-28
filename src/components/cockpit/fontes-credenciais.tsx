@@ -3,21 +3,12 @@
 import { useRef, useState, type ReactNode } from "react";
 import { Factory, Gavel, HardDrive, Mail, X } from "lucide-react";
 import { CredForm, type CredFormSource } from "@/components/cockpit/cred-form";
-import { CfgForm } from "@/components/cockpit/cfg-form";
-import { EffectiDisparoForm } from "@/components/cockpit/effecti-disparo-form";
 import { EffectiPainelCredForm } from "@/components/cockpit/effecti-painel-cred-form";
-import { AgendamentoFonteForm } from "@/components/cockpit/agendamento-fonte-form";
-import { NomusCfgForm } from "@/components/cockpit/nomus-cfg-form";
-import { DrivePastasForm } from "@/components/cockpit/drive-pastas-form";
-import { DriveDisparoForm } from "@/components/cockpit/drive-disparo-form";
-import { GmailConfigForm } from "@/components/cockpit/gmail-config-form";
-import { GmailDisparoForm } from "@/components/cockpit/gmail-disparo-form";
 import { OAuthSourceCard } from "@/components/cockpit/source-card";
 import { useConectarDrive } from "@/hooks/use-drive-oauth";
 import { useConectarGmail } from "@/hooks/use-gmail-oauth";
 import type {
   AgendamentoFonteState,
-  ConfigIngestaoState,
   DriveContaState,
   DrivePastaState,
   FonteCredState,
@@ -78,13 +69,14 @@ const NOMUS_SOURCE: CredFormSource = {
   tipoLabel: "API REST",
 };
 
-/** Qual painel de fonte esta aberto (accordion: um por vez ou nenhum). */
-type PainelFonte = "effecti" | "nomus" | "drive" | "gmail" | null;
+/**
+ * So o Effecti tem painel proprio aqui: a credencial do painel web (login do
+ * site, separada do token de API). As demais fontes nao abrem painel — seus
+ * filtros migraram para a guia Escopo da Coleta.
+ */
+type PainelFonte = "effecti" | null;
 
-const EFFECTI_PANEL = "painel-config-fonte";
-const NOMUS_PANEL = "painel-config-fonte-nomus";
-const DRIVE_PANEL = "painel-config-fonte-drive";
-const GMAIL_PANEL = "painel-config-fonte-gmail";
+const EFFECTI_PANEL = "painel-credencial-effecti";
 
 /**
  * Card da fonte Drive: conta Google conectada pelo cockpit (Edge drive-oauth) e
@@ -96,16 +88,10 @@ function DriveCard({
   pastas,
   conta,
   agendamento,
-  configAberto,
-  onConfigurar,
-  configPanelId,
 }: {
   pastas: DrivePastaState[];
   conta: DriveContaState;
   agendamento: AgendamentoFonteState;
-  configAberto: boolean;
-  onConfigurar: () => void;
-  configPanelId: string;
 }) {
   const conectar = useConectarDrive();
   const ativas = pastas.filter((p) => p.ativo).length;
@@ -129,10 +115,6 @@ function DriveCard({
       callbackOk="Conta do Google conectada · pronto para varrer as pastas."
       callbackErr="Não foi possível conectar a conta do Google. Tente novamente."
       ajudaDesconectada="Conecte uma conta Google para varrer as pastas. Trocar de conta limpa as pastas cadastradas."
-      configurarLabel="Configurar"
-      configAberto={configAberto}
-      onConfigurar={onConfigurar}
-      configPanelId={configPanelId}
     >
       <dt>Pastas cadastradas</dt>
       <dd className="tnum">{pastas.length}</dd>
@@ -152,17 +134,11 @@ function GmailCard({
   config,
   labels,
   agendamento,
-  configAberto,
-  onConfigurar,
-  configPanelId,
 }: {
   conta: GmailContaState;
   config: GmailConfigState;
   labels: GmailLabelState[];
   agendamento: AgendamentoFonteState;
-  configAberto: boolean;
-  onConfigurar: () => void;
-  configPanelId: string;
 }) {
   const conectar = useConectarGmail();
   const excluidas = labels.filter((l) => l.ativo).length;
@@ -184,10 +160,6 @@ function GmailCard({
       callbackOk="Conta do Gmail conectada · pronto para coletar os e-mails."
       callbackErr="Não foi possível conectar a conta do Gmail. Tente novamente."
       ajudaDesconectada="Conecte uma conta Google para coletar os e-mails. Trocar de conta limpa as labels cadastradas."
-      configurarLabel="Configurar"
-      configAberto={configAberto}
-      onConfigurar={onConfigurar}
-      configPanelId={configPanelId}
     >
       <dt>Coletar a partir de</dt>
       <dd className="tnum">{config.dataInicial ?? "—"}</dd>
@@ -206,10 +178,6 @@ function GmailCard({
  */
 export function FontesCredenciais({
   effecti,
-  effectiConfig,
-  effectiAgendamento,
-  nomusAgendamento,
-  nomusPessoasAgendamento,
   gmailAgendamento,
   driveAgendamento,
   nomus,
@@ -218,13 +186,8 @@ export function FontesCredenciais({
   gmailConta,
   gmailConfig,
   gmailLabels,
-  gmailFonteId,
 }: {
   effecti: FonteEffectiState;
-  effectiConfig: ConfigIngestaoState;
-  effectiAgendamento: AgendamentoFonteState;
-  nomusAgendamento: AgendamentoFonteState;
-  nomusPessoasAgendamento: AgendamentoFonteState;
   gmailAgendamento: AgendamentoFonteState;
   driveAgendamento: AgendamentoFonteState;
   nomus: FonteCredState;
@@ -233,14 +196,9 @@ export function FontesCredenciais({
   gmailConta: GmailContaState;
   gmailConfig: GmailConfigState;
   gmailLabels: GmailLabelState[];
-  gmailFonteId: string | null;
 }) {
-  // Accordion: um unico painel aberto por vez. Abrir um card fecha o anterior,
-  // evitando varios paineis empilhados abaixo da grade.
+  // Accordion: o painel de credencial do Effecti abre/fecha abaixo da grade.
   const [aberto, setAberto] = useState<PainelFonte>(null);
-  // Estado "alteracoes nao salvas" do CfgForm, subido para o bloco de coleta
-  // manual do Effecti avisar antes de disparar com config pendente.
-  const [effectiCfgDirty, setEffectiCfgDirty] = useState(false);
   const gridRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
@@ -263,36 +221,24 @@ export function FontesCredenciais({
 
   return (
     <>
-      <div ref={gridRef} className="grid-dlh g2" style={{ gap: 24, marginTop: 24 }}>
+      <div ref={gridRef} className="grid-dlh g2" style={{ gap: 24 }}>
         <CredForm
           fonte={effecti}
           configAberto={aberto === "effecti"}
           onConfigurar={() => toggle("effecti")}
           configPanelId={EFFECTI_PANEL}
         />
-        <CredForm
-          fonte={nomus}
-          source={NOMUS_SOURCE}
-          configAberto={aberto === "nomus"}
-          onConfigurar={() => toggle("nomus")}
-          configPanelId={NOMUS_PANEL}
-        />
+        <CredForm fonte={nomus} source={NOMUS_SOURCE} />
         <DriveCard
           pastas={drivePastas}
           conta={driveConta}
           agendamento={driveAgendamento}
-          configAberto={aberto === "drive"}
-          onConfigurar={() => toggle("drive")}
-          configPanelId={DRIVE_PANEL}
         />
         <GmailCard
           conta={gmailConta}
           config={gmailConfig}
           labels={gmailLabels}
           agendamento={gmailAgendamento}
-          configAberto={aberto === "gmail"}
-          onConfigurar={() => toggle("gmail")}
-          configPanelId={GMAIL_PANEL}
         />
       </div>
 
@@ -301,71 +247,10 @@ export function FontesCredenciais({
           <ConfigPanelHeader
             avatar={<Gavel aria-hidden="true" style={{ width: 17, height: 17 }} />}
             nome="Effecti"
+            subtitle="Credencial do painel web (login do site), separada do token de API."
             onClose={() => toggle("effecti")}
           />
-          <AgendamentoFonteForm
-            initial={effectiAgendamento}
-            nota={`A cada execução re-varre os últimos ${effectiConfig.janelaDias} dias e ingere avisos novos; atualiza os que mudaram.`}
-          />
-          <EffectiDisparoForm
-            fonteId={effecti.id}
-            configDirty={effectiCfgDirty}
-            janelaDias={effectiConfig.janelaDias}
-          />
-          <CfgForm
-            initial={effectiConfig}
-            fonteId={effecti.id}
-            onDirtyChange={setEffectiCfgDirty}
-          />
           <EffectiPainelCredForm configurado={effecti.painelConfigurado} />
-        </div>
-      )}
-
-      {aberto === "nomus" && (
-        <div id={NOMUS_PANEL} className="form-card cfg-panel" ref={panelRef}>
-          <ConfigPanelHeader
-            avatar={<Factory aria-hidden="true" style={{ width: 17, height: 17 }} />}
-            nome="Nomus"
-            onClose={() => toggle("nomus")}
-          />
-          <NomusCfgForm
-            agendamento={nomusAgendamento}
-            agendamentoPessoas={nomusPessoasAgendamento}
-            fonteId={nomus.id}
-          />
-        </div>
-      )}
-
-      {aberto === "drive" && (
-        <div id={DRIVE_PANEL} className="form-card cfg-panel" ref={panelRef}>
-          <ConfigPanelHeader
-            avatar={<HardDrive aria-hidden="true" style={{ width: 17, height: 17 }} />}
-            nome="Google Drive"
-            subtitle="Pastas administradas para extração de documentos."
-            onClose={() => toggle("drive")}
-          />
-          <AgendamentoFonteForm
-            initial={driveAgendamento}
-            nota="A cada execução re-lista as pastas ativas e enfileira arquivos novos e editados para extração."
-          />
-          <DriveDisparoForm />
-          <DrivePastasForm initial={drivePastas} />
-        </div>
-      )}
-
-      {aberto === "gmail" && (
-        <div id={GMAIL_PANEL} className="form-card cfg-panel" ref={panelRef}>
-          <ConfigPanelHeader
-            avatar={<Mail aria-hidden="true" style={{ width: 17, height: 17 }} />}
-            nome="Gmail"
-            onClose={() => toggle("gmail")}
-          />
-          <AgendamentoFonteForm
-            initial={gmailAgendamento}
-            nota="A cada execução busca os e-mails novos desde a última coleta e enfileira corpo e anexos."
-          />
-          <GmailDisparoForm fonteId={gmailFonteId} />
-          <GmailConfigForm config={gmailConfig} labels={gmailLabels} />
         </div>
       )}
     </>

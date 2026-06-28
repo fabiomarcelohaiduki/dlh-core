@@ -16,8 +16,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Subtabs } from "@/components/ui/subtabs";
 import { Tabs } from "@/components/ui/tabs";
-import { useExecucoes } from "@/hooks/use-monitoring";
+import { useExecucoes, useColetaDemanda } from "@/hooks/use-monitoring";
 import { useExecucoesRealtime } from "@/hooks/use-execucoes-realtime";
+import { useColetar, useIngestaoConfig } from "@/hooks/use-fontes";
+import { useDispararGmail, useDispararDrive, useDispararNomus } from "@/hooks/use-admin";
+import { ApiError } from "@/lib/api/client";
 import {
   execucaoDescriptor,
   normalizeOrigem,
@@ -26,7 +29,13 @@ import {
   type PillState,
 } from "@/lib/status";
 import type { Execucao } from "@/lib/api/types";
+import type {
+  AgendamentosColetaData,
+  EscopoColetaData,
+} from "@/lib/fontes-credenciais-data";
 import { WorkbenchTemplate } from "./workbench-template";
+import { AgendamentoColeta } from "./agendamento-coleta";
+import { EscopoColeta } from "./escopo-coleta";
 import { RunsTable, RUNS_COLUMNS } from "./runs-table";
 import { DadosTable, DADOS_COLUMNS, type DadoColetado } from "./dados-table";
 import { RecursoFilter, type RecursoOption } from "./recurso-filter";
@@ -44,7 +53,7 @@ import type { WorkbenchScopeRef } from "./use-workbench-layout";
 const RUNNING_POLL_MS = 3000;
 const FALLBACK_POLL_MS = 5000;
 
-type Subtab = "execucoes" | "dados";
+type Subtab = "execucoes" | "dados" | "escopo" | "agendamento";
 type FonteTab = "todas" | OrigemKey;
 
 const FONTE_TABS: { value: FonteTab; label: string }[] = [
@@ -143,8 +152,23 @@ type ModalState =
 
 type Toast = { message: string } | null;
 
-export function ColetaClient() {
+export function ColetaClient({
+  agendamentos,
+  escopo,
+}: {
+  agendamentos: AgendamentosColetaData;
+  escopo: EscopoColetaData;
+}) {
   const [subtab, setSubtab] = useState<Subtab>("execucoes");
+
+  // Quantas fontes tem a coleta automatica ligada (badge da guia Agendamento).
+  const agendamentosAtivos = [
+    agendamentos.effecti,
+    agendamentos.nomusProcessos,
+    agendamentos.nomusPessoas,
+    agendamentos.gmail,
+    agendamentos.drive,
+  ].filter((a) => a.ativo).length;
 
   // Filtros da guia Execuções (recurso = sub-filtro single-select da fonte).
   const [fonte, setFonte] = useState<FonteTab>("todas");
@@ -187,6 +211,26 @@ export function ColetaClient() {
   const [modal, setModal] = useState<ModalState>(null);
   const [toast, setToast] = useState<Toast>(null);
 
+  // Disparo manual da coleta por fonte: cada fonte tem seu proprio mecanismo.
+  // Effecti e Nomus/processos vao pela Edge nativa; Gmail, Drive e Nomus/pessoas
+  // vao pelo runner do GitHub Actions (Nomus tem TLS legado fora da Edge, entao
+  // pessoas so coleta pelo runner via nomus-disparar).
+  const coletaEffecti = useColetaDemanda();
+  const coletaNomus = useColetar();
+  const coletaNomusRunner = useDispararNomus();
+  const coletaGmail = useDispararGmail();
+  const coletaDrive = useDispararDrive();
+  const coletando =
+    coletaEffecti.isPending ||
+    coletaNomus.isPending ||
+    coletaNomusRunner.isPending ||
+    coletaGmail.isPending ||
+    coletaDrive.isPending;
+
+  // Recursos ativos do Nomus (so quando a fonte selecionada e Nomus): alimentam
+  // o seletor de recurso com pessoas/processos mesmo sem execucao previa.
+  const nomusConfig = useIngestaoConfig("nomus", { enabled: fonte === "nomus" });
+
   const { connected } = useExecucoesRealtime();
   const execucoes = useExecucoes({
     limit: 50,
@@ -213,12 +257,19 @@ export function ColetaClient() {
       if (normalizeOrigem(r.origem) !== fonte || !r.recurso) continue;
       counts.set(r.recurso, (counts.get(r.recurso) ?? 0) + 1);
     }
+    // Nomus: garante os recursos ATIVOS na config no seletor, mesmo sem execucao
+    // previa (senao pessoas nunca apareceria para o primeiro disparo manual).
+    if (fonte === "nomus" && nomusConfig.data) {
+      for (const [key, cfg] of Object.entries(nomusConfig.data.recursos)) {
+        if (cfg.ativo && !counts.has(key)) counts.set(key, 0);
+      }
+    }
     return [...counts.entries()].map(([value, count]) => ({
       value,
       label: value,
       count,
     }));
-  }, [allRuns, fonte]);
+  }, [allRuns, fonte, nomusConfig.data]);
 
   const recursoTotal = useMemo(
     () =>
@@ -339,6 +390,41 @@ export function ColetaClient() {
     setToast({ message });
   }
 
+  // Botao "Coletar agora": dispara a coleta da fonte selecionada. Com "Todas"
+  // ativa nao ha fonte alvo, entao orienta escolher uma (cada fonte tem seu
+  // proprio disparo). O 409 do backend = single-flight (ja ha coleta rodando).
+  async function handleColetarAgora() {
+    if (fonte === "todas") {
+      setToast({
+        message: "Selecione uma fonte (Effecti, Nomus, Gmail ou Drive) para coletar.",
+      });
+      return;
+    }
+    if (coletando) return;
+    try {
+      if (fonte === "effecti") await coletaEffecti.mutateAsync(undefined);
+      else if (fonte === "nomus") {
+        // processos roda pela Edge nativa; os demais recursos (ex.: pessoas) so
+        // coletam pelo runner do GitHub Actions (nomus-disparar), pois o Nomus
+        // tem TLS legado fora do alcance da Edge.
+        if (recurso !== "todos" && recurso !== "processos")
+          await coletaNomusRunner.mutateAsync({ modo: "incremental", recurso });
+        else await coletaNomus.mutateAsync({ fonte: "nomus", recurso: "processos" });
+      } else if (fonte === "gmail") await coletaGmail.mutateAsync();
+      else await coletaDrive.mutateAsync();
+      setToast({
+        message: `Coleta ${origemLabel(fonte)} disparada · acompanhe nas execuções.`,
+      });
+    } catch (err) {
+      setToast({
+        message:
+          err instanceof ApiError && err.status === 409
+            ? "Já existe uma coleta em andamento; aguarde a conclusão."
+            : "Não foi possível disparar a coleta. Tente novamente.",
+      });
+    }
+  }
+
   return (
     <>
       <Subtabs<Subtab>
@@ -348,16 +434,30 @@ export function ColetaClient() {
         items={[
           { value: "execucoes", label: "Execuções", count: allRuns.length },
           { value: "dados", label: "Dados", count: allDados.length },
+          { value: "escopo", label: "Escopo" },
+          { value: "agendamento", label: "Agendamento", count: agendamentosAtivos },
         ]}
       />
 
-      {subtab === "execucoes" ? (
+      {subtab === "execucoes" && (
         <div data-subpane="coleta-execucoes" data-scope="ingestao/coleta/execucoes">
           <WorkbenchTemplate
             scope={EXECUCOES_SCOPE}
             workbenchKey="coleta"
-            actionLabel="Coletar agora"
-            onAction={() => handleReadOnly("Apenas leitura — a coleta não foi disparada.")}
+            actionLabel={
+              coletando
+                ? "Disparando…"
+                : fonte === "todas"
+                  ? "Coletar agora"
+                  : `Coletar ${origemLabel(fonte)}`
+            }
+            onAction={handleColetarAgora}
+            actionDisabled={coletando}
+            actionTitle={
+              fonte === "todas"
+                ? "Selecione uma fonte para coletar"
+                : `Disparar coleta ${origemLabel(fonte)}`
+            }
             toastClassName="bottom-[5.5rem]"
             blocks={EXECUCOES_BLOCKS}
             slots={{
@@ -445,7 +545,9 @@ export function ColetaClient() {
             <TablePager {...runsPage} />
           </WorkbenchTemplate>
         </div>
-      ) : (
+      )}
+
+      {subtab === "dados" && (
         <div data-subpane="coleta-dados" data-scope="ingestao/coleta/dados">
           <WorkbenchTemplate
             scope={DADOS_SCOPE}
@@ -532,6 +634,18 @@ export function ColetaClient() {
             />
             <TablePager {...dadosPage} />
           </WorkbenchTemplate>
+        </div>
+      )}
+
+      {subtab === "escopo" && (
+        <div data-subpane="coleta-escopo" data-scope="ingestao/coleta/escopo">
+          <EscopoColeta {...escopo} />
+        </div>
+      )}
+
+      {subtab === "agendamento" && (
+        <div data-subpane="coleta-agendamento" data-scope="ingestao/coleta/agendamento">
+          <AgendamentoColeta {...agendamentos} />
         </div>
       )}
 

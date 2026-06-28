@@ -51,7 +51,7 @@ export function RecursoFilter({
     <div
       role="radiogroup"
       aria-label={ariaLabel}
-      className="order-last my-2.5 flex basis-full flex-wrap items-center gap-[7px] rounded-[10px] border border-[color-mix(in_oklch,var(--border)_80%,transparent)] bg-[color-mix(in_oklch,var(--surface)_60%,transparent)] px-3 py-2.5"
+      className="order-last -mt-2 mb-1.5 flex basis-full flex-wrap items-center gap-[7px] rounded-[10px] border border-[color-mix(in_oklch,var(--border)_80%,transparent)] bg-[color-mix(in_oklch,var(--surface)_60%,transparent)] px-3 py-1.5"
     >
       <span className="mr-1 text-[11px] font-semibold uppercase tracking-[0.04em] text-soft">
         Recurso
