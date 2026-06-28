@@ -8,13 +8,10 @@ import {
 } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import {
-  coletar,
   fetchIngestaoConfig,
   salvarIngestaoConfig,
-  type ColetarInput,
   type SalvarIngestaoConfigInput,
 } from "@/lib/api/fontes";
-import { monitoringKeys } from "@/hooks/use-monitoring";
 import type { EstadoConexao, Fonte, FonteTipo } from "@/lib/api/types";
 
 /** Chaves de cache das fontes (compartilhadas com use-admin/use-monitoring). */
@@ -90,23 +87,6 @@ export function useSalvarIngestaoConfig() {
     mutationFn: (input: SalvarIngestaoConfigInput) => salvarIngestaoConfig(input),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: fonteKeys.config(variables.fonte) });
-    },
-  });
-}
-
-/**
- * useColetar — dispara a coleta manual da fonte/recurso (POST ingestao-coletar).
- * Em sucesso (202) invalida execucoes, healthcheck e fontes (ultima_coleta_em).
- * O single-flight (409 `ja_em_andamento`) chega via ApiError para a UI tratar.
- */
-export function useColetar() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: ColetarInput) => coletar(input),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: monitoringKeys.execucoesRoot });
-      queryClient.invalidateQueries({ queryKey: monitoringKeys.healthcheck });
-      queryClient.invalidateQueries({ queryKey: fonteKeys.all });
     },
   });
 }

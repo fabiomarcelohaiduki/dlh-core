@@ -6,7 +6,6 @@ import {
   dispararDrive,
   dispararExtracao,
   dispararGmail,
-  dispararNomus,
   dispararOcr,
   salvarAgendamentoExtracao,
   salvarAgendamentoOcr,
@@ -22,7 +21,7 @@ import {
 } from "@/lib/api/admin";
 import { monitoringKeys } from "@/hooks/use-monitoring";
 import { fonteKeys } from "@/hooks/use-fontes";
-import type { FonteTipo, NomusModo } from "@/lib/api/types";
+import type { FonteTipo } from "@/lib/api/types";
 
 /**
  * useSalvarCredencial — grava/atualiza a credencial da fonte (PUT credencial).
@@ -117,31 +116,11 @@ export function useSalvarAgendamentoOcr() {
 }
 
 /**
- * useDispararNomus — dispara MANUALMENTE a coleta do Nomus (POST nomus-disparar)
- * no modo escolhido (incremental|full). Aciona o workflow do GitHub Actions; a
- * coleta roda assincrona no runner. Invalida o monitoramento (a execucao deve
- * aparecer no Dashboard quando o runner registrar o inicio).
- */
-export function useDispararNomus() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ modo, recurso }: { modo: NomusModo; recurso?: string }) =>
-      dispararNomus(modo, recurso),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: monitoringKeys.healthcheck });
-      // Revalida as execucoes para o botao travar assim que o runner registra
-      // a coleta em andamento (o anti-duplo-disparo depende dessa lista).
-      queryClient.invalidateQueries({ queryKey: monitoringKeys.execucoesRoot });
-    },
-  });
-}
-
-/**
  * useDispararGmail — dispara MANUALMENTE a coleta do Gmail (POST gmail-disparar).
- * Aciona o workflow do GitHub Actions (extrair-anexos.yml com fonte=gmail); a
- * coleta roda assincrona no runner com a janela definida no gmail-config.
- * Invalida o monitoramento (a execucao aparece no Dashboard quando o runner
- * registrar o inicio).
+ * Pos-migracao 28/06: a Edge gmail-disparar chama a RPC disparar_workflow_gmail,
+ * repointada do GitHub para a Edge nativa gmail-coletar; a coleta roda assincrona
+ * em background com a janela definida no gmail-config. Invalida o monitoramento
+ * (a execucao aparece quando a Edge registra o inicio).
  */
 export function useDispararGmail() {
   const queryClient = useQueryClient();
@@ -192,10 +171,12 @@ export function useDispararOcr() {
 
 /**
  * useDispararDrive — dispara MANUALMENTE a coleta/descoberta do Drive (POST
- * drive-disparar). Aciona o workflow coletar-drive.yml: descobre as pastas Drive
- * ativas e enfileira os vinculos na fila de documentos (sem Tika), assincrono no
- * runner. Sem invalidacao de execucoes (a descoberta do Drive nao grava linha em
- * execucoes); o resumo de extracao reflete os novos vinculos pendentes.
+ * drive-disparar). Pos-migracao 28/06: a Edge drive-disparar chama a RPC
+ * disparar_workflow_drive, repointada do GitHub para a Edge nativa drive-coletar,
+ * que descobre as pastas Drive ativas e enfileira os vinculos na fila de
+ * documentos (sem Tika), em background. Sem invalidacao de execucoes (a
+ * descoberta do Drive nao grava linha em execucoes); o resumo de extracao
+ * reflete os novos vinculos pendentes.
  */
 export function useDispararDrive() {
   const queryClient = useQueryClient();

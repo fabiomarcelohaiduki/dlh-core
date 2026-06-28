@@ -94,6 +94,18 @@ export function normalizeOrigem(origem: string | null | undefined): OrigemKey {
   return "effecti";
 }
 
+/**
+ * Onde a coleta da fonte EXECUTA na arquitetura atual (migracao 28/06, saida do
+ * GitHub Actions): Effecti/Gmail/Drive rodam no Supabase Edge (pg_cron -> Edge
+ * nativa); Nomus roda no PC local (Agendador do Windows -> coletar-nomus.mjs ->
+ * push p/ a Edge nomus-ingerir), pois o Nomus so fala TLS CBC legado que o Deno
+ * da Edge nao conecta. Derivado da ORIGEM — `execucoes` nao guarda o host por
+ * linha; reflete o local canonico de cada fonte, nao um campo gravado.
+ */
+export function execucaoExecutor(origem: string | null | undefined): string {
+  return normalizeOrigem(origem) === "nomus" ? "PC local" : "Supabase Edge";
+}
+
 /** Rotulo curto da origem para badges/filtros. */
 export function origemLabel(key: OrigemKey): string {
   switch (key) {

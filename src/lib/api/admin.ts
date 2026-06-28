@@ -4,11 +4,9 @@ import type {
   DispararDriveResponse,
   DispararExtracaoResponse,
   DispararGmailResponse,
-  DispararNomusResponse,
   DispararOcrResponse,
   FonteTipo,
   Frequencia,
-  NomusModo,
   SalvarAgendamentoResponse,
   SalvarConfigResponse,
   SalvarCredencialResponse,
@@ -152,22 +150,6 @@ export function salvarAgendamentoOcr(
   return apiFetch<SalvarAgendamentoResponse>("ocr-agendamento", {
     method: "PUT",
     body: JSON.stringify(input),
-  });
-}
-
-/**
- * POST /nomus-disparar — aciona MANUALMENTE a coleta do Nomus pelo card da
- * fonte. O Nomus coleta no runner do GitHub Actions (TLS legado); este disparo
- * roda o workflow_dispatch no modo escolhido (incremental|full). Responde 202
- * (aceito); a coleta progride assincrona (acompanhar pelo painel).
- */
-export function dispararNomus(
-  modo: NomusModo,
-  recurso?: string,
-): Promise<DispararNomusResponse> {
-  return apiFetch<DispararNomusResponse>("nomus-disparar", {
-    method: "POST",
-    body: JSON.stringify(recurso ? { modo, recurso } : { modo }),
   });
 }
 

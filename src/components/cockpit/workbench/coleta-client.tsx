@@ -18,8 +18,8 @@ import { Subtabs } from "@/components/ui/subtabs";
 import { Tabs } from "@/components/ui/tabs";
 import { useExecucoes, useColetaDemanda } from "@/hooks/use-monitoring";
 import { useExecucoesRealtime } from "@/hooks/use-execucoes-realtime";
-import { useColetar, useIngestaoConfig } from "@/hooks/use-fontes";
-import { useDispararGmail, useDispararDrive, useDispararNomus } from "@/hooks/use-admin";
+import { useIngestaoConfig } from "@/hooks/use-fontes";
+import { useDispararGmail, useDispararDrive } from "@/hooks/use-admin";
 import { ApiError } from "@/lib/api/client";
 import {
   execucaoDescriptor,
@@ -211,21 +211,16 @@ export function ColetaClient({
   const [modal, setModal] = useState<ModalState>(null);
   const [toast, setToast] = useState<Toast>(null);
 
-  // Disparo manual da coleta por fonte: cada fonte tem seu proprio mecanismo.
-  // Effecti e Nomus/processos vao pela Edge nativa; Gmail, Drive e Nomus/pessoas
-  // vao pelo runner do GitHub Actions (Nomus tem TLS legado fora da Edge, entao
-  // pessoas so coleta pelo runner via nomus-disparar).
+  // Disparo manual da coleta por fonte. Sem GitHub Actions (desativado 28/06):
+  // a coleta roda so em Supabase Edge (Effecti, Gmail, Drive) e no PC local
+  // (Nomus). Effecti/Gmail/Drive disparam a Edge nativa do Supabase. Nomus NAO
+  // tem disparo pelo cockpit: roda so no PC local (Agendador do Windows), pois
+  // o TLS CBC legado nao conecta da Edge e nao ha canal cockpit -> PC.
   const coletaEffecti = useColetaDemanda();
-  const coletaNomus = useColetar();
-  const coletaNomusRunner = useDispararNomus();
   const coletaGmail = useDispararGmail();
   const coletaDrive = useDispararDrive();
   const coletando =
-    coletaEffecti.isPending ||
-    coletaNomus.isPending ||
-    coletaNomusRunner.isPending ||
-    coletaGmail.isPending ||
-    coletaDrive.isPending;
+    coletaEffecti.isPending || coletaGmail.isPending || coletaDrive.isPending;
 
   // Recursos ativos do Nomus (so quando a fonte selecionada e Nomus): alimentam
   // o seletor de recurso com pessoas/processos mesmo sem execucao previa.
@@ -400,17 +395,19 @@ export function ColetaClient({
       });
       return;
     }
+    if (fonte === "nomus") {
+      // Nomus roda so no PC local (Agendador do Windows): sem GitHub Actions e
+      // sem canal cockpit -> PC, nao ha disparo manual daqui. Avisa e nao tenta.
+      setToast({
+        message:
+          "Nomus é coletado no PC local (Agendador do Windows). Não há disparo manual pelo cockpit.",
+      });
+      return;
+    }
     if (coletando) return;
     try {
       if (fonte === "effecti") await coletaEffecti.mutateAsync(undefined);
-      else if (fonte === "nomus") {
-        // processos roda pela Edge nativa; os demais recursos (ex.: pessoas) so
-        // coletam pelo runner do GitHub Actions (nomus-disparar), pois o Nomus
-        // tem TLS legado fora do alcance da Edge.
-        if (recurso !== "todos" && recurso !== "processos")
-          await coletaNomusRunner.mutateAsync({ modo: "incremental", recurso });
-        else await coletaNomus.mutateAsync({ fonte: "nomus", recurso: "processos" });
-      } else if (fonte === "gmail") await coletaGmail.mutateAsync();
+      else if (fonte === "gmail") await coletaGmail.mutateAsync();
       else await coletaDrive.mutateAsync();
       setToast({
         message: `Coleta ${origemLabel(fonte)} disparada · acompanhe nas execuções.`,
@@ -456,7 +453,9 @@ export function ColetaClient({
             actionTitle={
               fonte === "todas"
                 ? "Selecione uma fonte para coletar"
-                : `Disparar coleta ${origemLabel(fonte)}`
+                : fonte === "nomus"
+                  ? "Nomus é coletado no PC local (sem disparo pelo cockpit)"
+                  : `Disparar coleta ${origemLabel(fonte)}`
             }
             toastClassName="bottom-[5.5rem]"
             blocks={EXECUCOES_BLOCKS}

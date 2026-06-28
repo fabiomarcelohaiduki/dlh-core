@@ -20,7 +20,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { StatusPill } from "@/components/cockpit/status-pill";
-import { execucaoDescriptor, normalizeOrigem, origemLabel } from "@/lib/status";
+import {
+  execucaoDescriptor,
+  execucaoExecutor,
+  normalizeOrigem,
+  origemLabel,
+} from "@/lib/status";
 import type { Execucao } from "@/lib/api/types";
 import { useWorkbench } from "./workbench-template";
 import type { TableColumn } from "./table-column";
@@ -102,6 +107,13 @@ export const RUNS_COLUMNS: readonly TableColumn<Execucao>[] = [
       <span className="pill src">{origemLabel(normalizeOrigem(r.origem))}</span>
     ),
     text: (r) => origemLabel(normalizeOrigem(r.origem)),
+  },
+  {
+    id: "executor",
+    label: "Onde executa",
+    cellClass: "text-muted",
+    cell: (r) => execucaoExecutor(r.origem),
+    text: (r) => execucaoExecutor(r.origem),
   },
   {
     id: "recurso",

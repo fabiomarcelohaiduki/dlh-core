@@ -467,33 +467,10 @@ export interface IngestaoConfig {
 }
 
 /**
- * POST ingestao-coletar (Nomus) -> execucao criada (202) ou single-flight.
- * `jaEmAndamento` acompanha o 409 (ja existe coleta corrente).
- */
-export interface ColetarResponse {
-  execucaoId: string;
-  estado: "em_andamento";
-  jaEmAndamento?: boolean;
-}
-
-/** Modo do disparo manual da coleta Nomus (workflow_dispatch). */
-export type NomusModo = "incremental" | "full";
-
-/**
- * POST nomus-disparar -> aciona o workflow do GitHub Actions (202). A coleta
- * roda assincrona no runner (TLS legado); `requestId` e o id da requisicao
- * pg_net (telemetria), nao a execucao em si.
- */
-export interface DispararNomusResponse {
-  ok: boolean;
-  modo: NomusModo;
-  requestId: number | null;
-}
-
-/**
- * POST gmail-disparar -> aciona o workflow coletar-gmail.yml no GitHub Actions
- * (202). A coleta roda assincrona no runner (a janela vem do gmail-config).
- * `requestId` e o id da requisicao pg_net (telemetria).
+ * POST gmail-disparar -> aciona a Edge nativa gmail-coletar (via RPC
+ * disparar_workflow_gmail, repointada do GitHub para a Edge em 28/06). A coleta
+ * roda assincrona em background (a janela vem do gmail-config). `requestId` e o
+ * id da requisicao pg_net (telemetria).
  */
 export interface DispararGmailResponse {
   ok: boolean;
@@ -523,10 +500,10 @@ export interface DispararOcrResponse {
 }
 
 /**
- * POST drive-disparar -> aciona o workflow coletar-drive.yml no GitHub Actions
- * (202). Descobre as pastas Drive ativas e enfileira os vinculos na fila de
- * documentos (sem Tika), assincrono no runner. `requestId` e o id da requisicao
- * pg_net (telemetria).
+ * POST drive-disparar -> aciona a Edge nativa drive-coletar (via RPC
+ * disparar_workflow_drive, repointada do GitHub para a Edge em 28/06). Descobre
+ * as pastas Drive ativas e enfileira os vinculos na fila de documentos (sem
+ * Tika), em background. `requestId` e o id da requisicao pg_net (telemetria).
  */
 export interface DispararDriveResponse {
   ok: boolean;

@@ -1,13 +1,12 @@
 import { apiFetch } from "@/lib/api/client";
 import type {
-  ColetarResponse,
   FonteTipo,
   IngestaoConfig,
   RecursoConfig,
 } from "@/lib/api/types";
 
 // ---------------------------------------------------------------------
-// Contrato cru (snake_case) das Edge Functions ingestao-config / coletar.
+// Contrato cru (snake_case) da Edge Function ingestao-config.
 // O backend e a fonte de verdade; aqui mapeamos snake -> camel para o front.
 // ---------------------------------------------------------------------
 
@@ -16,12 +15,6 @@ interface IngestaoConfigRaw {
   janela_dias: number | null;
   data_inicial: string | null;
   recursos: Record<string, unknown>;
-}
-
-interface ColetaNomusRaw {
-  execucao_id: string;
-  estado: "em_andamento";
-  ja_em_andamento?: boolean;
 }
 
 /** Normaliza um registro de recurso cru (snake) para RecursoConfig (camel). */
@@ -128,36 +121,4 @@ export function salvarIngestaoConfig(
     method: "PUT",
     body: JSON.stringify(body),
   });
-}
-
-/** Payload (camel) do POST /ingestao-coletar. */
-export interface ColetarInput {
-  fonte: FonteTipo;
-  recurso?: "processos";
-  janelaDias?: number;
-  /**
-   * Retomada manual (botao "Retomar", so Effecti): id da execucao em erro a
-   * retomar do checkpoint EXATO. Ignorado pelo Nomus (inicia coleta nova).
-   */
-  retomarExecucaoId?: string;
-}
-
-/**
- * POST /ingestao-coletar — dispara a coleta manual da fonte/recurso. Retorna
- * 202 { execucaoId, estado } na criacao e 409 (ApiError) quando ja existe
- * coleta em andamento (single-flight global).
- */
-export function coletar(input: ColetarInput): Promise<ColetarResponse> {
-  const body: Record<string, unknown> = { fonte: input.fonte };
-  if (input.recurso) body.recurso = input.recurso;
-  if (input.janelaDias !== undefined) body.janelaDias = input.janelaDias;
-  if (input.retomarExecucaoId) body.retomarExecucaoId = input.retomarExecucaoId;
-  return apiFetch<ColetaNomusRaw>("ingestao-coletar", {
-    method: "POST",
-    body: JSON.stringify(body),
-  }).then((r) => ({
-    execucaoId: r.execucao_id,
-    estado: r.estado,
-    jaEmAndamento: r.ja_em_andamento,
-  }));
 }

@@ -16,6 +16,13 @@ import type { AgendamentoFonteState } from "@/lib/api/types";
  * misturados com credenciais, disparo manual e filtros — estes seguem la. Cada
  * card edita um relogio independente (AgendamentoFonteForm grava o pg_cron da
  * fonte/recurso via PUT /agendamento-fonte-config).
+ *
+ * Pos-migracao 28/06 (saida do GitHub Actions): so Supabase Edge + PC local.
+ * Effecti/Gmail/Drive rodam pelo pg_cron -> Edge nativa e seguem editaveis aqui
+ * (AgendamentoFonteForm). Nomus passou a rodar no PC local (Agendador de Tarefas
+ * do Windows -> coletar-nomus.mjs), pois so fala TLS CBC legado que a Edge nao
+ * conecta. Por isso os dois cards de Nomus sao INFORMATIVOS (local: true): nao
+ * editam pg_cron (que aqui ficou orfao) — o horario e definido na maquina.
  */
 
 interface FonteAgendamento {
@@ -24,6 +31,12 @@ interface FonteAgendamento {
   nome: string;
   nota: string;
   agendamento: AgendamentoFonteState;
+  /**
+   * Fonte agendada FORA do cockpit (PC local). Quando true, o card e
+   * informativo: nao edita pg_cron (que aqui esta orfao) — o relogio real e o
+   * Agendador de Tarefas do Windows na maquina local.
+   */
+  local?: boolean;
 }
 
 const ICON_STYLE = { width: 17, height: 17 } as const;
@@ -48,15 +61,17 @@ export function AgendamentoColeta({
       id: "nomus-processos",
       icon: <Factory aria-hidden="true" style={ICON_STYLE} />,
       nome: "Nomus · Processos",
-      nota: "Coleta incremental: pega processos novos desde a última coleta. As edições são capturadas pela coleta full manual.",
+      nota: "Coleta incremental de processos novos desde a última coleta.",
       agendamento: nomusProcessos,
+      local: true,
     },
     {
       id: "nomus-pessoas",
       icon: <Factory aria-hidden="true" style={ICON_STYLE} />,
       nome: "Nomus · Pessoas",
-      nota: "Coleta incremental: pega pessoas novas e edições desde a última coleta.",
+      nota: "Coleta incremental de pessoas novas e edições desde a última coleta.",
       agendamento: nomusPessoas,
+      local: true,
     },
     {
       id: "gmail",
@@ -105,13 +120,25 @@ export function AgendamentoColeta({
                 <p>{f.nota}</p>
               </div>
             </div>
-            <StatusPill
-              state={f.agendamento.ativo ? "ok" : "idle"}
-              label={f.agendamento.ativo ? "Ativa" : "Pausada"}
-            />
+            {f.local ? (
+              <StatusPill state="ok" label="PC local" />
+            ) : (
+              <StatusPill
+                state={f.agendamento.ativo ? "ok" : "idle"}
+                label={f.agendamento.ativo ? "Ativa" : "Pausada"}
+              />
+            )}
           </div>
           <div className="cfg-panel-body">
-            <AgendamentoFonteForm initial={f.agendamento} />
+            {f.local ? (
+              <p className="text-muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
+                Agendada no PC local pelo Agendador de Tarefas do Windows. O
+                horário é definido na máquina, não pelo cockpit (o Nomus só fala
+                TLS legado, que a Edge não conecta).
+              </p>
+            ) : (
+              <AgendamentoFonteForm initial={f.agendamento} />
+            )}
           </div>
         </section>
       ))}
