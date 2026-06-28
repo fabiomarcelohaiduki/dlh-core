@@ -36,6 +36,7 @@ import type {
 import { WorkbenchTemplate } from "./workbench-template";
 import { AgendamentoColeta } from "./agendamento-coleta";
 import { EscopoColeta } from "./escopo-coleta";
+import { LogsConsole } from "./logs-console";
 import { RunsTable, RUNS_COLUMNS } from "./runs-table";
 import { DadosTable, DADOS_COLUMNS, type DadoColetado } from "./dados-table";
 import { RecursoFilter, type RecursoOption } from "./recurso-filter";
@@ -53,7 +54,7 @@ import type { WorkbenchScopeRef } from "./use-workbench-layout";
 const RUNNING_POLL_MS = 3000;
 const FALLBACK_POLL_MS = 5000;
 
-type Subtab = "execucoes" | "dados" | "escopo" | "agendamento";
+type Subtab = "execucoes" | "dados" | "escopo" | "agendamento" | "logs";
 type FonteTab = "todas" | OrigemKey;
 
 const FONTE_TABS: { value: FonteTab; label: string }[] = [
@@ -433,6 +434,7 @@ export function ColetaClient({
           { value: "dados", label: "Dados", count: allDados.length },
           { value: "escopo", label: "Escopo" },
           { value: "agendamento", label: "Agendamento", count: agendamentosAtivos },
+          { value: "logs", label: "Logs" },
         ]}
       />
 
@@ -645,6 +647,12 @@ export function ColetaClient({
       {subtab === "agendamento" && (
         <div data-subpane="coleta-agendamento" data-scope="ingestao/coleta/agendamento">
           <AgendamentoColeta {...agendamentos} />
+        </div>
+      )}
+
+      {subtab === "logs" && (
+        <div data-subpane="coleta-logs" data-scope="ingestao/coleta/logs">
+          <LogsConsole />
         </div>
       )}
 

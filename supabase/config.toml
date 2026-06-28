@@ -176,3 +176,11 @@ verify_jwt = false
 # e a ponta do cockpit, exige sessao de usuario.)
 [functions.comando-local-fila]
 verify_jwt = false
+
+# A ponta do PC (comando-poll) streama as linhas de stdout/stderr da coleta local
+# (Nomus/Tika) para esta funcao com X-Cron-Secret PURO (sem Authorization). Como
+# as demais funcoes de fila/cron, verify_jwt no default (ON) faria o gateway barrar
+# com 401 antes do codigo (matchesCronSecret autentica internamente). A leitura do
+# console (coleta-log) fica no default ON: e a ponta do cockpit, exige sessao.
+[functions.coleta-log-ingestar]
+verify_jwt = false

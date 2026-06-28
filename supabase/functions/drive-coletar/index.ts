@@ -32,6 +32,8 @@ import { handleCorsPreflight } from "../_shared/cors.ts";
 import { assertMethod, errorResponse, HttpError, jsonResponse } from "../_shared/http.ts";
 import { getEnv } from "../_shared/env.ts";
 import { matchesCronSecret } from "../_shared/auth.ts";
+import { createServiceClient } from "../_shared/supabase.ts";
+import { type ColetaLogger, createColetaLogger } from "../_shared/coleta-log.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
@@ -289,10 +291,12 @@ async function descobrirPasta(
   ctx: ColetaCtx,
   folderId: string,
   token: string,
+  log: ColetaLogger,
 ): Promise<{ total: number; inseridos: number }> {
   const arquivos = await listarArquivosPasta(ctx, folderId, token);
   if (arquivos.length === 0) {
     console.log("  nenhum arquivo baixavel (pasta vazia ou so Google Docs nativos).");
+    log.info("  nenhum arquivo baixavel (pasta vazia ou so Google Docs nativos).");
     return { total: 0, inseridos: 0 };
   }
   let inseridos = 0;
@@ -313,7 +317,9 @@ async function descobrirPasta(
     } catch (_) { /* mantem text cru */ }
     const n = Number(json.inseridos);
     if (Number.isFinite(n)) inseridos += n;
-    console.log(`  lote ${i / LOTE + 1}: ${lote.length} arquivo(s) -> novos/reabertos ${json.inseridos ?? "?"}`);
+    const linha = `  lote ${i / LOTE + 1}: ${lote.length} arquivo(s) -> novos/reabertos ${json.inseridos ?? "?"}`;
+    console.log(linha);
+    log.info(linha);
   }
   return { total: arquivos.length, inseridos };
 }
@@ -324,15 +330,19 @@ async function descobrirPasta(
  * token, lista cada pasta (recursivo), enfileira e fecha a execucao.
  */
 async function rodarDescoberta(ctx: ColetaCtx, execId: string, override: string): Promise<void> {
+  const log = createColetaLogger(createServiceClient(), { execucaoId: execId, origem: "drive" });
   try {
     const pastas = await resolverPastas(ctx, override);
     if (pastas.length === 0) {
       console.log("Nenhuma pasta do Drive ativa cadastrada. Nada a descobrir.");
+      log.info("Nenhuma pasta do Drive ativa cadastrada. Nada a descobrir.");
+      await log.flush();
       await fecharExecucao(ctx, execId, "concluida", 0, 0, 0);
       return;
     }
 
     console.log(`${pastas.length} pasta(s) do Drive a descobrir.`);
+    log.info(`${pastas.length} pasta(s) do Drive a descobrir.`);
     const token = await getDriveAccessToken(ctx);
     let totalArquivos = 0;
     let totalInseridos = 0;
@@ -340,17 +350,21 @@ async function rodarDescoberta(ctx: ColetaCtx, execId: string, override: string)
       const folderId = (p.folder_id ?? "").trim();
       if (!folderId) continue;
       console.log(`Pasta "${p.nome ?? folderId}" (${folderId})...`);
-      const r = await descobrirPasta(ctx, folderId, token);
+      log.info(`Pasta "${p.nome ?? folderId}" (${folderId})...`);
+      const r = await descobrirPasta(ctx, folderId, token, log);
       totalArquivos += r.total;
       totalInseridos += r.inseridos;
     }
-    console.log(
-      `Descoberta Drive concluida. Arquivos=${totalArquivos}, vinculos novos/reabertos=${totalInseridos}.`,
-    );
+    const resumo = `Descoberta Drive concluida. Arquivos=${totalArquivos}, vinculos novos/reabertos=${totalInseridos}.`;
+    console.log(resumo);
+    log.info(resumo);
+    await log.flush();
     // Todos os arquivos foram varridos/enfileirados -> processados = total (barra
     // 100% na conclusao). `novos` = vinculos ineditos apos dedup da fila.
     await fecharExecucao(ctx, execId, "concluida", totalArquivos, totalArquivos, 0, totalInseridos);
   } catch (err) {
+    log.erro(`ERRO na descoberta Drive: ${(err as Error)?.message ?? err}`);
+    await log.flush();
     // Fecha a execucao como 'erro' antes de propagar (libera o lock-por-fonte).
     await fecharExecucao(ctx, execId, "erro", 0, 0, 0);
     console.error(`ERRO na descoberta Drive: ${(err as Error)?.message ?? err}`);

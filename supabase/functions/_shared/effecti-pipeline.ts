@@ -27,6 +27,7 @@ import { EmbeddingError, type EmbeddingProvider, generateAndStoreChunks } from "
 import { persistAvisoBase, resolveAvisoId, setStatusIndexacao } from "./pipeline.ts";
 import { errorMessage, recordIngestErro } from "./ingest-errors.ts";
 import { captureException } from "./audit.ts";
+import { type ColetaLogger, createColetaLogger } from "./coleta-log.ts";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /** Janela maxima por consulta da API Effecti (mesmo limite do conector). */
@@ -183,6 +184,9 @@ export async function runEffectiBlock(
   const counters = await loadCounters(db, execucaoId);
   const until = checkpoint.janela_fim ? new Date(checkpoint.janela_fim) : new Date();
 
+  // Console ao vivo (guia Logs): cada aviso vira uma linha em coleta_log.
+  const log = createColetaLogger(db, { execucaoId, origem: "effecti" });
+
   await updateExecucao(db, execucaoId, {
     status: "em_andamento",
     etapa_atual: "coleta",
@@ -202,6 +206,11 @@ export async function runEffectiBlock(
       // Fim global alcancado: conclui a execucao.
       if (blocoInicio.getTime() >= until.getTime()) {
         checkpoint.fase = "concluido";
+        log.info(
+          `coleta Effecti concluida. novos=${counters.novos}, alterados=${counters.alterados}, ` +
+            `erros=${counters.erro}.`,
+        );
+        await log.flush();
         await finalizeConcluida(db, execucaoId, fonteId, checkpoint, counters);
         return {
           estado: "concluida",
@@ -222,6 +231,11 @@ export async function runEffectiBlock(
         signal: params.signal,
       });
 
+      log.info(
+        `bloco ${blocoInicio.toISOString().slice(0, 10)} pag ${checkpoint.pagina_atual}: ` +
+          `${page.items.length} aviso(s)`,
+      );
+
       for (const aviso of page.items) {
         if (params.signal?.aborted) break;
         try {
@@ -232,12 +246,14 @@ export async function runEffectiBlock(
             embeddingProvider,
             connector,
             counters,
+            log,
             params.signal,
           );
         } catch (err) {
           // Falha isolada do item: registra e segue (RNF-05).
           counters.erro += 1;
           const etapa = err instanceof EmbeddingError ? "Indexacao" : "Tratamento";
+          log.erro(`aviso ${aviso.effectiId} falhou: ${errorMessage(err)}`);
           await recordIngestErro(db, {
             execucaoId,
             avisoId: await resolveAvisoId(db, aviso.effectiId),
@@ -270,6 +286,7 @@ export async function runEffectiBlock(
     // Bloco de trabalho encerrado por teto (ainda ha janela): permanece
     // em_andamento com o checkpoint salvo, para o orquestrador retomar. O
     // write-back de favorito ja foi propagado item-a-item durante o loop.
+    await log.flush();
     await updateExecucao(db, execucaoId, {
       status: "em_andamento",
       checkpoint,
@@ -288,6 +305,8 @@ export async function runEffectiBlock(
   } catch (err) {
     // Falha de infra (coleta caiu / fonte fora do ar): estado 'erro'
     // PRESERVANDO o checkpoint para retomada automatica (ate o teto).
+    log.erro(`falha de coleta Effecti: ${errorMessage(err)}`);
+    await log.flush();
     await recordIngestErro(db, {
       execucaoId,
       severidade: "alta",
@@ -325,6 +344,7 @@ async function processAviso(
   embeddingProvider: EmbeddingProvider | undefined,
   connector: EffectiConnector,
   counters: Counters,
+  log: ColetaLogger,
   signal?: AbortSignal,
 ): Promise<void> {
   const { avisoId, status, reindexar, favorito, favoritoPropagado } = await persistAvisoBase(
@@ -335,6 +355,7 @@ async function processAviso(
   if (status === "novo") counters.novos += 1;
   else if (status === "alterado") counters.alterados += 1;
   // "ignorado" / legado: nao conta (espelha o Nomus).
+  log.info(`aviso ${aviso.effectiId}: ${status}${favorito ? " (favorito)" : ""}`);
 
   // Write-back INLINE: propaga o favorito para a Effecti (PUT favoritar-licitacao
   // para TODAS as ocorrencias do idLicitacao) assim que encontrado e marca a flag

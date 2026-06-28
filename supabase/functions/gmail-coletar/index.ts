@@ -33,6 +33,8 @@ import { handleCorsPreflight } from "../_shared/cors.ts";
 import { assertMethod, errorResponse, HttpError, jsonResponse } from "../_shared/http.ts";
 import { getEnv } from "../_shared/env.ts";
 import { matchesCronSecret } from "../_shared/auth.ts";
+import { createServiceClient } from "../_shared/supabase.ts";
+import { type ColetaLogger, createColetaLogger } from "../_shared/coleta-log.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
@@ -401,7 +403,7 @@ async function fecharExecucao(
 }
 
 /** Empurra itens ao documentos-descobrir em lotes. Devolve total inserido. */
-async function enfileirar(ctx: ColetaCtx, itens: ItemDescoberta[]): Promise<number> {
+async function enfileirar(ctx: ColetaCtx, itens: ItemDescoberta[], log: ColetaLogger): Promise<number> {
   let inseridos = 0;
   for (let i = 0; i < itens.length; i += LOTE) {
     const lote = itens.slice(i, i + LOTE);
@@ -420,7 +422,9 @@ async function enfileirar(ctx: ColetaCtx, itens: ItemDescoberta[]): Promise<numb
     } catch (_) { /* mantem text cru */ }
     const n = Number(json.inseridos);
     if (Number.isFinite(n)) inseridos += n;
-    console.log(`  lote ${i / LOTE + 1}: ${lote.length} item(ns) -> novos ${json.inseridos ?? "?"}`);
+    const linha = `  lote ${i / LOTE + 1}: ${lote.length} item(ns) -> novos ${json.inseridos ?? "?"}`;
+    console.log(linha);
+    log.info(linha);
   }
   return inseridos;
 }
@@ -436,6 +440,9 @@ async function rodarDescoberta(
   override: string,
   max: number,
 ): Promise<void> {
+  // Console ao vivo: as mesmas linhas que vao para o log da Edge passam a
+  // alimentar a guia "Logs" da Coleta (vinculadas a esta execucao). Best-effort.
+  const log = createColetaLogger(createServiceClient(), { execucaoId: execId, origem: "gmail" });
   try {
     const queries = await resolverQueries(ctx, override);
     const vistos = new Set<string>();
@@ -452,10 +459,13 @@ async function rodarDescoberta(
     }
     if (mensagens.length === 0) {
       console.log("Nenhuma mensagem casou a(s) query(s). Nada a descobrir.");
+      log.info("Nenhuma mensagem casou a(s) query(s). Nada a descobrir.");
+      await log.flush();
       await fecharExecucao(ctx, execId, "concluida", 0, 0, 0);
       return;
     }
     console.log(`${mensagens.length} mensagem(ns) unica(s) a processar.`);
+    log.info(`${mensagens.length} mensagem(ns) unica(s) a processar.`);
 
     const itens: ItemDescoberta[] = [];
     let processadas = 0;
@@ -468,24 +478,32 @@ async function rodarDescoberta(
         const msg = await obterMensagem(ctx, id);
         const novos = itensDaMensagem(msg);
         itens.push(...novos);
-        console.log(`[mensagem ${processadas}/${mensagens.length}] ${id}: ${novos.length} item(ns)`);
+        const linha = `[mensagem ${processadas}/${mensagens.length}] ${id}: ${novos.length} item(ns)`;
+        console.log(linha);
+        log.info(linha);
       } catch (err) {
         falhas += 1;
-        console.error(
-          `[mensagem ${processadas}/${mensagens.length}] ${id}: FALHA (pulada) -> ${(err as Error)?.message ?? err}`,
-        );
+        const linha =
+          `[mensagem ${processadas}/${mensagens.length}] ${id}: FALHA (pulada) -> ${(err as Error)?.message ?? err}`;
+        console.error(linha);
+        log.erro(linha);
       }
     }
 
-    const inseridos = await enfileirar(ctx, itens);
-    console.log(
-      `Descoberta Gmail concluida. Mensagens=${processadas}, falhas=${falhas}, itens=${itens.length}, novos=${inseridos}.`,
-    );
+    const inseridos = await enfileirar(ctx, itens, log);
+    const fim =
+      `Descoberta Gmail concluida. Mensagens=${processadas}, falhas=${falhas}, itens=${itens.length}, novos=${inseridos}.`;
+    console.log(fim);
+    log.info(fim);
+    await log.flush();
     await fecharExecucao(ctx, execId, "concluida", itens.length, itens.length, falhas, inseridos);
   } catch (err) {
     // Fecha a execucao como 'erro' antes de propagar (libera o lock-por-fonte).
+    const linha = `ERRO na descoberta Gmail: ${(err as Error)?.message ?? err}`;
+    console.error(linha);
+    log.erro(linha);
+    await log.flush();
     await fecharExecucao(ctx, execId, "erro", 0, 0, 0);
-    console.error(`ERRO na descoberta Gmail: ${(err as Error)?.message ?? err}`);
   }
 }
 
