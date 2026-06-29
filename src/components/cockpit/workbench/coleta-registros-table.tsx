@@ -309,7 +309,7 @@ export function ColetaRegistrosTable({
             {mostrarEfeito ? <TableHead>Efeito</TableHead> : null}
             <TableHead>Captado em</TableHead>
             <TableHead>Documentos</TableHead>
-            <TableHead>Indexação</TableHead>
+            <TableHead>Extração</TableHead>
             <TableHead className="w-[1%] text-right">
               <span className="sr-only">Ações</span>
             </TableHead>

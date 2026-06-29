@@ -289,12 +289,14 @@ export function coletaStatusDescriptor(status: StatusExtracao): PillDescriptor {
 }
 
 /**
- * Estado AGREGADO de indexacao de UM registro (linha mestra da guia "Dados",
- * status_indexacao_agregado) -> pill. Mapeamento travado da SPEC 4.5.3 (5
- * status agregados -> 5 PillState), reusando exclusivamente os PillState
- * existentes (sem novos tokens de cor):
- *  concluida      -> ok    "Concluída"
- *  em_andamento   -> run   "Indexando"
+ * Estado AGREGADO de EXTRACAO de UM registro (linha mestra da guia "Dados",
+ * status_indexacao_agregado) -> pill. O agregado e derivado do status_extracao
+ * dos anexos (documento_vinculos), NAO de embeddings: por isso os rotulos falam
+ * extracao/OCR, nao indexacao. Mapeamento travado da SPEC 4.5.3 (5 status
+ * agregados -> 5 PillState), reusando exclusivamente os PillState existentes
+ * (sem novos tokens de cor):
+ *  concluida      -> ok    "Extraído"
+ *  em_andamento   -> run   "Extraindo"
  *  erro           -> err   "Erro"
  *  mista          -> warn  "Parcial"
  *  sem_documentos -> idle  "Sem anexos"
@@ -305,9 +307,9 @@ export function indexacaoAgregadoDescriptor(
 ): PillDescriptor {
   switch (status) {
     case "concluida":
-      return { state: "ok", label: "Concluída" };
+      return { state: "ok", label: "Extraído" };
     case "em_andamento":
-      return { state: "run", label: "Indexando" };
+      return { state: "run", label: "Extraindo" };
     case "erro":
       return { state: "err", label: "Erro" };
     case "mista":
