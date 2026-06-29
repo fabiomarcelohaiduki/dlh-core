@@ -84,6 +84,10 @@ export interface WorkbenchTemplateProps {
   slots: WorkbenchSlots;
   /** Posicao do toast (default bottom-6); empilha quando a view tem outro toast. */
   toastClassName?: string;
+  /** Conteudo auxiliar no cabecalho, a esquerda de "Personalizar" (ex.: botao Parametros). */
+  headerAux?: ReactNode;
+  /** Faixa de conteudo logo abaixo do cabecalho, dentro do card (ex.: cards de status). */
+  banner?: ReactNode;
   /** Regiao da tabela (RunsTable/DadosTable). */
   children: ReactNode;
 }
@@ -126,6 +130,8 @@ export function WorkbenchTemplate({
   blocks,
   slots,
   toastClassName,
+  headerAux,
+  banner,
   children,
 }: WorkbenchTemplateProps) {
   const [toast, setToast] = useState<Toast | null>(null);
@@ -248,6 +254,7 @@ export function WorkbenchTemplate({
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
             {countLabel ? <Pill variant="neutral">{countLabel}</Pill> : null}
+            {headerAux ?? null}
             <Button
               variant={layout.customizing ? "primary" : "default"}
               size="sm"
@@ -291,6 +298,11 @@ export function WorkbenchTemplate({
             </div>
           ) : null}
         </div>
+
+        {/* Faixa opcional logo abaixo do cabecalho (ex.: cards de status), dentro do card. */}
+        {banner ? (
+          <div className="border-b border-border px-[18px] py-3">{banner}</div>
+        ) : null}
 
         {/* Painel de personalizacao (controles de ordem/visibilidade) */}
         {layout.customizing ? (

@@ -51,12 +51,11 @@ import {
   useIgnorarEmMassa,
   useReprocessarErros,
 } from "@/hooks/use-documentos";
-import { useDispararDrive, useDispararExtracao, useDispararGmail, useDispararOcr } from "@/hooks/use-admin";
+import { useDispararExtracao, useDispararOcr } from "@/hooks/use-admin";
 import { useExtracaoFila, extracaoFilaKeys } from "@/hooks/use-extracao-fila";
 import type {
   ExtracaoFilaCursor,
   ExtracaoItem,
-  FonteDescoberta,
   FonteReprocessavel,
   StatusItemExtracao,
 } from "@/lib/api/documentos";
@@ -142,8 +141,6 @@ export function ExtracaoFilaView({
 
   // Mutações reusadas da Extração + disparos de coleta/extração.
   const descobrir = useDescobrir();
-  const dispararGmail = useDispararGmail();
-  const dispararDrive = useDispararDrive();
   const dispararExtracao = useDispararExtracao();
   const dispararOcr = useDispararOcr();
   const reprocessar = useReprocessarErros();
@@ -218,51 +215,51 @@ export function ExtracaoFilaView({
     setFonte("todas");
   }
 
-  // ---- Disparo por fonte (header): Descobrir (Nomus/Effecti) ou Coletar
-  // (Gmail/Drive). "Todas" não tem alvo único — orienta escolher uma. Nomus
-  // exige a credencial salva.
-  const disparando = descobrir.isPending || dispararGmail.isPending || dispararDrive.isPending;
+  // ---- Disparo por fonte (header): "Trazer para a fila" (enfileira os anexos
+  // já coletados em documento_vinculos para extração). Só o Nomus precisa de
+  // disparo MANUAL — Effecti descobre sozinho pós-coleta e Gmail/Drive já
+  // entregam a lista pronta. Para essas, o botão fica desabilitado e informa
+  // que o enfileiramento é automático. Nomus exige a credencial salva.
+  const disparando = descobrir.isPending;
   const nomusBloqueado = fonte === "nomus" && !nomusConfigurado;
+  const acaoAutomatica = fonte === "effecti" || fonte === "gmail" || fonte === "drive";
   const acaoLabel =
-    fonte === "todas"
-      ? "Descobrir anexos"
-      : fonte === "effecti" || fonte === "nomus"
-        ? `Descobrir anexos · ${FONTE_LABEL[fonte]}`
-        : `Coletar ${FONTE_LABEL[fonte]} agora`;
+    fonte === "nomus"
+      ? "Trazer para a fila"
+      : acaoAutomatica
+        ? "Enfileira automático"
+        : "Selecione Nomus para enfileirar";
+  const acaoDisabled = fonte !== "nomus" || nomusBloqueado || disparando;
+  const acaoTitle =
+    fonte === "nomus"
+      ? nomusBloqueado
+        ? "Cadastre a chave do Nomus (em Integrações) antes de enfileirar"
+        : "Varre os processos já coletados do Nomus e enfileira os anexos para extração"
+      : acaoAutomatica
+        ? `O ${FONTE_LABEL[fonte]} enfileira os anexos automaticamente após cada coleta`
+        : "Só o Nomus precisa de disparo manual; as demais fontes enfileiram automático";
 
   async function handleDisparoFonte() {
-    if (fonte === "todas") {
-      setToast({ kind: "info", message: "Selecione uma fonte (Effecti, Nomus, Gmail ou Drive) para disparar." });
-      return;
-    }
+    if (fonte !== "nomus") return; // só o Nomus precisa de disparo manual
     if (nomusBloqueado) {
-      setToast({ kind: "err", message: "Cadastre e salve a chave do Nomus (em Integrações) antes de descobrir anexos." });
+      setToast({ kind: "err", message: "Cadastre e salve a chave do Nomus (em Integrações) antes de enfileirar." });
       return;
     }
     if (disparando) return;
     try {
-      if (fonte === "nomus" || fonte === "effecti") {
-        const r = await descobrir.mutateAsync({ fonte: fonte as FonteDescoberta });
-        refazerFila();
-        setToast({
-          kind: "ok",
-          message:
-            r.inseridos > 0
-              ? `${formatNumber(r.inseridos)} anexo(s) enfileirado(s) para extração.`
-              : "Nenhum anexo novo: a fila já está completa.",
-        });
-      } else if (fonte === "gmail") {
-        await dispararGmail.mutateAsync();
-        setToast({ kind: "ok", message: "Coleta do Gmail disparada · acompanhe em Execuções." });
-      } else {
-        await dispararDrive.mutateAsync();
-        setToast({ kind: "ok", message: "Coleta do Drive disparada · descobre as pastas ativas." });
-      }
+      const r = await descobrir.mutateAsync({ fonte: "nomus" });
+      refazerFila();
+      setToast({
+        kind: "ok",
+        message:
+          r.inseridos > 0
+            ? `${formatNumber(r.inseridos)} anexo(s) enfileirado(s) para extração.`
+            : "Nenhum anexo novo: a fila já está completa.",
+      });
     } catch (err) {
-      let message = "Não foi possível executar a ação. Tente novamente.";
-      if (err instanceof ApiError && err.status === 409) message = "Já há uma coleta em andamento; aguarde a conclusão.";
+      let message = "Não foi possível enfileirar os anexos. Tente novamente.";
+      if (err instanceof ApiError && err.status === 409) message = "Já há uma descoberta em andamento; aguarde a conclusão.";
       else if (err instanceof ApiError && err.status === 422) message = "Descoberta indisponível para esta fonte.";
-      else if (err instanceof ApiError && err.status === 502) message = "Não foi possível acionar o coletor na nuvem. Tente novamente.";
       setToast({ kind: "err", message });
     }
   }
@@ -378,111 +375,29 @@ export function ExtracaoFilaView({
 
   return (
     <>
-      {/* Parâmetros (Agendamento + Config) — espelho do ExtracaoView. */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-        <button
-          ref={paramsTriggerRef}
-          type="button"
-          className="btn btn-sm"
-          onClick={() => setParamsAberto(true)}
-          aria-haspopup="dialog"
-          aria-expanded={paramsAberto}
-        >
-          <SlidersHorizontal aria-hidden="true" />
-          <span>Parâmetros</span>
-        </button>
-      </div>
-
-      {/* Cards de status (clicáveis): filtram a tabela e trocam a ação contextual. */}
-      <div className="section-title">
-        <h3>Anexos na fila</h3>
-        {!fila.isLoading && <span className="count">{formatNumber(contagens?.total ?? 0)}</span>}
-      </div>
-      <div className="grid-dlh g7">
-        <StatCard
-          icon={<Clock aria-hidden="true" />}
-          label="Pendentes"
-          loading={fila.isLoading}
-          value={<span className="tnum" style={{ color: "var(--run)" }}>{formatNumber(statusCount("pendente"))}</span>}
-          meta="aguardando extração"
-          onClick={() => selecionarStatus("pendente")}
-          active={status === "pendente"}
-        />
-        <StatCard
-          icon={<Check aria-hidden="true" />}
-          label="Extraídos"
-          loading={fila.isLoading}
-          value={<span className="tnum" style={{ color: "var(--ok)" }}>{formatNumber(statusCount("extraido"))}</span>}
-          meta="texto disponível"
-          metaTone="up"
-          onClick={() => selecionarStatus("extraido")}
-          active={status === "extraido"}
-        />
-        <StatCard
-          icon={<Copy aria-hidden="true" />}
-          label="Herdados"
-          loading={fila.isLoading}
-          value={<span className="tnum">{formatNumber(statusCount("herdado"))}</span>}
-          meta="reaproveitados por dedup"
-          onClick={() => selecionarStatus("herdado")}
-          active={status === "herdado"}
-        />
-        <StatCard
-          icon={<ScanLine aria-hidden="true" />}
-          label="Aguardando OCR"
-          loading={fila.isLoading}
-          value={<span className="tnum" style={{ color: statusCount("precisa_ocr") > 0 ? "var(--run)" : undefined }}>{formatNumber(statusCount("precisa_ocr"))}</span>}
-          meta="escaneados · use Extrair OCR agora"
-          onClick={() => selecionarStatus("precisa_ocr")}
-          active={status === "precisa_ocr"}
-        />
-        <StatCard
-          icon={<TriangleAlert aria-hidden="true" />}
-          label="Erros"
-          loading={fila.isLoading}
-          value={<span className="tnum" style={{ color: statusCount("erro") > 0 ? "var(--err)" : undefined }}>{formatNumber(statusCount("erro"))}</span>}
-          meta={statusCount("erro") > 0 ? "clique para ver a lista" : "sem falhas"}
-          metaTone={statusCount("erro") > 0 ? "warn" : "up"}
-          onClick={() => selecionarStatus("erro")}
-          active={status === "erro"}
-        />
-        <StatCard
-          icon={<Ban aria-hidden="true" />}
-          label="Inacessíveis"
-          loading={fila.isLoading}
-          value={<span className="tnum">{formatNumber(statusCount("inobtenivel"))}</span>}
-          meta="removidos na origem · não reprocessam"
-          onClick={() => selecionarStatus("inobtenivel")}
-          active={status === "inobtenivel"}
-        />
-        <StatCard
-          icon={<EyeOff aria-hidden="true" />}
-          label="Ignorados"
-          loading={fila.isLoading}
-          value={<span className="tnum">{formatNumber(statusCount("ignorado"))}</span>}
-          meta="dispensados pelo humano · reversível"
-          onClick={() => selecionarStatus("ignorado")}
-          active={status === "ignorado"}
-        />
-      </div>
-
       <WorkbenchTemplate
         scope={FILA_SCOPE}
         workbenchKey="coleta-extracao"
           toastClassName="bottom-[5.5rem]"
           blocks={FILA_BLOCKS}
-          actionLabel={disparando ? "Disparando…" : acaoLabel}
+          actionLabel={disparando ? "Enfileirando…" : acaoLabel}
           onAction={handleDisparoFonte}
-          actionDisabled={disparando || nomusBloqueado}
-          actionTitle={
-            fonte === "todas"
-              ? "Selecione uma fonte para descobrir/coletar"
-              : nomusBloqueado
-                ? "Cadastre a chave do Nomus (em Integrações) antes de descobrir"
-                : fonte === "effecti" || fonte === "nomus"
-                  ? `Enfileira os anexos pendentes do ${FONTE_LABEL[fonte]} para extração`
-                  : `Dispara a coleta do ${FONTE_LABEL[fonte]} (descobre e enfileira os anexos)`
+          actionDisabled={acaoDisabled}
+          actionTitle={acaoTitle}
+          headerAux={
+            <button
+              ref={paramsTriggerRef}
+              type="button"
+              className="btn btn-sm"
+              onClick={() => setParamsAberto(true)}
+              aria-haspopup="dialog"
+              aria-expanded={paramsAberto}
+            >
+              <SlidersHorizontal aria-hidden="true" />
+              <span>Parâmetros</span>
+            </button>
           }
+          banner={renderCards()}
           slots={{
             fontes: (
               <Tabs<FonteTab>
@@ -554,6 +469,82 @@ export function ExtracaoFilaView({
       {toast ? <CockpitToast kind={toast.kind} message={toast.message} className="bottom-[5.5rem]" /> : null}
     </>
   );
+
+  // ------------------------------------------------------------------
+  // Cards de status (banner do card, abaixo do cabeçalho): clicar filtra a
+  // tabela pelo status E troca a ação contextual. Grid de 7 colunas alinhado.
+  // ------------------------------------------------------------------
+  function renderCards() {
+    return (
+      <div className="grid-dlh g7">
+        <StatCard
+          icon={<Clock aria-hidden="true" />}
+          label="Pendentes"
+          loading={fila.isLoading}
+          value={<span className="tnum" style={{ color: "var(--run)" }}>{formatNumber(statusCount("pendente"))}</span>}
+          meta="aguardando extração"
+          onClick={() => selecionarStatus("pendente")}
+          active={status === "pendente"}
+        />
+        <StatCard
+          icon={<Check aria-hidden="true" />}
+          label="Extraídos"
+          loading={fila.isLoading}
+          value={<span className="tnum" style={{ color: "var(--ok)" }}>{formatNumber(statusCount("extraido"))}</span>}
+          meta="texto disponível"
+          metaTone="up"
+          onClick={() => selecionarStatus("extraido")}
+          active={status === "extraido"}
+        />
+        <StatCard
+          icon={<Copy aria-hidden="true" />}
+          label="Herdados"
+          loading={fila.isLoading}
+          value={<span className="tnum">{formatNumber(statusCount("herdado"))}</span>}
+          meta="reaproveitados por dedup"
+          onClick={() => selecionarStatus("herdado")}
+          active={status === "herdado"}
+        />
+        <StatCard
+          icon={<ScanLine aria-hidden="true" />}
+          label="Aguardando OCR"
+          loading={fila.isLoading}
+          value={<span className="tnum" style={{ color: statusCount("precisa_ocr") > 0 ? "var(--run)" : undefined }}>{formatNumber(statusCount("precisa_ocr"))}</span>}
+          meta="escaneados · use Extrair OCR agora"
+          onClick={() => selecionarStatus("precisa_ocr")}
+          active={status === "precisa_ocr"}
+        />
+        <StatCard
+          icon={<TriangleAlert aria-hidden="true" />}
+          label="Erros"
+          loading={fila.isLoading}
+          value={<span className="tnum" style={{ color: statusCount("erro") > 0 ? "var(--err)" : undefined }}>{formatNumber(statusCount("erro"))}</span>}
+          meta={statusCount("erro") > 0 ? "clique para ver a lista" : "sem falhas"}
+          metaTone={statusCount("erro") > 0 ? "warn" : "up"}
+          onClick={() => selecionarStatus("erro")}
+          active={status === "erro"}
+        />
+        <StatCard
+          icon={<Ban aria-hidden="true" />}
+          label="Inacessíveis"
+          loading={fila.isLoading}
+          value={<span className="tnum">{formatNumber(statusCount("inobtenivel"))}</span>}
+          meta="removidos na origem · não reprocessam"
+          onClick={() => selecionarStatus("inobtenivel")}
+          active={status === "inobtenivel"}
+        />
+        <StatCard
+          icon={<EyeOff aria-hidden="true" />}
+          label="Ignorados"
+          loading={fila.isLoading}
+          value={<span className="tnum">{formatNumber(statusCount("ignorado"))}</span>}
+          meta="dispensados pelo humano · reversível"
+          onClick={() => selecionarStatus("ignorado")}
+          active={status === "ignorado"}
+        />
+      </div>
+    );
+  }
 
   // ------------------------------------------------------------------
   // Ação contextual ao card selecionado (slot filtros, à direita da toolbar):
