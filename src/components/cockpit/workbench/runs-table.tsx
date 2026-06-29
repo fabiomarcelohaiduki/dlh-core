@@ -10,7 +10,7 @@
 // vivem dentro do <tbody> para nao derrubar a view (table-states).
 // =====================================================================
 
-import { MoreHorizontal } from "lucide-react";
+import { ScrollText } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -115,8 +115,10 @@ export interface RunsTableProps {
   loading: boolean;
   error: boolean;
   onRetry: () => void;
-  /** Abre o ActionModal para a execucao clicada (read-only). */
-  onItemClick: (run: Execucao) => void;
+  /** Clique na linha: leva aos dados captados POR esta execucao (guia Dados). */
+  onRowClick: (run: Execucao) => void;
+  /** Botao de log da linha: abre a guia Logs filtrada pela fonte da execucao. */
+  onLogClick: (run: Execucao) => void;
   /** Ids das colunas ocultas (controle da toolbar). */
   hidden?: ReadonlySet<string>;
   emptyTitle: string;
@@ -280,7 +282,8 @@ export function RunsTable({
   loading,
   error,
   onRetry,
-  onItemClick,
+  onRowClick,
+  onLogClick,
   hidden,
   emptyTitle,
   emptyDescription,
@@ -302,7 +305,7 @@ export function RunsTable({
           ))}
           {showActions ? (
             <TableHead data-block="acoes-linha" className="w-[1%] text-right">
-              <span className="sr-only">Ações</span>
+              <span className="sr-only">Logs</span>
             </TableHead>
           ) : null}
         </TableRow>
@@ -329,7 +332,7 @@ export function RunsTable({
               <TableRow
                 key={run.id}
                 data-clickable=""
-                onClick={() => onItemClick(run)}
+                onClick={() => onRowClick(run)}
               >
                 {columns.map((col) => (
                   <TableCell key={col.id} className={col.cellClass}>
@@ -344,11 +347,12 @@ export function RunsTable({
                   >
                     <button
                       type="button"
-                      aria-label={`Ações da execução de ${formatDateTime(run.inicio)}`}
-                      onClick={() => onItemClick(run)}
+                      aria-label={`Ver logs da execução de ${formatDateTime(run.inicio)}`}
+                      title="Ver logs desta execução"
+                      onClick={() => onLogClick(run)}
                       className="grid size-7 place-items-center rounded-sm border border-border text-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-line"
                     >
-                      <MoreHorizontal aria-hidden="true" className="size-4" />
+                      <ScrollText aria-hidden="true" className="size-4" />
                     </button>
                   </TableCell>
                 ) : null}

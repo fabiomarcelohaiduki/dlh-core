@@ -14,6 +14,7 @@
 // =====================================================================
 
 import { useEffect, useMemo, useState } from "react";
+import { X } from "lucide-react";
 import { Subtabs } from "@/components/ui/subtabs";
 import { Tabs } from "@/components/ui/tabs";
 import { useExecucoes, useColetaDemanda } from "@/hooks/use-monitoring";
@@ -44,6 +45,7 @@ import {
   horarioAgendadoDaFonte,
   type RunComAgenda,
 } from "./runs-table";
+import { formatDateTime } from "./table-states";
 import { RecursoFilter, type RecursoOption } from "./recurso-filter";
 import {
   ColumnToggleMenu,
@@ -103,6 +105,19 @@ const DADOS_SCOPE: WorkbenchScopeRef = {
 
 type Toast = { message: string } | null;
 
+/**
+ * Filtro de execucao da guia "Dados": recorta a lista nos registros captados
+ * por UMA rodada de coleta. Setado ao clicar numa linha da guia "Execucoes";
+ * a janela [de, ate] e o intervalo de captacao da execucao (fim em andamento =
+ * "agora"). `label` e a data/hora de inicio formatada para o chip dispensavel.
+ */
+type ExecFilter = {
+  fonte: OrigemKey;
+  de: string;
+  ate: string;
+  label: string;
+};
+
 export function ColetaClient({
   agendamentos,
   escopo,
@@ -117,8 +132,13 @@ export function ColetaClient({
   // manualmente pela barra de guias (volta a mostrar todas as fontes).
   const [logsFonte, setLogsFonte] = useState<ColetaLogOrigem | undefined>(undefined);
 
+  // Filtro de execucao da guia Dados (setado ao clicar numa linha de Execucoes).
+  // Abrir a guia Dados pela barra de guias zera o recorte (volta a lista cheia).
+  const [execFilter, setExecFilter] = useState<ExecFilter | null>(null);
+
   const handleSubtabChange = (next: Subtab) => {
     if (next === "logs") setLogsFonte(undefined);
+    if (next === "dados") setExecFilter(null);
     setSubtab(next);
   };
 
@@ -145,8 +165,10 @@ export function ColetaClient({
     setFonte(next);
     setRecurso("todos");
   };
+  // Trocar a fonte manualmente sai do contexto da execucao (limpa o recorte).
   const handleDFonteChange = (next: FonteTab) => {
     setDFonte(next);
+    setExecFilter(null);
   };
 
   // Colunas ocultas + filtros por campo (controles icon-only da toolbar).
@@ -285,19 +307,23 @@ export function ColetaClient({
   const [cursors, setCursors] = useState<readonly string[]>([]);
   const [currentCursor, setCurrentCursor] = useState<string | null>(null);
 
-  // Trocar de fonte ou busca zera o cursor e fecha todas as expansoes
+  // Trocar de fonte/busca/execucao zera o cursor e fecha todas as expansoes
   // (per SPEC §4.4 — evita estado orfao quando a linha sai do conjunto filtrado).
   useEffect(() => {
     setCursors([]);
     setCurrentCursor(null);
     setExpandedIds(new Set());
-  }, [dFonte, dBusca]);
+  }, [dFonte, dBusca, execFilter]);
 
   // Polling adaptativo do hook cuida do intervalo; aqui so montamos os params.
+  // execFilter recorta na janela de captacao da execucao clicada (a fonte ja
+  // foi fixada em dFonte ao clicar, entao o filtro de fonte cobre a fonte alvo).
   const registros = useColetaRegistros({
     fonte: dFonte === "todas" ? null : dFonte,
     busca: dBusca.trim() || null,
     cursor: currentCursor,
+    execDe: execFilter?.de ?? null,
+    execAte: execFilter?.ate ?? null,
   });
 
   const registrosList = registros.data?.itens ?? [];
@@ -354,10 +380,11 @@ export function ColetaClient({
 
   // Total de registros do conjunto PAGINADO (para o "Página X de Y" do rodapé,
   // igual à guia Execuções). As contagensPorFonte são cumulativas e refletem
-  // exatamente o filtro de fonte; com busca textual ativa o total filtrado não
-  // é conhecido (o Edge não devolve count do termo), então fica indeterminado
-  // e o rodapé cai em "Página X" sem inventar um total.
-  const dadosTotal = dBusca.trim()
+  // exatamente o filtro de fonte; com busca textual OU filtro de execução ativo
+  // o total do conjunto recortado não é conhecido (o Edge não devolve count do
+  // termo nem da janela), então fica indeterminado e o rodapé cai em "Página X"
+  // sem inventar um total.
+  const dadosTotal = dBusca.trim() || execFilter
     ? undefined
     : dFonte === "todas"
       ? registrosTotal
@@ -598,8 +625,23 @@ export function ColetaClient({
               error={execucoes.isError}
               onRetry={() => execucoes.refetch()}
               hidden={runsHidden}
-              onItemClick={(run) => {
-                // Clicar numa execucao abre a guia Logs ja filtrada pela fonte
+              onRowClick={(run) => {
+                // Clicar na linha leva a guia Dados recortada nos registros
+                // captados POR esta execucao (fonte da execucao + janela de
+                // captacao [inicio, fim ?? agora]). Fixa a fonte em dFonte para
+                // os chips/filtros baterem com o conjunto recortado.
+                const fonte = normalizeOrigem(run.origem);
+                setDFonte(fonte);
+                setExecFilter({
+                  fonte,
+                  de: run.inicio,
+                  ate: run.fim ?? new Date().toISOString(),
+                  label: formatDateTime(run.inicio),
+                });
+                setSubtab("dados");
+              }}
+              onLogClick={(run) => {
+                // Botao de log da linha: abre a guia Logs ja filtrada pela fonte
                 // da execucao (console ao vivo daquela coleta).
                 setLogsFonte(normalizeOrigem(run.origem));
                 setSubtab("logs");
@@ -657,6 +699,22 @@ export function ColetaClient({
               ),
             }}
           >
+            {execFilter ? (
+              <div className="flex flex-wrap items-center gap-2.5 border-b border-border px-[18px] py-2.5 text-[13px]">
+                <span className="text-muted">Filtrando pela execução</span>
+                <span className="pill src">{origemLabel(execFilter.fonte)}</span>
+                <span className="font-medium tabular-nums text-fg">{execFilter.label}</span>
+                <button
+                  type="button"
+                  onClick={() => setExecFilter(null)}
+                  aria-label="Limpar filtro de execução"
+                  title="Limpar filtro de execução"
+                  className="ml-1 grid size-6 place-items-center rounded-sm border border-border text-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-line"
+                >
+                  <X aria-hidden="true" className="size-3.5" />
+                </button>
+              </div>
+            ) : null}
             <ColetaRegistrosTable
               registros={registrosList}
               loading={registros.isLoading}

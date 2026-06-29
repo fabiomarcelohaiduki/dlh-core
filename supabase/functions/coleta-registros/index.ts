@@ -175,6 +175,10 @@ interface ListParams {
   /** Termo de busca ja trimado e lowercased; null quando < 2 chars/ausente. */
   busca: string | null;
   temErro: boolean;
+  /** Janela de captacao (filtro de execucao da guia Dados): inicio da rodada. */
+  execDe: string | null;
+  /** Janela de captacao: fim da rodada (ou "agora" p/ execucao em andamento). */
+  execAte: string | null;
 }
 
 /** limit: default 25, teto 100 (clampa); valor invalido -> 400. */
@@ -207,6 +211,18 @@ function parseCursor(raw: string | null): CursorKeyset | null {
 
 function encodeCursor(keyset: CursorKeyset): string {
   return btoa(JSON.stringify(keyset));
+}
+
+/**
+ * Timestamp ISO da janela de captacao (filtro de execucao); ausente -> null,
+ * data nao parseavel -> 400. O proprio ISO e repassado a RPC (timestamptz).
+ */
+function parseTimestamp(raw: string | null, param: string): string | null {
+  if (raw === null || raw.trim() === "") return null;
+  if (Number.isNaN(Date.parse(raw))) {
+    throw new HttpError(400, "invalid_timestamp", `${param} invalido: use uma data ISO-8601`);
+  }
+  return raw;
 }
 
 // Schemas zod: fonte com status 422 (allowlist), demais filtros com 400.
@@ -253,6 +269,8 @@ function parseListParams(req: Request): ListParams {
     status: filtersParsed.data.status ?? null,
     busca: buscaRaw.length >= 2 ? buscaRaw.toLowerCase() : null,
     temErro: temErroRaw === "true" || temErroRaw === "1",
+    execDe: parseTimestamp(q.get("exec_de"), "exec_de"),
+    execAte: parseTimestamp(q.get("exec_ate"), "exec_ate"),
   };
 }
 
@@ -342,6 +360,8 @@ async function handleList(req: Request): Promise<Response> {
     p_cursor_captado: params.cursor?.c ?? null,
     p_cursor_id: params.cursor?.k ?? null,
     p_limit: params.limit + 1,
+    p_captado_de: params.execDe,
+    p_captado_ate: params.execAte,
   });
   if (pageErr) {
     throw new HttpError(500, "coleta_registros_listar_failed", "falha ao listar registros");

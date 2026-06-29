@@ -201,6 +201,10 @@ export interface ColetaRegistrosParams {
   busca?: string | null;
   /** Apenas registros com algum vinculo em erro. */
   temErro?: boolean | null;
+  /** Filtro de execucao: inicio da janela de captacao (ISO). */
+  execDe?: string | null;
+  /** Filtro de execucao: fim da janela de captacao (ISO). */
+  execAte?: string | null;
 }
 
 // ---------------------------------------------------------------------
@@ -469,6 +473,8 @@ export function fetchColetaRegistros(
     status: params.status,
     busca: params.busca,
     tem_erro: params.temErro,
+    exec_de: params.execDe,
+    exec_ate: params.execAte,
   });
   return apiFetch<RawColetaRegistrosResponse>(`coleta-registros${qs}`, {
     method: "GET",
