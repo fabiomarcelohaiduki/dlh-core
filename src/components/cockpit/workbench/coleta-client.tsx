@@ -804,7 +804,6 @@ export function ColetaClient({
           <ExtracaoFilaView
             nomusConfigurado={nomusConfigurado}
             configExtracao={configExtracao}
-            agendamentoExtracao={agendamentoExtracao}
           />
         </div>
       )}
@@ -817,7 +816,7 @@ export function ColetaClient({
 
       {subtab === "agendamento" && (
         <div data-subpane="coleta-agendamento" data-scope="ingestao/coleta/agendamento">
-          <AgendamentoColeta {...agendamentos} />
+          <AgendamentoColeta {...agendamentos} extracao={agendamentoExtracao} />
         </div>
       )}
 

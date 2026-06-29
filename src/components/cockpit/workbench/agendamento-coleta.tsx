@@ -1,12 +1,13 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Factory, Gavel, HardDrive, Mail } from "lucide-react";
+import { Factory, Gavel, HardDrive, Mail, ScanText } from "lucide-react";
 import { AgendamentoFonteForm } from "@/components/cockpit/agendamento-fonte-form";
+import { AgendamentoExtracaoForm } from "@/components/cockpit/agendamento-extracao-form";
 import { CfgAccordion } from "@/components/cockpit/config/cfg-accordion";
 import { StatusPill } from "@/components/cockpit/status-pill";
 import type { AgendamentosColetaData } from "@/lib/fontes-credenciais-data";
-import type { AgendamentoFonteState } from "@/lib/api/types";
+import type { AgendamentoExtracaoState, AgendamentoFonteState } from "@/lib/api/types";
 
 /**
  * cmp-agendamento-coleta — guia Agendamento do submodulo Coleta.
@@ -23,6 +24,11 @@ import type { AgendamentoFonteState } from "@/lib/api/types";
  * dono do relogio: o pg_cron de Nomus, na hora marcada, ENFILEIRA o comando na
  * fila comando_local e o servico de poll do PC executa. Por isso TODOS os cards
  * (inclusive Nomus) editam a cadencia aqui via AgendamentoFonteForm.
+ *
+ * Alem das fontes, ha o card "Extracao": o relogio global da extracao (Tika/OCR)
+ * que drena a fila de anexos pendentes. Saiu do drawer "Parametros" da guia Fila
+ * de extracao (nao fazia sentido um agendamento dentro de parametros) e passou a
+ * morar aqui, junto dos demais agendamentos. Usa AgendamentoExtracaoForm.
  */
 
 interface FonteAgendamento {
@@ -43,7 +49,8 @@ export function AgendamentoColeta({
   nomusProcessosFull,
   gmail,
   drive,
-}: AgendamentosColetaData) {
+  extracao,
+}: AgendamentosColetaData & { extracao: AgendamentoExtracaoState }) {
   const fontes: FonteAgendamento[] = [
     {
       id: "effecti",
@@ -130,6 +137,46 @@ export function AgendamentoColeta({
           </div>
         </section>
       ))}
+
+      <section
+        className="cfg-panel-card"
+        aria-labelledby="agendamento-extracao-h"
+      >
+        <div className="panel-header">
+          <div
+            className="panel-title"
+            style={{ display: "flex", alignItems: "center", gap: 12 }}
+          >
+            <span
+              className="avatar"
+              style={{
+                borderRadius: 9,
+                width: 34,
+                height: 34,
+                color: "var(--accent)",
+                background: "var(--accent-soft)",
+                borderColor: "var(--accent-line)",
+              }}
+            >
+              <ScanText aria-hidden="true" style={ICON_STYLE} />
+            </span>
+            <div>
+              <h3 id="agendamento-extracao-h">Extração</h3>
+              <p>
+                Na hora marcada, drena a fila de extração: roda Tika e OCR nos anexos
+                pendentes de todas as fontes. Roda no PC local; o cockpit enfileira o comando.
+              </p>
+            </div>
+          </div>
+          <StatusPill
+            state={extracao.ativo ? "ok" : "idle"}
+            label={extracao.ativo ? "Ativa" : "Pausada"}
+          />
+        </div>
+        <div className="cfg-panel-body">
+          <AgendamentoExtracaoForm initial={extracao} />
+        </div>
+      </section>
     </CfgAccordion>
   );
 }

@@ -44,7 +44,6 @@ import { Tabs } from "@/components/ui/tabs";
 import { StatCard } from "@/components/cockpit/stat-card";
 import { SubstituirLinkModal } from "@/components/cockpit/substituir-link-modal";
 import { ExtracaoConfigForm } from "@/components/cockpit/extracao-config-form";
-import { AgendamentoExtracaoForm } from "@/components/cockpit/agendamento-extracao-form";
 import {
   useDescobrir,
   useIgnorarAnexo,
@@ -59,11 +58,12 @@ import type {
   FonteReprocessavel,
   StatusItemExtracao,
 } from "@/lib/api/documentos";
-import type { AgendamentoExtracaoState, ConfigExtracaoState } from "@/lib/api/types";
+import type { ConfigExtracaoState } from "@/lib/api/types";
 import { ApiError } from "@/lib/api/client";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import type { WorkbenchScopeRef } from "./use-workbench-layout";
 import { WorkbenchTemplate } from "./workbench-template";
+import { TOOLBAR_SEARCH_CLASS } from "./table-toolbar-menus";
 import { CursorPager } from "./table-pagination";
 import { CockpitToast } from "./cockpit-toast";
 
@@ -109,11 +109,9 @@ type Toast = { kind: "ok" | "err" | "info"; message: string } | null;
 export function ExtracaoFilaView({
   nomusConfigurado,
   configExtracao,
-  agendamentoExtracao,
 }: {
   nomusConfigurado: boolean;
   configExtracao: ConfigExtracaoState;
-  agendamentoExtracao: AgendamentoExtracaoState;
 }) {
   const queryClient = useQueryClient();
 
@@ -415,7 +413,7 @@ export function ExtracaoFilaView({
                 onChange={(e) => setBusca(e.target.value)}
                 placeholder="Buscar por nome do anexo"
                 aria-label="Buscar anexos na fila de extração"
-                className="h-9 w-full rounded-md border border-border bg-surface px-3 text-[13px] text-fg placeholder:text-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-line sm:w-72"
+                className={TOOLBAR_SEARCH_CLASS}
               />
             ),
             filtros: renderAcaoContextual(),
@@ -459,7 +457,6 @@ export function ExtracaoFilaView({
               </button>
             </div>
             <div style={{ display: "grid", gap: 16 }}>
-              <AgendamentoExtracaoForm initial={agendamentoExtracao} />
               <ExtracaoConfigForm initial={configExtracao} />
             </div>
           </div>
