@@ -73,7 +73,7 @@ with ramos as (
     bool_or(dv.status_extracao in ('pendente', 'precisa_ocr')) as has_pendente,
     bool_or(dv.status_extracao in ('extraido', 'herdado')) as has_extraido,
     bool_or(dv.status_extracao in ('erro', 'inobtenivel')) as has_erro,
-    min(dv.id) as rep_id,
+    (array_agg(dv.id order by dv.id))[1] as rep_id,
     (array_agg(dv.nome_anexo order by dv.id))[1] as rep_nome_anexo,
     (array_agg(dv.documento_id order by dv.id))[1] as rep_documento_id
   from public.avisos av
@@ -99,7 +99,7 @@ with ramos as (
     bool_or(dv.status_extracao in ('pendente', 'precisa_ocr')) as has_pendente,
     bool_or(dv.status_extracao in ('extraido', 'herdado')) as has_extraido,
     bool_or(dv.status_extracao in ('erro', 'inobtenivel')) as has_erro,
-    min(dv.id) as rep_id,
+    (array_agg(dv.id order by dv.id))[1] as rep_id,
     (array_agg(dv.nome_anexo order by dv.id))[1] as rep_nome_anexo,
     (array_agg(dv.documento_id order by dv.id))[1] as rep_documento_id
   from public.nomus_processos np
@@ -165,7 +165,7 @@ with ramos as (
       bool_or(dv.status_extracao in ('pendente', 'precisa_ocr')) as has_pendente,
       bool_or(dv.status_extracao in ('extraido', 'herdado')) as has_extraido,
       bool_or(dv.status_extracao in ('erro', 'inobtenivel')) as has_erro,
-      min(dv.id) as rep_id,
+      (array_agg(dv.id order by dv.id))[1] as rep_id,
       (array_agg(dv.nome_anexo order by dv.id))[1] as rep_nome_anexo,
       (array_agg(dv.documento_id order by dv.id))[1] as rep_documento_id
     from public.documento_vinculos dv
@@ -204,7 +204,7 @@ with ramos as (
       bool_or(dv.status_extracao in ('pendente', 'precisa_ocr')) as has_pendente,
       bool_or(dv.status_extracao in ('extraido', 'herdado')) as has_extraido,
       bool_or(dv.status_extracao in ('erro', 'inobtenivel')) as has_erro,
-      min(dv.id) as rep_id,
+      (array_agg(dv.id order by dv.id))[1] as rep_id,
       (array_agg(dv.nome_anexo order by dv.id))[1] as rep_nome_anexo,
       (array_agg(dv.documento_id order by dv.id))[1] as rep_documento_id
     from public.documento_vinculos dv
