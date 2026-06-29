@@ -241,11 +241,19 @@ export interface ContagensPorFonte {
   total: number;
 }
 
+/**
+ * Contagens cumulativas por recurso, aninhadas por fonte (ex.:
+ * { nomus: { processos: 4279, pessoas: 313 } }). Alimentam as pílulas de
+ * recurso da guia Dados (espelho da guia Execuções).
+ */
+export type ContagensPorRecurso = Partial<Record<FonteColeta, Record<string, number>>>;
+
 /** GET /coleta-registros -> lista paginada por keyset + contagens. */
 export interface ColetaRegistrosResponse {
   itens: RegistroColetado[];
   nextCursor: string | null;
   contagensPorFonte: ContagensPorFonte;
+  contagensPorRecurso: ContagensPorRecurso;
 }
 
 /** Filtros da lista mestra (keyset). Convertidos para snake_case na query. */
@@ -256,6 +264,11 @@ export interface ColetaRegistrosParams {
   cursor?: string | null;
   /** Filtra por fonte coletavel. */
   fonte?: FonteColeta | null;
+  /**
+   * Sub-filtro de recurso da fonte (ex.: Nomus 'processos' | 'pessoas');
+   * espelho da guia Execucoes. So vale junto de uma `fonte`.
+   */
+  recurso?: string | null;
   /** Filtra por status_indexacao_agregado. */
   status?: StatusIndexacaoAgregado | null;
   /** Busca textual (min. 2 chars trimados, validado no Edge). */
@@ -406,6 +419,7 @@ interface RawColetaRegistrosResponse {
   itens?: RawRegistroColetado[];
   nextCursor?: string | null;
   contagensPorFonte?: Partial<ContagensPorFonte>;
+  contagensPorRecurso?: ContagensPorRecurso;
 }
 
 interface RawRegistroColetadoDetalhe {
@@ -569,6 +583,7 @@ function toColetaRegistrosResponse(raw: RawColetaRegistrosResponse): ColetaRegis
       drive: raw.contagensPorFonte?.drive ?? 0,
       total: raw.contagensPorFonte?.total ?? 0,
     },
+    contagensPorRecurso: raw.contagensPorRecurso ?? {},
   };
 }
 
@@ -599,6 +614,7 @@ export function fetchColetaRegistros(
     limit: params.limit,
     cursor: params.cursor,
     fonte: params.fonte,
+    recurso: params.recurso,
     status: params.status,
     busca: params.busca,
     tem_erro: params.temErro,

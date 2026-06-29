@@ -56,7 +56,7 @@ import { columnMeta, filterableMeta, matchFieldFilters } from "./table-column";
 import { usePagination, TablePager, DEFAULT_PAGE_SIZE } from "./table-pagination";
 import { ColetaRegistrosTable } from "./coleta-registros-table";
 import { useColetaRegistros } from "@/hooks/use-coleta-registros";
-import type { RegistroColetado } from "@/lib/api/coleta-registros";
+import type { RegistroColetado, FonteColeta } from "@/lib/api/coleta-registros";
 import { useRouter } from "next/navigation";
 import { CockpitToast } from "./cockpit-toast";
 import type { WorkbenchScopeRef } from "./use-workbench-layout";
@@ -85,7 +85,7 @@ const EXECUCOES_BLOCKS = [
   "acoes-linha",
 ] as const;
 
-const DADOS_BLOCKS = ["fontes", "busca"] as const;
+const DADOS_BLOCKS = ["fontes", "recurso", "busca"] as const;
 
 // Metadados das colunas para os menus icon-only da toolbar (visibilidade e
 // filtro por campo). Derivados das mesmas listas que as tabelas renderizam.
@@ -156,8 +156,10 @@ export function ColetaClient({
   const [recurso, setRecurso] = useState("todos");
   const [busca, setBusca] = useState("");
 
-  // Filtros da guia Dados.
+  // Filtros da guia Dados (dRecurso = sub-filtro single-select da fonte, igual
+  // a guia Execuções; "todos" = sem recorte por recurso).
   const [dFonte, setDFonte] = useState<FonteTab>("todas");
+  const [dRecurso, setDRecurso] = useState("todos");
   const [dBusca, setDBusca] = useState("");
 
   // Trocar de fonte zera o recurso (single-select por fonte, igual protótipo).
@@ -165,9 +167,11 @@ export function ColetaClient({
     setFonte(next);
     setRecurso("todos");
   };
-  // Trocar a fonte manualmente sai do contexto da execucao (limpa o recorte).
+  // Trocar a fonte manualmente sai do contexto da execucao (limpa o recorte) e
+  // zera o sub-filtro de recurso (single-select por fonte).
   const handleDFonteChange = (next: FonteTab) => {
     setDFonte(next);
+    setDRecurso("todos");
     setExecFilter(null);
   };
 
@@ -313,7 +317,7 @@ export function ColetaClient({
     setCursors([]);
     setCurrentCursor(null);
     setExpandedIds(new Set());
-  }, [dFonte, dBusca, execFilter]);
+  }, [dFonte, dRecurso, dBusca, execFilter]);
 
   // Polling adaptativo do hook cuida do intervalo; aqui so montamos os params.
   // Com execFilter, a lista vem do ledger (registros tocados por aquela
@@ -321,6 +325,7 @@ export function ColetaClient({
   // fonte ja foi fixada em dFonte ao clicar para os chips baterem.
   const registros = useColetaRegistros({
     fonte: dFonte === "todas" ? null : dFonte,
+    recurso: dRecurso === "todos" ? null : dRecurso,
     busca: dBusca.trim() || null,
     cursor: currentCursor,
     execucaoId: execFilter?.id ?? null,
@@ -378,17 +383,40 @@ export function ColetaClient({
     return c[tab] ?? 0;
   };
 
+  // Sub-filtro de recurso da guia Dados (espelha o da guia Execuções): só faz
+  // sentido para fontes com 2+ recursos (na prática, Nomus = processos +
+  // pessoas). Derivado das contagensPorRecurso do servidor, que vêm
+  // cumulativas (independem da página). Vazio enquanto a fonte for "todas" ou
+  // só tiver um recurso — aí o slot não renderiza.
+  const dRecursoOptions = useMemo<RecursoOption[]>(() => {
+    if (dFonte === "todas") return [];
+    const porRecurso = registros.data?.contagensPorRecurso?.[dFonte];
+    if (!porRecurso) return [];
+    return Object.entries(porRecurso).map(([value, count]) => ({
+      value,
+      label: value,
+      count,
+    }));
+  }, [dFonte, registros.data]);
+
+  // Contagem do recurso ATIVO (para o "Página X de Y" quando há sub-filtro).
+  const dRecursoCount = (recurso: string): number =>
+    registros.data?.contagensPorRecurso?.[dFonte as FonteColeta]?.[recurso] ?? 0;
+
   // Total de registros do conjunto PAGINADO (para o "Página X de Y" do rodapé,
   // igual à guia Execuções). As contagensPorFonte são cumulativas e refletem
   // exatamente o filtro de fonte; com busca textual OU filtro de execução ativo
   // o total do conjunto recortado não é conhecido (o Edge não devolve count do
   // termo nem da janela), então fica indeterminado e o rodapé cai em "Página X"
-  // sem inventar um total.
+  // sem inventar um total. Com sub-filtro de recurso ativo, o total é a
+  // contagem daquele recurso.
   const dadosTotal = dBusca.trim() || execFilter
     ? undefined
     : dFonte === "todas"
       ? registrosTotal
-      : dadoFonteCount(dFonte);
+      : dRecurso !== "todos"
+        ? dRecursoCount(dRecurso)
+        : dadoFonteCount(dFonte);
   const dadosTotalPages =
     dadosTotal && dadosTotal > 0
       ? Math.max(1, Math.ceil(dadosTotal / DEFAULT_PAGE_SIZE))
@@ -686,6 +714,16 @@ export function ColetaClient({
                   }))}
                 />
               ),
+              recurso:
+                dRecursoOptions.length > 1 ? (
+                  <RecursoFilter
+                    ariaLabel="Filtrar dados por recurso da fonte"
+                    options={dRecursoOptions}
+                    total={dFonte === "todas" ? 0 : dadoFonteCount(dFonte)}
+                    value={dRecurso}
+                    onValueChange={setDRecurso}
+                  />
+                ) : null,
               busca: (
                 <input
                   type="search"

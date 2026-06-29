@@ -299,9 +299,21 @@ export interface ContagensPorFonte {
   total: number;
 }
 
+/**
+ * Contagens cumulativas por recurso, aninhadas por fonte (ex.:
+ * { nomus: { processos: 4279, pessoas: 313 } }). Alimentam as pílulas de
+ * recurso da toolbar da guia Dados (espelho da guia Execuções). Fontes de
+ * recurso único (effecti/gmail/drive) também aparecem, mas a UI só renderiza o
+ * filtro quando há 2+ recursos (na prática, Nomus).
+ */
+export type ContagensPorRecurso = Partial<
+  Record<FonteColeta, Partial<Record<RecursoCanonical, number>>>
+>;
+
 /** GET /coleta-registros -> lista paginada por keyset + contagens. */
 export interface ColetaRegistrosResponse {
   itens: RegistroColetado[];
   nextCursor: string | null;
   contagensPorFonte: ContagensPorFonte;
+  contagensPorRecurso: ContagensPorRecurso;
 }

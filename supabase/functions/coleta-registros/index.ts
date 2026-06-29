@@ -45,6 +45,7 @@ import type {
   CabecalhoNomusPessoa,
   ColetaRegistrosResponse,
   ContagensPorFonte,
+  ContagensPorRecurso,
   EfeitoColeta,
   ErroIngestao,
   Execucao,
@@ -213,6 +214,12 @@ interface ListParams {
   limit: number;
   cursor: CursorKeyset | null;
   fonte: FonteColeta | null;
+  /**
+   * Sub-filtro de recurso da fonte (espelho da guia Execucoes): so valido
+   * junto de uma fonte e dentro da allowlist RECURSO_POR_FONTE[fonte]. null
+   * quando ausente (lista cheia da fonte).
+   */
+  recurso: RecursoCanonical | null;
   status: StatusIndexacaoAgregado | null;
   /** Termo de busca ja trimado e lowercased; null quando < 2 chars/ausente. */
   busca: string | null;
@@ -294,11 +301,31 @@ function parseListParams(req: Request): ListParams {
 
   const buscaRaw = (filtersParsed.data.busca ?? "").trim();
   const temErroRaw = filtersParsed.data.tem_erro;
+  const fonte = fonteParsed.data ?? null;
+
+  // recurso: sub-filtro da fonte. So aceito junto de uma fonte (400 sem fonte)
+  // e dentro da allowlist canonica RECURSO_POR_FONTE[fonte] (422 fora dela).
+  const recursoRaw = q.get("recurso")?.trim() || null;
+  let recurso: RecursoCanonical | null = null;
+  if (recursoRaw !== null) {
+    if (fonte === null) {
+      throw new HttpError(400, "recurso_sem_fonte", "recurso exige uma fonte selecionada");
+    }
+    if (!RECURSO_POR_FONTE[fonte].includes(recursoRaw as RecursoCanonical)) {
+      throw new HttpError(
+        422,
+        "recurso_invalido",
+        `recurso invalido para ${fonte}: use ${RECURSO_POR_FONTE[fonte].join(", ")}`,
+      );
+    }
+    recurso = recursoRaw as RecursoCanonical;
+  }
 
   return {
     limit: parseLimit(q.get("limit")),
     cursor: parseCursor(q.get("cursor")),
-    fonte: fonteParsed.data ?? null,
+    fonte,
+    recurso,
     status: filtersParsed.data.status ?? null,
     busca: buscaRaw.length >= 2 ? buscaRaw.toLowerCase() : null,
     temErro: temErroRaw === "true" || temErroRaw === "1",
@@ -380,19 +407,29 @@ function mestraRowToGroup(r: MestraRow): GroupAgg {
 }
 
 /**
- * Monta ContagensPorFonte a partir das linhas da RPC de contagem
- * (coleta_registros_contagens -> colunas fonte/qtd). Nomus ja soma
- * processos + pessoas na propria RPC (group by fonte sobre a view).
+ * Monta ContagensPorFonte + ContagensPorRecurso a partir das linhas da RPC de
+ * contagem (coleta_registros_contagens -> colunas fonte/recurso/qtd, 1 linha
+ * por par). Por fonte SOMAMOS os recursos (Nomus = processos + pessoas); por
+ * recurso aninhamos sob a fonte. Linhas com recurso null (fonte vazia) entram
+ * so no total da fonte (zero).
  */
-function buildContagens(rows: { fonte: string; qtd: number | string }[]): ContagensPorFonte {
-  const c: ContagensPorFonte = { effecti: 0, nomus: 0, gmail: 0, drive: 0, total: 0 };
+function buildContagens(
+  rows: { fonte: string; recurso: string | null; qtd: number | string }[],
+): { porFonte: ContagensPorFonte; porRecurso: ContagensPorRecurso } {
+  const porFonte: ContagensPorFonte = { effecti: 0, nomus: 0, gmail: 0, drive: 0, total: 0 };
+  const porRecurso: ContagensPorRecurso = {};
   for (const r of rows) {
     if (!FONTES.includes(r.fonte as FonteColeta)) continue;
+    const fonte = r.fonte as FonteColeta;
     const n = Number(r.qtd) || 0;
-    c[r.fonte as FonteColeta] = n;
-    c.total += n;
+    porFonte[fonte] += n;
+    porFonte.total += n;
+    if (r.recurso !== null && RECURSO_POR_FONTE[fonte].includes(r.recurso as RecursoCanonical)) {
+      const bucket = (porRecurso[fonte] ??= {});
+      bucket[r.recurso as RecursoCanonical] = n;
+    }
   }
-  return c;
+  return { porFonte, porRecurso };
 }
 
 // ---------------------------------------------------------------------
@@ -411,6 +448,7 @@ async function handleList(req: Request): Promise<Response> {
     ? await service.rpc("coleta_registros_por_execucao", {
       p_execucao_id: params.execucaoId,
       p_fonte: params.fonte,
+      p_recurso: params.recurso,
       p_status: params.status,
       p_busca: params.busca,
       p_cursor_captado_em: params.cursor?.c ?? null,
@@ -419,6 +457,7 @@ async function handleList(req: Request): Promise<Response> {
     })
     : await service.rpc("coleta_registros_listar", {
       p_fonte: params.fonte,
+      p_recurso: params.recurso,
       p_status: params.status,
       p_busca: params.busca,
       p_cursor_captado_em: params.cursor?.c ?? null,
@@ -446,8 +485,8 @@ async function handleList(req: Request): Promise<Response> {
   if (contErr) {
     throw new HttpError(500, "coleta_registros_contagens_failed", "falha ao contar registros");
   }
-  const contagensPorFonte = buildContagens(
-    (contData ?? []) as { fonte: string; qtd: number | string }[],
+  const { porFonte: contagensPorFonte, porRecurso: contagensPorRecurso } = buildContagens(
+    (contData ?? []) as { fonte: string; recurso: string | null; qtd: number | string }[],
   );
 
   // 3) Cross-ref (Effecti -> avisos; Nomus -> processos/pessoas por recurso)
@@ -510,7 +549,12 @@ async function handleList(req: Request): Promise<Response> {
     ? encodeCursor({ c: last.captadoEm, k: last.idComposto })
     : null;
 
-  const body: ColetaRegistrosResponse = { itens, nextCursor, contagensPorFonte };
+  const body: ColetaRegistrosResponse = {
+    itens,
+    nextCursor,
+    contagensPorFonte,
+    contagensPorRecurso,
+  };
   return jsonResponse(body, 200);
 }
 
