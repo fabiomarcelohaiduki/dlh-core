@@ -11,10 +11,11 @@
 //   - link_original (helper _shared/link-original.ts) + tem_link_publico.
 // Alem de `contagensPorFonte` CUMULATIVO (independente de paginacao/filtros).
 //
-// ZERO migration: tudo e READ via service_role. A agregacao GROUP BY
-// (fonte, registro_origem_id) e materializada no Edge (apoiada no indice
-// idx_documento_vinculos_fonte_registro), pois o `captado_em` do Effecti vem
-// de avisos.data_captura (cross-join) e nao pode sair de uma unica query.
+// A agregacao GROUP BY (fonte, registro_origem_id) roda no Postgres, na view
+// vw_coleta_registros_mestra (apoiada no indice idx_documento_vinculos_fonte_registro):
+// a Edge le SO a pagina via RPC coleta_registros_listar (keyset captado_em DESC,
+// id_composto ASC) e o total por fonte via coleta_registros_contagens, e enriquece
+// cabecalho/link apenas dos 25 itens da pagina. Toda leitura via service_role.
 //
 // Borda de seguranca (SPEC 5): handleCorsPreflight -> assertMethod(GET) ->
 // requireAuthorizedUser (401/403) -> validacao zod dos params -> service_role
@@ -56,10 +57,9 @@ import { z } from "zod";
 
 const FUNCTION_SEGMENT = "coleta-registros";
 
-// Paginacao da lista (keyset) e dos scans internos ao banco.
+// Paginacao da lista (keyset) e tamanho do lote nas consultas `.in(...)`.
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
-const SCAN_PAGE = 1000; // teto de linhas por requisicao PostgREST.
 const IN_CHUNK = 300; // tamanho do lote em consultas `.in(...)` (limite de URL).
 
 // Fontes e status agregados travados (enums do dominio).
@@ -72,23 +72,25 @@ const STATUS_AGREGADO = [
   "mista",
 ] as const;
 
-// Particionamento dos status_extracao do vinculo nas contagens/agregado.
-const PENDENTE_SET = new Set(["pendente", "precisa_ocr"]);
-const ERRO_SET = new Set(["erro", "inobtenivel"]);
-const EXTRAIDO_SET = new Set(["extraido", "herdado"]);
-
 // ---------------------------------------------------------------------
 // Tipos internos (linhas lidas do banco e agregado por registro).
 // ---------------------------------------------------------------------
 
-interface VinculoScanRow {
-  id: string;
+/** Linha da view vw_coleta_registros_mestra (1 por registro mestre). */
+interface MestraRow {
+  id_composto: string;
   fonte: string;
   registro_origem_id: string;
-  nome_anexo: string | null;
-  status_extracao: string;
-  documento_id: string | null;
-  created_at: string;
+  captado_em: string;
+  qtd_documentos: number;
+  qtd_pendentes: number;
+  qtd_erros: number;
+  qtd_ignorado: number;
+  status_indexacao_agregado: string;
+  titulo_curto: string;
+  rep_id: string;
+  rep_nome_anexo: string | null;
+  rep_documento_id: string | null;
 }
 
 interface AvisoLite {
@@ -111,7 +113,11 @@ interface NomusLite {
   data_criacao: string | null;
 }
 
-/** Agregado mutavel de 1 registro (linha mestra) durante o processamento. */
+/**
+ * Linha mestra ja resolvida (vinda da view) consumida pelo montador de itens
+ * da pagina. Espelha vw_coleta_registros_mestra em camelCase; o vinculo
+ * representativo (rep*) alimenta o cabecalho Gmail/Drive.
+ */
 interface GroupAgg {
   fonte: FonteColeta;
   origemId: string;
@@ -120,26 +126,17 @@ interface GroupAgg {
   qtdPendentes: number;
   qtdErros: number;
   qtdIgnorado: number;
-  hasPendente: boolean;
-  hasExtraido: boolean;
-  hasErro: boolean;
-  // Vinculo representativo (menor created_at; desempate por id): origem do
-  // cabecalho Gmail/Drive e do captado_em das fontes nao-Effecti.
   repId: string;
-  repCreatedMs: number;
-  repCreatedIso: string;
   repNomeAnexo: string | null;
   repDocumentoId: string | null;
-  // Preenchidos na fase de enriquecimento (cross-ref + derivacao).
   captadoEm: string;
-  captadoMs: number;
   tituloCurto: string;
   statusAgregado: StatusIndexacaoAgregado;
 }
 
 interface CursorKeyset {
-  /** captado_em em epoch millis (chave primaria do keyset, DESC). */
-  t: number;
+  /** captado_em (timestamptz ISO, precisao plena; chave do keyset, DESC). */
+  c: string;
   /** id_composto (tiebreaker estavel, ASC). */
   k: string;
 }
@@ -190,17 +187,17 @@ function parseLimit(raw: string | null): number {
   return Math.min(n, MAX_LIMIT);
 }
 
-/** Cursor opaco base64(JSON {t,k}); malformado -> 400. */
+/** Cursor opaco base64(JSON {c,k}); malformado -> 400. */
 function parseCursor(raw: string | null): CursorKeyset | null {
   if (raw === null || raw.trim() === "") return null;
   try {
     const decoded = JSON.parse(atob(raw)) as unknown;
     if (
       decoded && typeof decoded === "object" &&
-      typeof (decoded as CursorKeyset).t === "number" &&
+      typeof (decoded as CursorKeyset).c === "string" &&
       typeof (decoded as CursorKeyset).k === "string"
     ) {
-      return { t: (decoded as CursorKeyset).t, k: (decoded as CursorKeyset).k };
+      return { c: (decoded as CursorKeyset).c, k: (decoded as CursorKeyset).k };
     }
     throw new Error("formato invalido");
   } catch {
@@ -265,26 +262,6 @@ function parseListParams(req: Request): ListParams {
 
 type QueryResult = { data: unknown[] | null; error: { message: string } | null };
 
-/** Le TODAS as linhas de uma consulta paginando por `.range` (snapshot do request). */
-async function scanAll(
-  label: string,
-  run: (from: number, to: number) => PromiseLike<QueryResult>,
-): Promise<unknown[]> {
-  const out: unknown[] = [];
-  let from = 0;
-  for (;;) {
-    const { data, error } = await run(from, from + SCAN_PAGE - 1);
-    if (error) {
-      throw new HttpError(500, `${label}_query_failed`, `falha ao consultar ${label}`);
-    }
-    const rows = data ?? [];
-    out.push(...rows);
-    if (rows.length < SCAN_PAGE) break;
-    from += SCAN_PAGE;
-  }
-  return out;
-}
-
 /** Resolve linhas por uma lista de ids, em lotes (evita estourar a URL). */
 async function fetchByIn(
   label: string,
@@ -317,105 +294,33 @@ function jsonStr(obj: unknown, key: string): string | null {
   return null;
 }
 
-/** status_indexacao_agregado por precedencia deterministica (SPEC 4.5.4). */
-function deriveStatusAgregado(g: GroupAgg): StatusIndexacaoAgregado {
-  if (g.hasPendente) return "em_andamento"; // 1) {pendente, precisa_ocr}
-  if (g.hasExtraido && !g.hasErro) return "concluida"; // 2)
-  if (g.hasErro && !g.hasExtraido) return "erro"; // 3)
-  if (g.hasExtraido && g.hasErro) return "mista"; // 4)
-  return "pendente"; // 5) so 'ignorado' ou sem vinculos resolvidos
+/** Mapeia 1 linha da view (snake_case) para o modelo da pagina (camelCase). */
+function mestraRowToGroup(r: MestraRow): GroupAgg {
+  return {
+    fonte: r.fonte as FonteColeta,
+    origemId: r.registro_origem_id,
+    idComposto: r.id_composto,
+    qtdDocumentos: r.qtd_documentos,
+    qtdPendentes: r.qtd_pendentes,
+    qtdErros: r.qtd_erros,
+    qtdIgnorado: r.qtd_ignorado,
+    repId: r.rep_id,
+    repNomeAnexo: r.rep_nome_anexo,
+    repDocumentoId: r.rep_documento_id,
+    captadoEm: r.captado_em,
+    tituloCurto: r.titulo_curto,
+    statusAgregado: r.status_indexacao_agregado as StatusIndexacaoAgregado,
+  };
 }
 
-/** Comparador da ordenacao fixa: captado_em DESC, id_composto ASC. */
-function compareGroups(a: GroupAgg, b: GroupAgg): number {
-  if (a.captadoMs !== b.captadoMs) return b.captadoMs - a.captadoMs;
-  if (a.idComposto < b.idComposto) return -1;
-  if (a.idComposto > b.idComposto) return 1;
-  return 0;
-}
-
-/** true quando `g` vem ESTRITAMENTE depois do cursor na ordenacao fixa. */
-function isAfterCursor(g: GroupAgg, cursor: CursorKeyset): boolean {
-  if (g.captadoMs < cursor.t) return true;
-  if (g.captadoMs > cursor.t) return false;
-  return g.idComposto > cursor.k;
-}
-
-// ---------------------------------------------------------------------
-// Agregacao da lista mestra.
-// ---------------------------------------------------------------------
-
-/** Le todos os vinculos e agrega por (fonte, registro_origem_id). */
-function buildGroups(rows: VinculoScanRow[]): Map<string, GroupAgg> {
-  const groups = new Map<string, GroupAgg>();
-
-  for (const row of rows) {
-    if (!FONTES.includes(row.fonte as FonteColeta)) continue; // guarda defensiva
-    const fonte = row.fonte as FonteColeta;
-    const idComposto = `${fonte}:${row.registro_origem_id}`;
-    const createdMs = Date.parse(row.created_at);
-    const safeMs = Number.isFinite(createdMs) ? createdMs : 0;
-
-    let g = groups.get(idComposto);
-    if (!g) {
-      g = {
-        fonte,
-        origemId: row.registro_origem_id,
-        idComposto,
-        qtdDocumentos: 0,
-        qtdPendentes: 0,
-        qtdErros: 0,
-        qtdIgnorado: 0,
-        hasPendente: false,
-        hasExtraido: false,
-        hasErro: false,
-        repId: row.id,
-        repCreatedMs: safeMs,
-        repCreatedIso: row.created_at,
-        repNomeAnexo: row.nome_anexo,
-        repDocumentoId: row.documento_id,
-        captadoEm: row.created_at,
-        captadoMs: safeMs,
-        tituloCurto: row.registro_origem_id,
-        statusAgregado: "pendente",
-      };
-      groups.set(idComposto, g);
-    }
-
-    // Contagens por particao de status.
-    g.qtdDocumentos += 1;
-    const s = row.status_extracao;
-    if (PENDENTE_SET.has(s)) {
-      g.qtdPendentes += 1;
-      g.hasPendente = true;
-    } else if (ERRO_SET.has(s)) {
-      g.qtdErros += 1;
-      g.hasErro = true;
-    } else if (EXTRAIDO_SET.has(s)) {
-      g.hasExtraido = true;
-    } else if (s === "ignorado") {
-      g.qtdIgnorado += 1;
-    }
-
-    // Representativo = menor created_at (desempate por id).
-    if (safeMs < g.repCreatedMs || (safeMs === g.repCreatedMs && row.id < g.repId)) {
-      g.repId = row.id;
-      g.repCreatedMs = safeMs;
-      g.repCreatedIso = row.created_at;
-      g.repNomeAnexo = row.nome_anexo;
-      g.repDocumentoId = row.documento_id;
-    }
-  }
-
-  return groups;
-}
-
-/** Contagem CUMULATIVA por fonte (1 por registro), independente de filtros. */
-function buildContagens(groups: Iterable<GroupAgg>): ContagensPorFonte {
+/** Monta ContagensPorFonte a partir das linhas da RPC de contagem. */
+function buildContagens(rows: { fonte: string; total: number | string }[]): ContagensPorFonte {
   const c: ContagensPorFonte = { effecti: 0, nomus: 0, gmail: 0, drive: 0, total: 0 };
-  for (const g of groups) {
-    c[g.fonte] += 1;
-    c.total += 1;
+  for (const r of rows) {
+    if (!FONTES.includes(r.fonte as FonteColeta)) continue;
+    const n = Number(r.total) || 0;
+    c[r.fonte as FonteColeta] = n;
+    c.total += n;
   }
   return c;
 }
@@ -428,29 +333,36 @@ async function handleList(req: Request): Promise<Response> {
   const params = parseListParams(req);
   const service = createServiceClient();
 
-  // 1) Scan completo de documento_vinculos (snapshot do request).
-  const vinculoRows = (await scanAll("documento_vinculos", (from, to) =>
-    service
-      .from("documento_vinculos")
-      .select(
-        "id, fonte, registro_origem_id, nome_anexo, status_extracao, documento_id, created_at",
-      )
-      .order("id", { ascending: true })
-      .range(from, to))) as VinculoScanRow[];
+  // 1) Pagina por keyset (RPC). Pede limit+1 p/ saber se ha proxima pagina.
+  const { data: pageData, error: pageErr } = await service.rpc("coleta_registros_listar", {
+    p_fonte: params.fonte,
+    p_status: params.status,
+    p_tem_erro: params.temErro,
+    p_busca: params.busca,
+    p_cursor_captado: params.cursor?.c ?? null,
+    p_cursor_id: params.cursor?.k ?? null,
+    p_limit: params.limit + 1,
+  });
+  if (pageErr) {
+    throw new HttpError(500, "coleta_registros_listar_failed", "falha ao listar registros");
+  }
+  const rows = (pageData ?? []) as MestraRow[];
+  const hasMore = rows.length > params.limit;
+  const pageGroups = (hasMore ? rows.slice(0, params.limit) : rows).map(mestraRowToGroup);
 
-  const groups = buildGroups(vinculoRows);
+  // 2) contagensPorFonte: total por fonte (cumulativo, sem filtros) via RPC.
+  const { data: contData, error: contErr } = await service.rpc("coleta_registros_contagens");
+  if (contErr) {
+    throw new HttpError(500, "coleta_registros_contagens_failed", "falha ao contar registros");
+  }
+  const contagensPorFonte = buildContagens(
+    (contData ?? []) as { fonte: string; total: number | string }[],
+  );
 
-  // 2) contagensPorFonte e cumulativo: calculado ANTES de qualquer filtro.
-  const contagensPorFonte = buildContagens(groups.values());
-
-  // 3) Cross-ref leve (Effecti -> avisos; Nomus -> nomus_processos) para
-  //    captado_em/titulo_curto/busca/aviso_id e cabecalho dos itens da pagina.
-  const effectiIds = [...groups.values()]
-    .filter((g) => g.fonte === "effecti")
-    .map((g) => g.origemId);
-  const nomusIds = [...groups.values()]
-    .filter((g) => g.fonte === "nomus")
-    .map((g) => g.origemId);
+  // 3) Cross-ref (Effecti -> avisos; Nomus -> nomus_processos) APENAS dos itens
+  //    da pagina, para o cabecalho discriminado / aviso_id / execucao de origem.
+  const effectiIds = pageGroups.filter((g) => g.fonte === "effecti").map((g) => g.origemId);
+  const nomusIds = pageGroups.filter((g) => g.fonte === "nomus").map((g) => g.origemId);
 
   const avisosByEffecti = new Map<string, AvisoLite>();
   if (effectiIds.length > 0) {
@@ -474,80 +386,17 @@ async function handleList(req: Request): Promise<Response> {
     for (const n of nomusRows) nomusById.set(n.nomus_id, n);
   }
 
-  // 4) Enriquecimento: captado_em, titulo_curto, status agregado, busca.
-  for (const g of groups.values()) {
-    g.statusAgregado = deriveStatusAgregado(g);
+  // 4) Cabecalho discriminado + link_original APENAS para os itens da pagina.
+  const itens = await buildPageItems(service, pageGroups, avisosByEffecti, nomusById);
 
-    if (g.fonte === "effecti") {
-      const aviso = avisosByEffecti.get(g.origemId);
-      g.captadoEm = aviso?.data_captura ?? g.repCreatedIso;
-      g.tituloCurto = (aviso?.objeto ?? "").trim() || g.origemId;
-    } else if (g.fonte === "nomus") {
-      g.captadoEm = g.repCreatedIso;
-      g.tituloCurto = g.origemId; // nomus_id
-    } else {
-      // gmail / drive: captado_em do vinculo; titulo = nome do anexo/arquivo.
-      g.captadoEm = g.repCreatedIso;
-      g.tituloCurto = (g.repNomeAnexo ?? "").trim() || g.origemId;
-    }
-    const ms = Date.parse(g.captadoEm);
-    g.captadoMs = Number.isFinite(ms) ? ms : 0;
-  }
-
-  // 5) Filtros server-side (fonte, status agregado, tem_erro, busca).
-  const filtered: GroupAgg[] = [];
-  for (const g of groups.values()) {
-    if (params.fonte && g.fonte !== params.fonte) continue;
-    if (params.status && g.statusAgregado !== params.status) continue;
-    if (params.temErro && g.qtdErros <= 0) continue;
-    if (params.busca && !matchesBusca(g, params.busca, avisosByEffecti, nomusById)) continue;
-    filtered.push(g);
-  }
-
-  // 6) Ordenacao fixa + paginacao keyset.
-  filtered.sort(compareGroups);
-  let startIdx = 0;
-  if (params.cursor) {
-    const found = filtered.findIndex((g) => isAfterCursor(g, params.cursor as CursorKeyset));
-    startIdx = found < 0 ? filtered.length : found;
-  }
-  const pageGroups = filtered.slice(startIdx, startIdx + params.limit);
-  const hasMore = startIdx + pageGroups.length < filtered.length;
+  // 5) Cursor da proxima pagina (captado_em + id_composto da ultima linha).
   const last = pageGroups[pageGroups.length - 1];
   const nextCursor = hasMore && last
-    ? encodeCursor({ t: last.captadoMs, k: last.idComposto })
+    ? encodeCursor({ c: last.captadoEm, k: last.idComposto })
     : null;
-
-  // 7) Cabecalho discriminado + link_original APENAS para os itens da pagina.
-  const itens = await buildPageItems(service, pageGroups, avisosByEffecti, nomusById);
 
   const body: ColetaRegistrosResponse = { itens, nextCursor, contagensPorFonte };
   return jsonResponse(body, 200);
-}
-
-/** Match de busca por fonte (case-insensitive, substring). */
-function matchesBusca(
-  g: GroupAgg,
-  termo: string,
-  avisosByEffecti: Map<string, AvisoLite>,
-  nomusById: Map<string, NomusLite>,
-): boolean {
-  const has = (v: string | null | undefined) => !!v && v.toLowerCase().includes(termo);
-  switch (g.fonte) {
-    case "effecti": {
-      const a = avisosByEffecti.get(g.origemId);
-      return has(a?.objeto) || has(a?.orgao);
-    }
-    case "nomus": {
-      const n = nomusById.get(g.origemId);
-      return has(g.origemId) || has(n?.pessoa);
-    }
-    case "gmail":
-    case "drive":
-      return has(g.repNomeAnexo);
-    default:
-      return false;
-  }
 }
 
 /** Monta os RegistroColetado finais (cabecalho + link) dos itens da pagina. */
