@@ -235,6 +235,110 @@ export function fetchExtracaoResumo(): Promise<ExtracaoResumo> {
 }
 
 // ---------------------------------------------------------------------
+// Fila de extracao PAGINADA (guia "Fila de extracao"). Diferente do resumo
+// (que capa cada status em 200 e le tudo no Deno), aqui a pagina vem do
+// Postgres via keyset -> recall total, sem cap. Cursor opaco {u,k} (u=
+// updated_at ISO, k=id). Contagens por fonte (chips), por status (cards)
+// e total chegam junto. O item usa o MESMO formato de ExtracaoItem.
+// ---------------------------------------------------------------------
+
+/** Cursor opaco do keyset da fila (updated_at DESC, id ASC). */
+export interface ExtracaoFilaCursor {
+  u: string;
+  k: string;
+}
+
+export interface ExtracaoFilaParams {
+  fonte?: FonteReprocessavel | null;
+  status?: StatusItemExtracao | null;
+  busca?: string | null;
+  cursor?: ExtracaoFilaCursor | null;
+  limit?: number;
+}
+
+export interface ExtracaoFilaContagens {
+  porFonte: { effecti: number; nomus: number; gmail: number; drive: number };
+  porStatus: {
+    pendente: number;
+    extraido: number;
+    herdado: number;
+    erro: number;
+    precisa_ocr: number;
+    inobtenivel: number;
+    ignorado: number;
+  };
+  total: number;
+}
+
+export interface ExtracaoFilaResponse {
+  itens: ExtracaoItem[];
+  nextCursor: ExtracaoFilaCursor | null;
+  contagens: ExtracaoFilaContagens;
+}
+
+interface ExtracaoFilaRaw {
+  itens?: Array<Partial<ExtracaoItem> & { id: string; status: StatusItemExtracao }>;
+  nextCursor?: ExtracaoFilaCursor | null;
+  contagens?: {
+    porFonte?: Partial<ExtracaoFilaContagens["porFonte"]>;
+    porStatus?: Partial<ExtracaoFilaContagens["porStatus"]>;
+    total?: number;
+  };
+}
+
+/**
+ * POST /documentos-descobrir { action:'fila-paginada' } — uma pagina (keyset)
+ * da fila de extracao + contagens. Filtros fonte/status/busca opcionais; cursor
+ * ausente = primeira pagina. nextCursor null = fim da fila.
+ */
+export function fetchExtracaoFila(
+  params: ExtracaoFilaParams = {},
+): Promise<ExtracaoFilaResponse> {
+  const body: Record<string, unknown> = { action: "fila-paginada" };
+  if (params.fonte) body.fonte = params.fonte;
+  if (params.status) body.status = params.status;
+  if (params.busca) body.busca = params.busca;
+  if (params.cursor) body.cursor = params.cursor;
+  if (params.limit !== undefined) body.limit = params.limit;
+  return apiFetch<ExtracaoFilaRaw>("documentos-descobrir", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }).then((raw) => ({
+    itens: (raw.itens ?? []).map((e) => ({
+      id: e.id,
+      status: e.status,
+      fonte: e.fonte ?? null,
+      processoId: e.processoId ?? null,
+      nomeAnexo: e.nomeAnexo ?? null,
+      extensao: e.extensao ?? null,
+      url: e.url ?? null,
+      avisoUrl: e.avisoUrl ?? null,
+      erro: e.erro ?? null,
+      quando: e.quando ?? null,
+    })),
+    nextCursor: raw.nextCursor ?? null,
+    contagens: {
+      porFonte: {
+        effecti: raw.contagens?.porFonte?.effecti ?? 0,
+        nomus: raw.contagens?.porFonte?.nomus ?? 0,
+        gmail: raw.contagens?.porFonte?.gmail ?? 0,
+        drive: raw.contagens?.porFonte?.drive ?? 0,
+      },
+      porStatus: {
+        pendente: raw.contagens?.porStatus?.pendente ?? 0,
+        extraido: raw.contagens?.porStatus?.extraido ?? 0,
+        herdado: raw.contagens?.porStatus?.herdado ?? 0,
+        erro: raw.contagens?.porStatus?.erro ?? 0,
+        precisa_ocr: raw.contagens?.porStatus?.precisa_ocr ?? 0,
+        inobtenivel: raw.contagens?.porStatus?.inobtenivel ?? 0,
+        ignorado: raw.contagens?.porStatus?.ignorado ?? 0,
+      },
+      total: raw.contagens?.total ?? 0,
+    },
+  }));
+}
+
+// ---------------------------------------------------------------------
 // Config da camada 1 do extrator (singleton config_extracao). A LEITURA
 // e hidratada server-side via RLS na pagina Fontes; aqui fica so a ESCRITA
 // (PUT), que precisa passar pelo Edge (service_role + audit). Contrato em

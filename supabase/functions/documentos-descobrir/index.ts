@@ -352,6 +352,143 @@ async function montarResumo(service: ServiceClient): Promise<unknown> {
 }
 
 // ---------------------------------------------------------------------
+// action='fila-paginada': LEITURA paginada (keyset) da fila de extracao,
+// para a guia "Fila de extracao". Diferente de 'resumo' (que capa cada
+// status em 200 e le tudo no Deno), aqui a pagina vem do Postgres via RPC
+// extracao_fila_listar -> recall total, sem cap. As contagens (chips de
+// fonte + cards de status + total) vem de extracao_fila_contagens(). O item
+// usa o MESMO formato do resumo (linkDoVinculo/extensaoDoNome/avisoUrl).
+// ---------------------------------------------------------------------
+const FILA_PAGE_DEFAULT = 50;
+const FILA_PAGE_MAX = 200;
+
+interface FilaCursor {
+  u: string; // updated_at ISO (limite superior, exclusivo no keyset)
+  k: string; // id (uuid) do ultimo item da pagina
+}
+
+interface FilaListParams {
+  fonte: FonteDescobrivel | null;
+  status: StatusVinculo | null;
+  busca: string | null;
+  cursor: FilaCursor | null;
+  limit: number;
+}
+
+function parseFilaListParams(o: Record<string, unknown>): FilaListParams {
+  const fonteRaw = typeof o.fonte === "string" ? o.fonte : null;
+  const fonte = fonteRaw && FONTES_DESCOBRIVEIS.includes(fonteRaw as FonteDescobrivel)
+    ? (fonteRaw as FonteDescobrivel)
+    : null;
+
+  const statusRaw = typeof o.status === "string" ? o.status : null;
+  const status = statusRaw && STATUS_VINCULO.includes(statusRaw as StatusVinculo)
+    ? (statusRaw as StatusVinculo)
+    : null;
+
+  const busca = typeof o.busca === "string" && o.busca.trim() !== ""
+    ? o.busca.trim().slice(0, 200)
+    : null;
+
+  let cursor: FilaCursor | null = null;
+  if (o.cursor && typeof o.cursor === "object") {
+    const c = o.cursor as Record<string, unknown>;
+    const u = typeof c.u === "string" ? c.u : "";
+    const k = typeof c.k === "string" ? c.k : "";
+    if (u && UUID_RE.test(k)) cursor = { u, k };
+  }
+
+  let limit = FILA_PAGE_DEFAULT;
+  const lim = typeof o.limit === "number" ? o.limit : NaN;
+  if (Number.isFinite(lim) && lim > 0) {
+    limit = Math.min(Math.floor(lim), FILA_PAGE_MAX);
+  }
+
+  return { fonte, status, busca, cursor, limit };
+}
+
+/** Mapeia uma linha crua de documento_vinculos para o item da fila (mesmo
+ * formato do resumo: link do anexo, extensao, link do aviso Effecti). */
+function mapItemFila(r: Record<string, unknown>): Record<string, unknown> {
+  const nome = typeof r.nome_anexo === "string" ? r.nome_anexo : null;
+  const fonte = typeof r.fonte === "string" ? r.fonte : null;
+  const processoId = r.registro_origem_id ?? null;
+  return {
+    id: String(r.id),
+    status: typeof r.status_extracao === "string" ? r.status_extracao : null,
+    fonte,
+    processoId,
+    nomeAnexo: nome,
+    extensao: extensaoDoNome(nome),
+    url: fonte ? linkDoVinculo(fonte, r.ref_obtencao) : null,
+    avisoUrl: fonte === "effecti" && processoId != null
+      ? `https://minha.effecti.com.br/#/aviso-edital-minhas/${processoId}`
+      : null,
+    erro: typeof r.erro === "string" ? r.erro : null,
+    quando: r.updated_at ?? null,
+  };
+}
+
+/** Dobra (fonte, status, qtd) em contagens por fonte (chips), por status
+ * (cards) e total. As 4 fontes vem sempre da RPC (linha NULL/0 quando vazia). */
+function dobrarContagens(linhas: Array<Record<string, unknown>>): {
+  porFonte: Record<string, number>;
+  porStatus: Record<string, number>;
+  total: number;
+} {
+  const porFonte: Record<string, number> = { effecti: 0, nomus: 0, gmail: 0, drive: 0 };
+  const porStatus: Record<string, number> = {};
+  for (const s of STATUS_VINCULO) porStatus[s] = 0;
+  let total = 0;
+  for (const l of linhas) {
+    const fonte = typeof l.fonte === "string" ? l.fonte : null;
+    const status = typeof l.status === "string" ? l.status : null;
+    const qtd = typeof l.qtd === "number" ? l.qtd : Number(l.qtd ?? 0);
+    if (!status) continue; // linha de fonte-vazia (placeholder): nao soma
+    if (fonte && fonte in porFonte) porFonte[fonte] += qtd;
+    if (status in porStatus) porStatus[status] += qtd;
+    total += qtd;
+  }
+  return { porFonte, porStatus, total };
+}
+
+async function montarFilaPaginada(
+  service: ServiceClient,
+  params: FilaListParams,
+): Promise<unknown> {
+  // +1 para detectar se ha proxima pagina sem um COUNT separado.
+  const { data: linhas, error: errList } = await service.rpc("extracao_fila_listar", {
+    p_fonte: params.fonte,
+    p_status: params.status,
+    p_busca: params.busca,
+    p_cursor_updated_at: params.cursor?.u ?? null,
+    p_cursor_id: params.cursor?.k ?? null,
+    p_limit: params.limit + 1,
+  });
+  if (errList) {
+    throw new HttpError(500, "fila_listar_falhou", "falha ao listar a fila de extracao");
+  }
+  const todas = (linhas ?? []) as Array<Record<string, unknown>>;
+  const temMais = todas.length > params.limit;
+  const pagina = temMais ? todas.slice(0, params.limit) : todas;
+  const itens = pagina.map(mapItemFila);
+
+  let nextCursor: FilaCursor | null = null;
+  if (temMais && pagina.length > 0) {
+    const ultimo = pagina[pagina.length - 1];
+    nextCursor = { u: String(ultimo.updated_at), k: String(ultimo.id) };
+  }
+
+  const { data: contLinhas, error: errCont } = await service.rpc("extracao_fila_contagens");
+  if (errCont) {
+    throw new HttpError(500, "fila_contagens_falhou", "falha ao contar a fila de extracao");
+  }
+  const contagens = dobrarContagens((contLinhas ?? []) as Array<Record<string, unknown>>);
+
+  return { itens, nextCursor, contagens };
+}
+
+// ---------------------------------------------------------------------
 // action='reprocessar-erros': re-enfileira os vinculos terminais
 // (status_extracao -> 'pendente', limpa a msg de erro), opcionalmente
 // filtrando por fonte. O status alvo e contextual ao card selecionado no
@@ -623,6 +760,12 @@ async function handler(req: Request): Promise<Response> {
     // LEITURA: resumo de status + erros (cockpit). Nao audita (sem efeito).
     if (body.action === "resumo") {
       return jsonResponse(await montarResumo(service), 200);
+    }
+
+    // LEITURA paginada (keyset) da fila de extracao p/ a guia "Fila de
+    // extracao": pagina + contagens (chips/cards/total). Nao audita.
+    if (body.action === "fila-paginada") {
+      return jsonResponse(await montarFilaPaginada(service, parseFilaListParams(body)), 200);
     }
 
     // ESCRITA: re-enfileira os vinculos terminais (cockpit). Fonte opcional.

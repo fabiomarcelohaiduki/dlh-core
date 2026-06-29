@@ -35,9 +35,14 @@ import type {
   AgendamentosColetaData,
   EscopoColetaData,
 } from "@/lib/fontes-credenciais-data";
+import type {
+  AgendamentoExtracaoState,
+  ConfigExtracaoState,
+} from "@/lib/api/types";
 import { WorkbenchTemplate } from "./workbench-template";
 import { AgendamentoColeta } from "./agendamento-coleta";
 import { EscopoColeta } from "./escopo-coleta";
+import { ExtracaoFilaView } from "./extracao-fila-view";
 import { LogsConsole } from "./logs-console";
 import {
   RunsTable,
@@ -64,7 +69,7 @@ import type { WorkbenchScopeRef } from "./use-workbench-layout";
 const RUNNING_POLL_MS = 3000;
 const FALLBACK_POLL_MS = 5000;
 
-type Subtab = "execucoes" | "dados" | "escopo" | "agendamento" | "logs";
+type Subtab = "execucoes" | "dados" | "extracao" | "escopo" | "agendamento" | "logs";
 type FonteTab = "todas" | OrigemKey;
 
 const FONTE_TABS: { value: FonteTab; label: string }[] = [
@@ -121,9 +126,15 @@ type ExecFilter = {
 export function ColetaClient({
   agendamentos,
   escopo,
+  nomusConfigurado,
+  configExtracao,
+  agendamentoExtracao,
 }: {
   agendamentos: AgendamentosColetaData;
   escopo: EscopoColetaData;
+  nomusConfigurado: boolean;
+  configExtracao: ConfigExtracaoState;
+  agendamentoExtracao: AgendamentoExtracaoState;
 }) {
   const [subtab, setSubtab] = useState<Subtab>("execucoes");
 
@@ -545,6 +556,7 @@ export function ColetaClient({
         items={[
           { value: "execucoes", label: "Execuções", count: contagens?.total ?? allRuns.length },
           { value: "dados", label: "Dados", count: registrosTotal },
+          { value: "extracao", label: "Fila de extração" },
           { value: "escopo", label: "Escopo" },
           { value: "agendamento", label: "Agendamento", count: agendamentosAtivos },
           { value: "logs", label: "Logs" },
@@ -784,6 +796,16 @@ export function ColetaClient({
               }
             />
           </WorkbenchTemplate>
+        </div>
+      )}
+
+      {subtab === "extracao" && (
+        <div data-subpane="coleta-extracao" data-scope="ingestao/coleta/extracao">
+          <ExtracaoFilaView
+            nomusConfigurado={nomusConfigurado}
+            configExtracao={configExtracao}
+            agendamentoExtracao={agendamentoExtracao}
+          />
         </div>
       )}
 
