@@ -44,6 +44,22 @@ docs/pasta sera excluida/
 
 # supabase (estado local do CLI)
 supabase/.temp/
-# scratch de desenvolvedor (convencao _tmp_ = descartavel, nao commitar)
-scripts/_tmp_*.mjs
-scripts/_tmp_*.ts
+
+# WIP local que nunca entra no repo (specs, docs, scripts de apoio, artefatos de
+# pipeline e ferramentas). Tudo fica no disco, so nao e versionado. Os arquivos
+# ja rastreados foram destrackeados via `git rm --cached` no mesmo commit.
+/SPEC.md
+/SPEC_PROGRESS.md
+/docs/
+/scripts/
+/skill/
+/.lionclaw/
+/.codegraph/
+/.dlh-dryrun/
+/discovery-notes.md
+/.sprint-validation-report.md
+
+# Teste orfao: escrito contra um refactor de ingestao-orquestrar (OrquestradorDeps,
+# tickFonte) que ainda nao existe no index.ts -> nao type-checka. Fica no disco ate
+# o refactor acontecer; remover esta linha quando for committar junto.
+supabase/functions/ingestao-orquestrar/index_test.ts
