@@ -133,6 +133,20 @@ export function CabecalhoDiscriminadoRenderer({
         </CabecalhoGrid>
       );
     case "nomus":
+      // Dentro de Nomus, o `recurso` discrimina o bloco renderizado.
+      if (cabecalho.recurso === "pessoas") {
+        return (
+          <CabecalhoGrid>
+            <Field label="Nome" value={cabecalho.nome} />
+            <Field label="Documento (CNPJ)" value={cabecalho.cnpj} />
+            <Field label="Tipo de pessoa" value={cabecalho.tipoPessoa} />
+            <Field label="Município" value={cabecalho.municipio} />
+            <Field label="UF" value={cabecalho.uf} />
+            <Field label="Código" value={cabecalho.codigo} />
+            <Field label="ID Nomus" value={cabecalho.nomusId} />
+          </CabecalhoGrid>
+        );
+      }
       return (
         <CabecalhoGrid>
           <Field label="ID Nomus" value={cabecalho.nomusId} />

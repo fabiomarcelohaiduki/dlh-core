@@ -293,11 +293,12 @@ export function coletaStatusDescriptor(status: StatusExtracao): PillDescriptor {
  * status_indexacao_agregado) -> pill. Mapeamento travado da SPEC 4.5.3 (5
  * status agregados -> 5 PillState), reusando exclusivamente os PillState
  * existentes (sem novos tokens de cor):
- *  concluida     -> ok    "Concluída"
- *  em_andamento  -> run   "Indexando"
- *  erro          -> err   "Erro"
- *  mista         -> warn  "Parcial"
- *  pendente      -> idle  "Pendente"
+ *  concluida      -> ok    "Concluída"
+ *  em_andamento   -> run   "Indexando"
+ *  erro           -> err   "Erro"
+ *  mista          -> warn  "Parcial"
+ *  sem_documentos -> idle  "Sem anexos"
+ *  pendente       -> idle  "Pendente"
  */
 export function indexacaoAgregadoDescriptor(
   status: StatusIndexacaoAgregado,
@@ -311,6 +312,8 @@ export function indexacaoAgregadoDescriptor(
       return { state: "err", label: "Erro" };
     case "mista":
       return { state: "warn", label: "Parcial" };
+    case "sem_documentos":
+      return { state: "idle", label: "Sem anexos" };
     case "pendente":
     default:
       return { state: "idle", label: "Pendente" };

@@ -38,7 +38,8 @@ export type StatusIndexacaoAgregado =
   | "em_andamento"
   | "concluida"
   | "erro"
-  | "mista";
+  | "mista"
+  | "sem_documentos";
 
 // ---------------------------------------------------------------------
 // Cabecalho discriminado por fonte (camelCase; SPEC 3.2.1).
@@ -61,11 +62,27 @@ export interface CabecalhoEffecti {
 /** Cabecalho de um processo Nomus (colunas diretas de `nomus_processos`). */
 export interface CabecalhoNomus {
   fonte: "nomus";
+  recurso: "processos";
   nomusId: string;
   etapa: string | null;
   pessoa: string | null;
   tipo: string | null;
   dataCriacao: string | null;
+}
+
+/** Cabecalho de uma pessoa Nomus (colunas diretas de `nomus_pessoas`). */
+export interface CabecalhoNomusPessoa {
+  fonte: "nomus";
+  recurso: "pessoas";
+  nome: string;
+  cnpj: string | null;
+  tipoPessoa: string | null;
+  municipio: string | null;
+  uf: string | null;
+  /** Categorias da pessoa; fora de escopo de renderizacao nesta feature (E6). */
+  categorias?: string[] | null;
+  codigo: string | null;
+  nomusId: string;
 }
 
 /** Cabecalho de um item Gmail (documento_vinculos + ref_obtencao). */
@@ -84,10 +101,14 @@ export interface CabecalhoDrive {
   mimeType: string | null;
 }
 
-/** Discriminated union pelo campo `fonte`. */
+/**
+ * Discriminated union pelo campo `fonte` (e, dentro de Nomus, por `recurso`:
+ * 'processos' | 'pessoas').
+ */
 export type CabecalhoDiscriminado =
   | CabecalhoEffecti
   | CabecalhoNomus
+  | CabecalhoNomusPessoa
   | CabecalhoGmail
   | CabecalhoDrive;
 
@@ -241,11 +262,25 @@ interface RawCabecalhoEffecti {
 
 interface RawCabecalhoNomus {
   fonte: "nomus";
+  recurso?: "processos";
   nomus_id: string;
   etapa: string | null;
   pessoa: string | null;
   tipo: string | null;
   data_criacao: string | null;
+}
+
+interface RawCabecalhoNomusPessoa {
+  fonte: "nomus";
+  recurso: "pessoas";
+  nome: string;
+  cnpj: string | null;
+  tipo_pessoa: string | null;
+  municipio: string | null;
+  uf: string | null;
+  categorias?: string[] | null;
+  codigo: string | null;
+  nomus_id: string;
 }
 
 interface RawCabecalhoGmail {
@@ -265,6 +300,7 @@ interface RawCabecalhoDrive {
 type RawCabecalho =
   | RawCabecalhoEffecti
   | RawCabecalhoNomus
+  | RawCabecalhoNomusPessoa
   | RawCabecalhoGmail
   | RawCabecalhoDrive;
 
@@ -357,8 +393,25 @@ function toCabecalho(raw: RawCabecalho): CabecalhoDiscriminado {
         edital: raw.edital ?? null,
       };
     case "nomus":
+      // Dentro de Nomus, o `recurso` discrimina processos x pessoas. Default
+      // tolerante a 'processos' quando o backend nao envia recurso (legado).
+      if (raw.recurso === "pessoas") {
+        return {
+          fonte: "nomus",
+          recurso: "pessoas",
+          nome: raw.nome,
+          cnpj: raw.cnpj ?? null,
+          tipoPessoa: raw.tipo_pessoa ?? null,
+          municipio: raw.municipio ?? null,
+          uf: raw.uf ?? null,
+          categorias: raw.categorias ?? null,
+          codigo: raw.codigo ?? null,
+          nomusId: raw.nomus_id,
+        };
+      }
       return {
         fonte: "nomus",
+        recurso: "processos",
         nomusId: raw.nomus_id,
         etapa: raw.etapa ?? null,
         pessoa: raw.pessoa ?? null,

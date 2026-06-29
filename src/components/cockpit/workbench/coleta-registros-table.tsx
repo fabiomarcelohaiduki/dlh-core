@@ -79,6 +79,22 @@ function registroObjeto(registro: RegistroColetado): string {
   return registro.tituloCurto;
 }
 
+/** Rotulo singular do recurso Nomus para o sub-rotulo da linha mestra. */
+function formatRecurso(recurso: "processos" | "pessoas"): string {
+  return recurso === "pessoas" ? "Pessoa" : "Processo";
+}
+
+/**
+ * Sub-rotulo de recurso (Processo/Pessoa) exibido abaixo do titulo SO para
+ * linhas Nomus, derivado de `cabecalho.recurso` (o contrato de topo nao traz
+ * `recurso`). Demais fontes nao exibem sub-rotulo.
+ */
+function subRotuloRecurso(registro: RegistroColetado): string | null {
+  const c = registro.cabecalho;
+  if (c.fonte !== "nomus") return null;
+  return formatRecurso(c.recurso);
+}
+
 // ---------------------------------------------------------------------
 // Pills de contagem da linha mestra.
 // ---------------------------------------------------------------------
@@ -132,6 +148,7 @@ export function ColetaRegistrosRow({
   // titulo curto (assunto do Gmail / nome do arquivo). O texto completo fica no
   // `title` para hover, e a celula trunca para nao alargar a tabela.
   const tituloExibido = isEffecti ? registro.origemId : registro.tituloCurto;
+  const subRotulo = subRotuloRecurso(registro);
   const { data, hora } = splitDateTime(registro.captadoEm);
   const indexacao = indexacaoAgregadoDescriptor(registro.statusIndexacaoAgregado);
   const mostrarLink = registro.temLinkPublico && !isNomus && Boolean(registro.linkOriginal);
@@ -153,8 +170,15 @@ export function ColetaRegistrosRow({
             ) : (
               <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted" />
             )}
-            <span className="min-w-0 truncate" title={registro.tituloCurto}>
-              {tituloExibido}
+            <span className="flex min-w-0 flex-col">
+              <span className="min-w-0 truncate" title={registro.tituloCurto}>
+                {tituloExibido}
+              </span>
+              {subRotulo ? (
+                <span className="text-[12px] font-normal text-muted">
+                  {subRotulo}
+                </span>
+              ) : null}
             </span>
           </button>
         </TableCell>
