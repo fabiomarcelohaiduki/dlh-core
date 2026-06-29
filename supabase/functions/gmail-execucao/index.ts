@@ -58,6 +58,44 @@ async function loadGmailFonteId(service: ServiceClient): Promise<string> {
   return id;
 }
 
+/**
+ * Periodo coberto pela coleta incremental do Gmail, derivado do gmail_config
+ * (mesma janela que gmail-config 'montar-query' usa). Gravado no checkpoint da
+ * execucao para a coluna Janela do cockpit exibir o intervalo de–ate:
+ *   - fim   = hoje (a frente cobre ate agora);
+ *   - inicio = coletado_ate (frente incremental) ou data_inicial na 1a coleta;
+ *     recua para data_inicial quando ha backfill de ANTIGOS pendente.
+ * Best-effort: sem config legivel, devolve null (checkpoint fica sem periodo).
+ */
+async function periodoColeta(
+  service: ServiceClient,
+): Promise<{ janela_inicio: string; janela_fim: string } | null> {
+  const { data: cfg, error } = await service
+    .from("gmail_config")
+    .select("data_inicial, coletado_ate, coletado_desde")
+    .eq("id", true)
+    .maybeSingle();
+  if (error || !cfg) {
+    console.error("AVISO: gmail-execucao nao leu gmail_config p/ o periodo:", error?.message);
+    return null;
+  }
+  const dataInicial = ((cfg.data_inicial as string | null) ?? "").slice(0, 10) || null;
+  const ate = ((cfg.coletado_ate as string | null) ?? "").slice(0, 10) || null;
+  const desde = ((cfg.coletado_desde as string | null) ?? "").slice(0, 10) || null;
+
+  let inicio = ate ?? dataInicial;
+  if (!inicio) return null;
+  // Backfill de antigos ativo (data_inicial recua antes do ja coletado) -> a
+  // execucao tambem cobre desde a data_inicial.
+  const backfillAtivo = !!dataInicial && (!desde || dataInicial < desde);
+  if (backfillAtivo && dataInicial && dataInicial < inicio) inicio = dataInicial;
+
+  return {
+    janela_inicio: `${inicio}T00:00:00.000Z`,
+    janela_fim: new Date().toISOString(),
+  };
+}
+
 /** Cria a execucao em_andamento (ou devolve a corrente, lock-por-fonte). */
 async function abrir(service: ServiceClient, gatilho: string): Promise<Response> {
   const fonteId = await loadGmailFonteId(service);
@@ -78,6 +116,9 @@ async function abrir(service: ServiceClient, gatilho: string): Promise<Response>
     return jsonResponse({ execucao_id: String(corrente.id), ja_em_andamento: true }, 200);
   }
 
+  // Periodo da janela incremental (de–ate) p/ a coluna Janela do cockpit.
+  const periodo = await periodoColeta(service);
+
   const { data: execucao, error: insError } = await service
     .from("execucoes")
     .insert({
@@ -90,6 +131,7 @@ async function abrir(service: ServiceClient, gatilho: string): Promise<Response>
       processados_sucesso: 0,
       processados_erro: 0,
       pendentes: 0,
+      ...(periodo ? { checkpoint: periodo } : {}),
     })
     .select("id")
     .single();
