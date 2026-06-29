@@ -81,6 +81,27 @@ export interface IgnorarAnexoResultado {
   id: string;
 }
 
+export interface ReprocessarAnexoResultado {
+  ok: boolean;
+  id: string;
+}
+
+/**
+ * POST /coleta-reprocessar-anexo — re-enfileira UM vinculo (qualquer fonte)
+ * cujo status_extracao esteja terminal/recuperavel (erro, inobtenivel,
+ * precisa_ocr, pendente): SET status_extracao='pendente', tentativas_extracao=0.
+ * Acao granular por vinculo da guia "Dados" (paritaria ao ignorarAnexo, porem
+ * via Edge propria com UPDATE condicional + auditoria). O proximo drain da fila
+ * tenta de novo. 404 (vinculo ausente), 422 (status nao recuperavel) e 409
+ * (status mudou na corrida) chegam como ApiError.
+ */
+export function reprocessarAnexo(vinculoId: string): Promise<ReprocessarAnexoResultado> {
+  return apiFetch<ReprocessarAnexoResultado>("coleta-reprocessar-anexo", {
+    method: "POST",
+    body: JSON.stringify({ id: vinculoId }),
+  });
+}
+
 /**
  * POST /documentos-descobrir { action:'ignorar-anexo' } — marca UM vinculo como
  * 'ignorado' (status terminal aplicado manualmente pelo humano). Caso de uso: ao

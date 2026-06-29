@@ -25,8 +25,10 @@ import {
   execucaoExecutor,
   normalizeOrigem,
   origemLabel,
+  type OrigemKey,
 } from "@/lib/status";
 import type { Execucao } from "@/lib/api/types";
+import type { AgendamentosColetaData } from "@/lib/fontes-credenciais-data";
 import { useWorkbench } from "./workbench-template";
 import type { TableColumn } from "./table-column";
 import {
@@ -37,8 +39,79 @@ import {
   splitDateTime,
 } from "./table-states";
 
+/** Execucao enriquecida com o horario agendado da sua fonte/recurso. */
+export type RunComAgenda = Execucao & { horarioAgendado: string | null };
+
+/**
+ * Horario agendado (HH:MM, Brasilia) da fonte/recurso de uma execucao, lido do
+ * agendamento da Coleta. Retorna null quando a fonte nao tem coleta automatica
+ * ligada ou o recurso nao tem relogio proprio (ex.: Nomus fora de
+ * processos/pessoas).
+ */
+export function horarioAgendadoDaFonte(
+  origem: OrigemKey,
+  recurso: string | null | undefined,
+  ag: AgendamentosColetaData,
+): string | null {
+  const seAtivo = (a: { ativo: boolean; horarioReferencia: string | null }) =>
+    a.ativo ? a.horarioReferencia : null;
+  switch (origem) {
+    case "effecti":
+      return seAtivo(ag.effecti);
+    case "gmail":
+      return seAtivo(ag.gmail);
+    case "drive":
+      return seAtivo(ag.drive);
+    case "nomus": {
+      const r = (recurso ?? "").toLowerCase();
+      if (r.includes("pessoa")) return seAtivo(ag.nomusPessoas);
+      if (r.includes("process")) return seAtivo(ag.nomusProcessos);
+      return null;
+    }
+    default:
+      return null;
+  }
+}
+
+/** "19:00" — horario agendado em HH:MM, ou "—" quando sem coleta automatica. */
+function horaCurta(h: string | null): string {
+  return h ? h.slice(0, 5) : "—";
+}
+
+/**
+ * Periodo coberto pela coleta para a coluna Janela, honesto por fonte:
+ *   - com janela_inicio/fim no checkpoint (Effecti, Nomus processos) -> "DD/MM – DD/MM";
+ *   - so janelaDias (Effecti/Nomus legados sem periodo) -> "N dias";
+ *   - Drive e Nomus pessoas (varrem tudo, sem janela) -> "completa";
+ *   - sem nada -> "—".
+ */
+function janelaLabel(r: RunComAgenda): string {
+  const origem = normalizeOrigem(r.origem);
+  // Nomus carimba o modo EFETIVO no checkpoint (full = varredura completa;
+  // incremental = so novos por id). A coluna JANELA prefixa o modo e, no full,
+  // acrescenta o periodo coberto quando o recurso tem janela (processos).
+  const modo = r.checkpoint?.modo;
+  if (origem === "nomus" && modo) {
+    if (modo === "incremental") return "Incremental";
+    if (r.janelaInicio && r.janelaFim) {
+      const ini = splitDateTime(r.janelaInicio).data;
+      const fim = splitDateTime(r.janelaFim).data;
+      return `Full · ${ini} – ${fim}`;
+    }
+    return "Full";
+  }
+  if (r.janelaInicio && r.janelaFim) {
+    const ini = splitDateTime(r.janelaInicio).data;
+    const fim = splitDateTime(r.janelaFim).data;
+    return `${ini} – ${fim}`;
+  }
+  if (r.janelaDias != null) return `${r.janelaDias} dias`;
+  if (origem === "drive" || origem === "nomus") return "completa";
+  return "—";
+}
+
 export interface RunsTableProps {
-  runs: Execucao[];
+  runs: RunComAgenda[];
   loading: boolean;
   error: boolean;
   onRetry: () => void;
@@ -84,7 +157,7 @@ function progressoMeta(run: Execucao): {
 }
 
 /** Colunas de dado da tabela de Execuções (fonte unica p/ render + toolbar). */
-export const RUNS_COLUMNS: readonly TableColumn<Execucao>[] = [
+export const RUNS_COLUMNS: readonly TableColumn<RunComAgenda>[] = [
   {
     id: "inicio",
     label: "Início",
@@ -99,6 +172,13 @@ export const RUNS_COLUMNS: readonly TableColumn<Execucao>[] = [
       );
     },
     text: (r) => formatDateTime(r.inicio),
+  },
+  {
+    id: "agendado",
+    label: "Agendado",
+    cellClass: "text-muted tabular-nums whitespace-nowrap",
+    cell: (r) => horaCurta(r.horarioAgendado),
+    text: (r) => (r.horarioAgendado ? r.horarioAgendado.slice(0, 5) : ""),
   },
   {
     id: "origem",
@@ -132,9 +212,12 @@ export const RUNS_COLUMNS: readonly TableColumn<Execucao>[] = [
   {
     id: "janela",
     label: "Janela",
-    cellClass: "text-muted",
-    cell: (r) => (r.janelaDias != null ? `${r.janelaDias} dias` : "—"),
-    text: (r) => (r.janelaDias != null ? `${r.janelaDias} dias` : ""),
+    cellClass: "text-muted whitespace-nowrap",
+    cell: (r) => janelaLabel(r),
+    text: (r) => {
+      const label = janelaLabel(r);
+      return label === "—" ? "" : label;
+    },
   },
   {
     id: "progresso",

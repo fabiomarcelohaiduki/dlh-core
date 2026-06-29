@@ -1,9 +1,14 @@
+import { Ban, EyeOff, Link, ScanText, TriangleAlert, type LucideIcon } from "lucide-react";
 import type {
   EstadoCalculo,
   EstadoConexao,
   Execucao,
   StatusIngestao,
 } from "@/lib/api/types";
+import type {
+  StatusExtracao,
+  StatusIndexacaoAgregado,
+} from "@/lib/api/coleta-registros";
 
 /**
  * Estados travados do Design Lock (convencao unica do projeto):
@@ -22,6 +27,11 @@ export type PillState = "ok" | "run" | "warn" | "err" | "idle";
 export interface PillDescriptor {
   state: PillState;
   label: string;
+  /**
+   * Icone Lucide opcional do pill (usado pelo descritor de status_extracao da
+   * guia "Dados"). Os descritores legados nao definem icone (compativel).
+   */
+  icon?: LucideIcon;
 }
 
 /** Healthcheck: distingue warn (degradado) de err (parado). */
@@ -243,4 +253,66 @@ export function conexaoFonteState(estado: string | null, conectado: boolean): Pi
   if (estado === "erro") return "err";
   if (conectado) return "ok";
   return "idle";
+}
+
+/**
+ * Status de extracao de UM vinculo (documento_vinculos.status_extracao) -> pill
+ * da guia "Dados". Mapeamento travado da SPEC 4.5.2 (7 status_extracao -> 5
+ * PillState), com rotulo e icone Lucide por estado. Reusa exclusivamente os 5
+ * PillState existentes — sem novos tokens de cor:
+ *  pendente    -> idle  "Pendente"
+ *  extraido    -> ok    "Extraido"
+ *  herdado     -> ok    "Herdado"      (Link)
+ *  precisa_ocr -> warn  "Precisa OCR"  (ScanText)
+ *  erro        -> err   "Erro"         (TriangleAlert)
+ *  inobtenivel -> err   "Inobtenivel"  (Ban)
+ *  ignorado    -> idle  "Ignorado"     (EyeOff)
+ */
+export function coletaStatusDescriptor(status: StatusExtracao): PillDescriptor {
+  switch (status) {
+    case "extraido":
+      return { state: "ok", label: "Extraído" };
+    case "herdado":
+      return { state: "ok", label: "Herdado", icon: Link };
+    case "precisa_ocr":
+      return { state: "warn", label: "Precisa OCR", icon: ScanText };
+    case "erro":
+      return { state: "err", label: "Erro", icon: TriangleAlert };
+    case "inobtenivel":
+      return { state: "err", label: "Inobtenível", icon: Ban };
+    case "ignorado":
+      return { state: "idle", label: "Ignorado", icon: EyeOff };
+    case "pendente":
+    default:
+      return { state: "idle", label: "Pendente" };
+  }
+}
+
+/**
+ * Estado AGREGADO de indexacao de UM registro (linha mestra da guia "Dados",
+ * status_indexacao_agregado) -> pill. Mapeamento travado da SPEC 4.5.3 (5
+ * status agregados -> 5 PillState), reusando exclusivamente os PillState
+ * existentes (sem novos tokens de cor):
+ *  concluida     -> ok    "Concluída"
+ *  em_andamento  -> run   "Indexando"
+ *  erro          -> err   "Erro"
+ *  mista         -> warn  "Parcial"
+ *  pendente      -> idle  "Pendente"
+ */
+export function indexacaoAgregadoDescriptor(
+  status: StatusIndexacaoAgregado,
+): PillDescriptor {
+  switch (status) {
+    case "concluida":
+      return { state: "ok", label: "Concluída" };
+    case "em_andamento":
+      return { state: "run", label: "Indexando" };
+    case "erro":
+      return { state: "err", label: "Erro" };
+    case "mista":
+      return { state: "warn", label: "Parcial" };
+    case "pendente":
+    default:
+      return { state: "idle", label: "Pendente" };
+  }
 }

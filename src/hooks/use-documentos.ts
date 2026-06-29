@@ -6,6 +6,7 @@ import {
   fetchExtracaoResumo,
   ignorarAnexo,
   ignorarEmMassa,
+  reprocessarAnexo,
   reprocessarErros,
   salvarConfigExtracao,
   substituirLink,
@@ -15,11 +16,27 @@ import {
   type StatusIgnoravelEmMassa,
   type StatusReprocessavel,
 } from "@/lib/api/documentos";
+import { coletaRegistrosKeys } from "@/hooks/use-coleta-registros";
 
 /** Chaves de cache do pipeline de documentos (camada 1). */
 export const documentosKeys = {
   resumo: ["documentos", "extracao-resumo"] as QueryKey,
 };
+
+/**
+ * Variavel das mutacoes granulares por vinculo. Aceita o id cru (string, para
+ * os callers legados como o painel de Extracao) ou o objeto com `idComposto`
+ * — usado pela guia "Dados" para invalidar tambem o detalhe expandido afetado.
+ */
+type VinculoMutationVars = string | { id: string; idComposto?: string };
+
+function vinculoId(vars: VinculoMutationVars): string {
+  return typeof vars === "string" ? vars : vars.id;
+}
+
+function vinculoIdComposto(vars: VinculoMutationVars): string | undefined {
+  return typeof vars === "string" ? undefined : vars.idComposto;
+}
 
 /**
  * useExtracaoResumo — contagens por status + anexos que falharam na extracao
@@ -97,9 +114,37 @@ export function useSubstituirLink() {
 export function useIgnorarAnexo() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => ignorarAnexo(id),
-    onSuccess: () => {
+    mutationFn: (vars: VinculoMutationVars) => ignorarAnexo(vinculoId(vars)),
+    onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: documentosKeys.resumo });
+      queryClient.invalidateQueries({ queryKey: coletaRegistrosKeys.all });
+      const idComposto = vinculoIdComposto(vars);
+      if (idComposto) {
+        queryClient.invalidateQueries({ queryKey: coletaRegistrosKeys.detail(idComposto) });
+      }
+    },
+  });
+}
+
+/**
+ * useReprocessarAnexo — re-enfileira UM vinculo (qualquer fonte) com status
+ * terminal/recuperavel via POST /coleta-reprocessar-anexo. Acao granular da guia
+ * "Dados", paritaria ao useIgnorarAnexo. Em sucesso invalida o resumo da
+ * extracao e a lista da guia "Dados" (coletaRegistrosKeys.all); quando o
+ * idComposto e conhecido, invalida tambem o detalhe expandido afetado. O 422
+ * (status nao recuperavel)/404/409 chegam como ApiError para a UI tratar.
+ */
+export function useReprocessarAnexo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: VinculoMutationVars) => reprocessarAnexo(vinculoId(vars)),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: documentosKeys.resumo });
+      queryClient.invalidateQueries({ queryKey: coletaRegistrosKeys.all });
+      const idComposto = vinculoIdComposto(vars);
+      if (idComposto) {
+        queryClient.invalidateQueries({ queryKey: coletaRegistrosKeys.detail(idComposto) });
+      }
     },
   });
 }

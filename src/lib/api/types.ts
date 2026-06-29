@@ -37,6 +37,10 @@ export interface Execucao {
   fim: string | null;
   gatilho: string;
   janelaDias: number | null;
+  /** Periodo coberto pela coleta (limites da janela do checkpoint), ISO-8601;
+   *  null quando a fonte nao registra periodo (ex.: Drive varre tudo). */
+  janelaInicio: string | null;
+  janelaFim: string | null;
   novos: number;
   alterados: number;
   duracao: string | null;

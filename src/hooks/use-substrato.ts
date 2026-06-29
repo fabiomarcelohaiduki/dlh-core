@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import { fetchAvisoDetalhe, reprocessarAviso } from "@/lib/api/substrato";
 import { monitoringKeys } from "@/hooks/use-monitoring";
+import { coletaRegistrosKeys } from "@/hooks/use-coleta-registros";
 
 /** Chaves de cache do substrato (detalhe do edital por aviso). */
 export const substratoKeys = {
@@ -36,7 +37,7 @@ export function useEdital(avisoId: string | undefined) {
  * status_reprocesso muda no backend). O bloqueio de duplo disparo na UI
  * deriva de `isPending` somado ao status_reprocesso retornado.
  */
-export function useReprocessar(avisoId: string) {
+export function useReprocessar(avisoId: string, idComposto?: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => reprocessarAviso(avisoId),
@@ -44,6 +45,12 @@ export function useReprocessar(avisoId: string) {
       queryClient.invalidateQueries({ queryKey: substratoKeys.edital(avisoId) });
       queryClient.invalidateQueries({ queryKey: monitoringKeys.errosRoot });
       queryClient.invalidateQueries({ queryKey: monitoringKeys.healthcheck });
+      // Guia "Dados": a reindexacao muda o status agregado da linha mestra
+      // (e do detalhe expandido, quando conhecido o id_composto).
+      queryClient.invalidateQueries({ queryKey: coletaRegistrosKeys.all });
+      if (idComposto) {
+        queryClient.invalidateQueries({ queryKey: coletaRegistrosKeys.detail(idComposto) });
+      }
     },
   });
 }

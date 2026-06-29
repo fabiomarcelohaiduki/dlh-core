@@ -70,6 +70,15 @@ export interface WorkbenchTemplateProps {
   actionTitle?: string;
   /** Desabilita o botao de acao (ex.: enquanto a coleta dispara). */
   actionDisabled?: boolean;
+  /**
+   * Acao secundaria opcional, exibida ao lado da principal (ex.: "Re-varrer
+   * (full)" do Nomus). Renderizada so quando o rotulo e fornecido — o caller
+   * decide a visibilidade passando/omitindo conforme o filtro ativo.
+   */
+  secondaryActionLabel?: string;
+  onSecondaryAction?: () => void;
+  secondaryActionTitle?: string;
+  secondaryActionDisabled?: boolean;
   /** Lista de blocos aplicaveis a esta view (ids do BLOCK_LIBRARY). */
   blocks: readonly string[];
   slots: WorkbenchSlots;
@@ -110,6 +119,10 @@ export function WorkbenchTemplate({
   onAction,
   actionTitle,
   actionDisabled,
+  secondaryActionLabel,
+  onSecondaryAction,
+  secondaryActionTitle,
+  secondaryActionDisabled,
   blocks,
   slots,
   toastClassName,
@@ -245,6 +258,18 @@ export function WorkbenchTemplate({
               <Settings2 aria-hidden="true" />
               Personalizar
             </Button>
+            {actionVisible && secondaryActionLabel ? (
+              <Button
+                variant="default"
+                size="sm"
+                type="button"
+                onClick={onSecondaryAction}
+                disabled={secondaryActionDisabled}
+                title={secondaryActionTitle}
+              >
+                {secondaryActionLabel}
+              </Button>
+            ) : null}
             {actionVisible ? (
               <Button
                 data-block="acao-principal"

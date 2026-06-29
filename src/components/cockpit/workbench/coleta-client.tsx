@@ -20,12 +20,13 @@ import { useExecucoes, useColetaDemanda } from "@/hooks/use-monitoring";
 import { useExecucoesRealtime } from "@/hooks/use-execucoes-realtime";
 import { useIngestaoConfig } from "@/hooks/use-fontes";
 import { useDispararGmail, useDispararDrive } from "@/hooks/use-admin";
+import { useEnfileirarComandoLocal } from "@/hooks/use-comando-local";
+import type { ComandoLocalTipo } from "@/lib/api/comando-local";
 import { ApiError } from "@/lib/api/client";
 import {
   normalizeOrigem,
   origemLabel,
   type OrigemKey,
-  type PillState,
 } from "@/lib/status";
 import type { Execucao } from "@/lib/api/types";
 import type { ColetaLogOrigem } from "@/lib/api/coleta-log";
@@ -37,10 +38,13 @@ import { WorkbenchTemplate } from "./workbench-template";
 import { AgendamentoColeta } from "./agendamento-coleta";
 import { EscopoColeta } from "./escopo-coleta";
 import { LogsConsole } from "./logs-console";
-import { RunsTable, RUNS_COLUMNS } from "./runs-table";
-import { DadosTable, DADOS_COLUMNS, type DadoColetado } from "./dados-table";
+import {
+  RunsTable,
+  RUNS_COLUMNS,
+  horarioAgendadoDaFonte,
+  type RunComAgenda,
+} from "./runs-table";
 import { RecursoFilter, type RecursoOption } from "./recurso-filter";
-import { ActionModal, type ActionOption } from "./action-modal";
 import {
   ColumnToggleMenu,
   FieldFilterMenu,
@@ -48,6 +52,10 @@ import {
 } from "./table-toolbar-menus";
 import { columnMeta, filterableMeta, matchFieldFilters } from "./table-column";
 import { usePagination, TablePager, DEFAULT_PAGE_SIZE } from "./table-pagination";
+import { ColetaRegistrosTable } from "./coleta-registros-table";
+import { useColetaRegistros } from "@/hooks/use-coleta-registros";
+import type { RegistroColetado } from "@/lib/api/coleta-registros";
+import { useRouter } from "next/navigation";
 import { CockpitToast } from "./cockpit-toast";
 import type { WorkbenchScopeRef } from "./use-workbench-layout";
 
@@ -65,24 +73,6 @@ const FONTE_TABS: { value: FonteTab; label: string }[] = [
   { value: "drive", label: "Drive" },
 ];
 
-const DADO_ACTIONS: readonly ActionOption[] = [
-  {
-    id: "abrir",
-    label: "Abrir item",
-    description: "Visualiza o documento ou registro capturado.",
-  },
-  {
-    id: "reprocessar",
-    label: "Reprocessar",
-    description: "Reenvia o item para a fila de tratamento.",
-  },
-  {
-    id: "arquivar",
-    label: "Arquivar",
-    description: "Tira o item da lista de coletados.",
-  },
-];
-
 const EXECUCOES_BLOCKS = [
   "fontes",
   "recurso",
@@ -93,14 +83,12 @@ const EXECUCOES_BLOCKS = [
   "acoes-linha",
 ] as const;
 
-const DADOS_BLOCKS = ["fontes", "recurso", "busca", "filtros", "acoes-linha"] as const;
+const DADOS_BLOCKS = ["fontes", "busca"] as const;
 
 // Metadados das colunas para os menus icon-only da toolbar (visibilidade e
 // filtro por campo). Derivados das mesmas listas que as tabelas renderizam.
 const RUNS_COL_META = columnMeta(RUNS_COLUMNS);
 const RUNS_FILTER_META = filterableMeta(RUNS_COLUMNS);
-const DADOS_COL_META = columnMeta(DADOS_COLUMNS);
-const DADOS_FILTER_META = filterableMeta(DADOS_COLUMNS);
 
 const EXECUCOES_SCOPE: WorkbenchScopeRef = {
   modulo: "ingestao",
@@ -112,23 +100,6 @@ const DADOS_SCOPE: WorkbenchScopeRef = {
   tela: "coleta",
   guia: "dados",
 };
-
-/** Status do dado coletado (projecao read-only do status da execucao). */
-function dadoStatus(run: Execucao): { state: PillState; label: string } {
-  switch (run.status) {
-    case "em_andamento":
-      return { state: "run", label: "Importando" };
-    case "erro":
-      return { state: "err", label: "Erro" };
-    case "concluida":
-      return { state: "ok", label: "Importado" };
-    default:
-      return { state: "idle", label: "Novo" };
-  }
-}
-
-/** Modal de acoes de um dado coletado (clique na execucao navega para Logs). */
-type ModalState = { kind: "dado"; id: string; title: string } | null;
 
 type Toast = { message: string } | null;
 
@@ -167,7 +138,6 @@ export function ColetaClient({
 
   // Filtros da guia Dados.
   const [dFonte, setDFonte] = useState<FonteTab>("todas");
-  const [dRecurso, setDRecurso] = useState("todos");
   const [dBusca, setDBusca] = useState("");
 
   // Trocar de fonte zera o recurso (single-select por fonte, igual protótipo).
@@ -177,7 +147,6 @@ export function ColetaClient({
   };
   const handleDFonteChange = (next: FonteTab) => {
     setDFonte(next);
-    setDRecurso("todos");
   };
 
   // Colunas ocultas + filtros por campo (controles icon-only da toolbar).
@@ -185,10 +154,6 @@ export function ColetaClient({
   const [runsFieldFilters, setRunsFieldFilters] = useState<Record<string, string>>(
     {},
   );
-  const [dadosHidden, setDadosHidden] = useState<Set<string>>(() => new Set());
-  const [dadosFieldFilters, setDadosFieldFilters] = useState<
-    Record<string, string>
-  >({});
 
   const toggleHidden = (set: typeof setRunsHidden) => (id: string) =>
     set((prev) => {
@@ -198,19 +163,23 @@ export function ColetaClient({
       return next;
     });
 
-  const [modal, setModal] = useState<ModalState>(null);
   const [toast, setToast] = useState<Toast>(null);
 
   // Disparo manual da coleta por fonte. Sem GitHub Actions (desativado 28/06):
   // a coleta roda so em Supabase Edge (Effecti, Gmail, Drive) e no PC local
-  // (Nomus). Effecti/Gmail/Drive disparam a Edge nativa do Supabase. Nomus NAO
-  // tem disparo pelo cockpit: roda so no PC local (Agendador do Windows), pois
-  // o TLS CBC legado nao conecta da Edge e nao ha canal cockpit -> PC.
+  // (Nomus). Effecti/Gmail/Drive disparam a Edge nativa do Supabase. Nomus nao
+  // fala com a Edge (TLS CBC legado), entao o cockpit ENFILEIRA o comando na
+  // fila comando_local e o servico de poll do PC executa (mesmo canal da guia
+  // Escopo), por recurso (nomus-processos / nomus-pessoas).
   const coletaEffecti = useColetaDemanda();
   const coletaGmail = useDispararGmail();
   const coletaDrive = useDispararDrive();
+  const enfileirarNomus = useEnfileirarComandoLocal();
   const coletando =
-    coletaEffecti.isPending || coletaGmail.isPending || coletaDrive.isPending;
+    coletaEffecti.isPending ||
+    coletaGmail.isPending ||
+    coletaDrive.isPending ||
+    enfileirarNomus.isPending;
 
   // Recursos ativos do Nomus (so quando a fonte selecionada e Nomus): alimentam
   // o seletor de recurso com pessoas/processos mesmo sem execucao previa.
@@ -218,7 +187,7 @@ export function ColetaClient({
 
   const { connected } = useExecucoesRealtime();
   const execucoes = useExecucoes({
-    limit: 50,
+    limit: 200,
     refetchInterval: (query) => {
       const items = query.state.data?.items ?? [];
       if (items.some((r) => r.status === "em_andamento")) return RUNNING_POLL_MS;
@@ -226,7 +195,24 @@ export function ColetaClient({
     },
   });
 
-  const allRuns = useMemo(() => execucoes.data?.items ?? [], [execucoes.data]);
+  // Enriquece cada execucao com o horario agendado da sua fonte/recurso (lido
+  // do agendamento da Coleta) para a coluna "Agendado" da RunsTable.
+  const allRuns = useMemo<RunComAgenda[]>(
+    () =>
+      (execucoes.data?.items ?? []).map((r) => ({
+        ...r,
+        horarioAgendado: horarioAgendadoDaFonte(
+          normalizeOrigem(r.origem),
+          r.recurso,
+          agendamentos,
+        ),
+      })),
+    [execucoes.data, agendamentos],
+  );
+
+  // Contagens honestas do universo completo (servidor); enquanto carregam, os
+  // badges caem no universo ja em memoria (`allRuns`) como fallback.
+  const contagens = execucoes.data?.contagens;
 
   useEffect(() => {
     if (!toast) return;
@@ -238,9 +224,17 @@ export function ColetaClient({
   const recursoOptions = useMemo<RecursoOption[]>(() => {
     if (fonte === "todas") return [];
     const counts = new Map<string, number>();
-    for (const r of allRuns) {
-      if (normalizeOrigem(r.origem) !== fonte || !r.recurso) continue;
-      counts.set(r.recurso, (counts.get(r.recurso) ?? 0) + 1);
+    // Conta pelo universo COMPLETO (contagens do servidor); enquanto carrega,
+    // cai no universo em memoria (allRuns).
+    if (contagens) {
+      for (const [rec, n] of Object.entries(contagens.porRecurso[fonte] ?? {})) {
+        counts.set(rec, n);
+      }
+    } else {
+      for (const r of allRuns) {
+        if (normalizeOrigem(r.origem) !== fonte || !r.recurso) continue;
+        counts.set(r.recurso, (counts.get(r.recurso) ?? 0) + 1);
+      }
     }
     // Nomus: garante os recursos ATIVOS na config no seletor, mesmo sem execucao
     // previa (senao pessoas nunca apareceria para o primeiro disparo manual).
@@ -254,14 +248,16 @@ export function ColetaClient({
       label: value,
       count,
     }));
-  }, [allRuns, fonte, nomusConfig.data]);
+  }, [allRuns, fonte, nomusConfig.data, contagens]);
 
   const recursoTotal = useMemo(
     () =>
       fonte === "todas"
         ? 0
-        : allRuns.filter((r) => normalizeOrigem(r.origem) === fonte).length,
-    [allRuns, fonte],
+        : contagens
+          ? contagens.porOrigem[fonte] ?? 0
+          : allRuns.filter((r) => normalizeOrigem(r.origem) === fonte).length,
+    [allRuns, fonte, contagens],
   );
 
   // ---- Execuções: filtro client-side ----
@@ -281,64 +277,80 @@ export function ColetaClient({
     [allRuns, fonte, recurso, busca, runsFieldFilters],
   );
 
-  // ---- Dados: projecao honesta das execucoes ----
-  const allDados = useMemo<DadoColetado[]>(
-    () =>
-      allRuns.map((r) => {
-        const origemKey = normalizeOrigem(r.origem);
-        const origem = origemLabel(origemKey);
-        return {
-          id: r.id,
-          titulo: `Coleta ${origem}${r.recurso ? ` · ${r.recurso}` : ""}`,
-          origem,
-          origemKey,
-          recurso: r.recurso,
-          captadoEm: r.fim ?? r.inicio,
-          itens: String(r.novos + r.alterados),
-          status: dadoStatus(r),
-        };
-      }),
-    [allRuns],
+  // ---- Dados: hub mestre-detalhe (cursor server-side) ----
+  const router = useRouter();
+  const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
   );
+  const [cursors, setCursors] = useState<readonly string[]>([]);
+  const [currentCursor, setCurrentCursor] = useState<string | null>(null);
 
-  // Recursos da fonte selecionada (Dados), derivados do dado real.
-  const dRecursoOptions = useMemo<RecursoOption[]>(() => {
-    if (dFonte === "todas") return [];
-    const counts = new Map<string, number>();
-    for (const d of allDados) {
-      if (d.origemKey !== dFonte || !d.recurso) continue;
-      counts.set(d.recurso, (counts.get(d.recurso) ?? 0) + 1);
-    }
-    return [...counts.entries()].map(([value, count]) => ({
-      value,
-      label: value,
-      count,
-    }));
-  }, [allDados, dFonte]);
+  // Trocar de fonte ou busca zera o cursor e fecha todas as expansoes
+  // (per SPEC §4.4 — evita estado orfao quando a linha sai do conjunto filtrado).
+  useEffect(() => {
+    setCursors([]);
+    setCurrentCursor(null);
+    setExpandedIds(new Set());
+  }, [dFonte, dBusca]);
 
-  const dRecursoTotal = useMemo(
-    () =>
-      dFonte === "todas"
-        ? 0
-        : allDados.filter((d) => d.origemKey === dFonte).length,
-    [allDados, dFonte],
-  );
+  // Polling adaptativo do hook cuida do intervalo; aqui so montamos os params.
+  const registros = useColetaRegistros({
+    fonte: dFonte === "todas" ? null : dFonte,
+    busca: dBusca.trim() || null,
+    cursor: currentCursor,
+  });
 
-  const dados = useMemo(
-    () =>
-      allDados.filter((d) => {
-        if (dFonte !== "todas" && d.origemKey !== dFonte) return false;
-        if (dRecurso !== "todos" && (d.recurso ?? "") !== dRecurso) return false;
-        if (dBusca.trim()) {
-          const q = dBusca.trim().toLowerCase();
-          const hay = `${d.titulo} ${d.recurso ?? ""}`.toLowerCase();
-          if (!hay.includes(q)) return false;
-        }
-        if (!matchFieldFilters(d, DADOS_COLUMNS, dadosFieldFilters)) return false;
-        return true;
-      }),
-    [allDados, dFonte, dRecurso, dBusca, dadosFieldFilters],
-  );
+  const registrosList = registros.data?.itens ?? [];
+  const nextCursor = registros.data?.nextCursor ?? null;
+  const registrosTotal = registros.data?.contagensPorFonte?.total ?? 0;
+  const pageNumber = cursors.length + 1;
+
+  // Paginacao por cursor server-side: empilha o cursor atual ao avancar;
+  // desempilha ao voltar. Sem nextCursor = fim dos resultados.
+  const handleNextPage = () => {
+    if (!nextCursor) return;
+    setCursors((prev) => [...prev, currentCursor ?? ""]);
+    setCurrentCursor(nextCursor);
+  };
+  const handlePrevPage = () => {
+    if (cursors.length === 0) return;
+    const previous = cursors[cursors.length - 1];
+    setCursors((prev) => prev.slice(0, -1));
+    setCurrentCursor(previous === "" ? null : previous);
+  };
+
+  // Expansao multipla (Set de idComposto). Paginacao/fechamento e externo.
+  const handleToggleExpand = (idComposto: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(idComposto)) next.delete(idComposto);
+      else next.add(idComposto);
+      return next;
+    });
+  };
+  const handleCloseExpand = (idComposto: string) => {
+    setExpandedIds((prev) => {
+      if (!prev.has(idComposto)) return prev;
+      const next = new Set(prev);
+      next.delete(idComposto);
+      return next;
+    });
+  };
+
+  // "Triar aviso" leva a /edital/[avisoId] (Effecti-only). Sem avisoId a
+  // propria linha desabilita o botao, entao aqui so chega com ID valido.
+  const handleTriarAviso = (registro: RegistroColetado) => {
+    if (!registro.avisoId) return;
+    router.push(`/edital/${registro.avisoId}`);
+  };
+
+  // Contagem por fonte (badge da tab Dados) vinda do novo hub multi-fonte.
+  const dadoFonteCount = (tab: FonteTab): number => {
+    const c = registros.data?.contagensPorFonte;
+    if (!c) return 0;
+    if (tab === "todas") return c.total;
+    return c[tab] ?? 0;
+  };
 
   // Paginacao client-side (25 por pagina) sobre as listas ja filtradas. O
   // resetKey volta a pagina 1 sempre que o criterio de filtro muda.
@@ -347,33 +359,17 @@ export function ColetaClient({
     DEFAULT_PAGE_SIZE,
     `${fonte}|${recurso}|${busca}|${JSON.stringify(runsFieldFilters)}`,
   );
-  const dadosPage = usePagination(
-    dados,
-    DEFAULT_PAGE_SIZE,
-    `${dFonte}|${dRecurso}|${dBusca}|${JSON.stringify(dadosFieldFilters)}`,
-  );
 
-  // Contagem por fonte (badge das guias do topo), sobre o universo carregado.
+  // Contagem por fonte (badge dos filtros). Usa as contagens honestas do
+  // servidor (universo completo); enquanto carregam, cai no universo em memoria.
   const fonteCount = (tab: FonteTab, raw: Execucao[]) =>
-    tab === "todas"
-      ? raw.length
-      : raw.filter((r) => normalizeOrigem(r.origem) === tab).length;
-
-  // Contagem por fonte para a guia Dados (universo da propria guia).
-  const dadoFonteCount = (tab: FonteTab) =>
-    tab === "todas"
-      ? allDados.length
-      : allDados.filter((d) => d.origemKey === tab).length;
-
-  // EC-13: item obsoleto quando saiu da lista entre o clique e a abertura.
-  const modalObsolete = useMemo(() => {
-    if (!modal) return false;
-    return !allRuns.some((r) => r.id === modal.id);
-  }, [modal, allRuns]);
-
-  function handleReadOnly(message: string) {
-    setToast({ message });
-  }
+    contagens
+      ? tab === "todas"
+        ? contagens.total
+        : contagens.porOrigem[tab] ?? 0
+      : tab === "todas"
+        ? raw.length
+        : raw.filter((r) => normalizeOrigem(r.origem) === tab).length;
 
   // Botao "Coletar agora": dispara a coleta da fonte selecionada. Com "Todas"
   // ativa nao ha fonte alvo, entao orienta escolher uma (cada fonte tem seu
@@ -386,12 +382,44 @@ export function ColetaClient({
       return;
     }
     if (fonte === "nomus") {
-      // Nomus roda so no PC local (Agendador do Windows): sem GitHub Actions e
-      // sem canal cockpit -> PC, nao ha disparo manual daqui. Avisa e nao tenta.
-      setToast({
-        message:
-          "Nomus é coletado no PC local (Agendador do Windows). Não há disparo manual pelo cockpit.",
-      });
+      // Nomus roda no PC local: o cockpit enfileira o comando na fila
+      // comando_local (o poll do PC executa). O recurso selecionado decide o
+      // alvo; "Todos" enfileira processos E pessoas. allSettled para que um 409
+      // (ja na fila) de um recurso nao impeca o outro de entrar.
+      if (coletando) return;
+      const alvos: ComandoLocalTipo[] =
+        recurso === "processos"
+          ? ["nomus-processos"]
+          : recurso === "pessoas"
+            ? ["nomus-pessoas"]
+            : ["nomus-processos", "nomus-pessoas"];
+      const resultados = await Promise.allSettled(
+        alvos.map((c) => enfileirarNomus.mutateAsync(c)),
+      );
+      const labelRecurso = (c: ComandoLocalTipo) =>
+        c === "nomus-pessoas" ? "pessoas" : "processos";
+      const enfileirados = alvos
+        .filter((_, i) => resultados[i].status === "fulfilled")
+        .map(labelRecurso);
+      const duplicado = resultados.some(
+        (r) =>
+          r.status === "rejected" &&
+          r.reason instanceof ApiError &&
+          r.reason.status === 409,
+      );
+      if (enfileirados.length > 0) {
+        setToast({
+          message: `Coleta Nomus enfileirada (${enfileirados.join(" e ")}) · roda no PC local.`,
+        });
+      } else if (duplicado) {
+        setToast({
+          message: "Coleta Nomus já está na fila; aguarde a conclusão.",
+        });
+      } else {
+        setToast({
+          message: "Não foi possível enfileirar a coleta do Nomus. Tente novamente.",
+        });
+      }
       return;
     }
     if (coletando) return;
@@ -412,6 +440,32 @@ export function ColetaClient({
     }
   }
 
+  // Re-varredura full de processos: enfileira 'nomus-processos-full' (o poll do
+  // PC re-coleta TODOS os processos dentro do corte de idade p/ pegar mudancas
+  // de etapa que a coleta incremental por id nunca reve; processos nao tem 2a
+  // passada por dataModificacao como pessoas). So aparece com Nomus+processos.
+  async function handleRevarrerFull() {
+    if (coletando) return;
+    try {
+      await enfileirarNomus.mutateAsync("nomus-processos-full");
+      setToast({
+        message: "Re-varredura full de processos enfileirada · roda no PC local.",
+      });
+    } catch (err) {
+      setToast({
+        message:
+          err instanceof ApiError && err.status === 409
+            ? "Re-varredura full já está na fila; aguarde a conclusão."
+            : "Não foi possível enfileirar a re-varredura. Tente novamente.",
+      });
+    }
+  }
+
+  // A re-varredura full só faz sentido para processos do Nomus (com "Todos"
+  // inclui processos). O botão secundário acompanha esse filtro.
+  const mostrarRevarrerFull =
+    fonte === "nomus" && (recurso === "processos" || recurso === "todos");
+
   return (
     <>
       <Subtabs<Subtab>
@@ -419,8 +473,8 @@ export function ColetaClient({
         value={subtab}
         onValueChange={handleSubtabChange}
         items={[
-          { value: "execucoes", label: "Execuções", count: allRuns.length },
-          { value: "dados", label: "Dados", count: allDados.length },
+          { value: "execucoes", label: "Execuções", count: contagens?.total ?? allRuns.length },
+          { value: "dados", label: "Dados", count: registrosTotal },
           { value: "escopo", label: "Escopo" },
           { value: "agendamento", label: "Agendamento", count: agendamentosAtivos },
           { value: "logs", label: "Logs" },
@@ -437,7 +491,9 @@ export function ColetaClient({
                 ? "Disparando…"
                 : fonte === "todas"
                   ? "Coletar agora"
-                  : `Coletar ${origemLabel(fonte)}`
+                  : recurso !== "todos"
+                    ? `Coletar ${origemLabel(fonte)} ${recurso}`
+                    : `Coletar ${origemLabel(fonte)}`
             }
             onAction={handleColetarAgora}
             actionDisabled={coletando}
@@ -445,9 +501,13 @@ export function ColetaClient({
               fonte === "todas"
                 ? "Selecione uma fonte para coletar"
                 : fonte === "nomus"
-                  ? "Nomus é coletado no PC local (sem disparo pelo cockpit)"
+                  ? "Enfileira a coleta do Nomus para o PC local (recurso selecionado)"
                   : `Disparar coleta ${origemLabel(fonte)}`
             }
+            secondaryActionLabel={mostrarRevarrerFull ? "Re-varrer (full)" : undefined}
+            onSecondaryAction={handleRevarrerFull}
+            secondaryActionDisabled={coletando}
+            secondaryActionTitle="Re-coleta todos os processos dentro do corte de idade para pegar mudanças de etapa (roda no PC local)"
             toastClassName="bottom-[5.5rem]"
             blocks={EXECUCOES_BLOCKS}
             slots={{
@@ -500,6 +560,19 @@ export function ColetaClient({
                     onToggle={toggleHidden(setRunsHidden)}
                     onShowAll={() => setRunsHidden(new Set())}
                   />
+                </span>
+              ),
+              tempoReal: (
+                <span className="ml-auto inline-flex items-center gap-1.5 text-[12px] text-muted">
+                  <span
+                    aria-hidden="true"
+                    className={
+                      connected
+                        ? "size-2 animate-pulse rounded-full bg-ok"
+                        : "size-2 rounded-full bg-warn"
+                    }
+                  />
+                  {connected ? "Tempo real ativo" : "Reconectando…"}
                 </span>
               ),
             }}
@@ -557,71 +630,46 @@ export function ColetaClient({
                   }))}
                 />
               ),
-              recurso:
-                dRecursoOptions.length > 0 ? (
-                  <RecursoFilter
-                    ariaLabel="Filtrar dados por recurso da fonte"
-                    options={dRecursoOptions}
-                    total={dRecursoTotal}
-                    value={dRecurso}
-                    onValueChange={setDRecurso}
-                  />
-                ) : null,
               busca: (
                 <input
                   type="search"
                   value={dBusca}
                   onChange={(e) => setDBusca(e.target.value)}
-                  placeholder="Buscar por título, recurso ou tipo"
+                  placeholder="Buscar por título, órgão ou identificador"
                   aria-label="Buscar dados coletados"
                   className={TOOLBAR_SEARCH_CLASS}
                 />
               ),
-              filtros: (
-                <span className="flex items-center gap-2.5">
-                  <FieldFilterMenu
-                    columns={DADOS_FILTER_META}
-                    values={dadosFieldFilters}
-                    onChange={(id, value) =>
-                      setDadosFieldFilters((p) => ({ ...p, [id]: value }))
-                    }
-                    onClear={() => setDadosFieldFilters({})}
-                  />
-                  <ColumnToggleMenu
-                    columns={DADOS_COL_META}
-                    hidden={dadosHidden}
-                    onToggle={toggleHidden(setDadosHidden)}
-                    onShowAll={() => setDadosHidden(new Set())}
-                  />
-                </span>
-              ),
             }}
           >
-            <DadosTable
-              dados={dadosPage.pageItems}
-              loading={execucoes.isLoading}
-              error={execucoes.isError}
-              onRetry={() => execucoes.refetch()}
-              hidden={dadosHidden}
-              onItemClick={(d) =>
-                setModal({ kind: "dado", id: d.id, title: d.titulo })
-              }
+            <ColetaRegistrosTable
+              registros={registrosList}
+              loading={registros.isLoading}
+              error={registros.isError}
+              onRetry={() => registros.refetch()}
+              expanded={expandedIds}
+              onToggleExpand={handleToggleExpand}
+              onCloseExpand={handleCloseExpand}
+              onTriarAviso={handleTriarAviso}
+              pagination={{
+                page: pageNumber,
+                hasPrev: cursors.length > 0,
+                hasNext: nextCursor !== null,
+                onPrev: handlePrevPage,
+                onNext: handleNextPage,
+                isFetching: registros.isFetching,
+              }}
               emptyTitle={
-                dFonte !== "todas" ||
-                dBusca.trim() ||
-                Object.values(dadosFieldFilters).some((v) => v.trim())
-                  ? "Nenhum item para o filtro"
-                  : "Nenhum item nesta guia"
+                dFonte !== "todas" || dBusca.trim()
+                  ? "Nenhum registro para o filtro"
+                  : "Nenhum registro nesta guia"
               }
               emptyDescription={
-                dFonte !== "todas" ||
-                dBusca.trim() ||
-                Object.values(dadosFieldFilters).some((v) => v.trim())
-                  ? "Ajuste a busca ou o filtro para ver os dados coletados."
-                  : "Ainda não há itens capturados. Dispare uma coleta para começar a trazer dados."
+                dFonte !== "todas" || dBusca.trim()
+                  ? "Ajuste a busca ou a fonte para ver os registros coletados."
+                  : "Ainda não há registros coletados. Dispare uma coleta para começar a trazer dados."
               }
             />
-            <TablePager {...dadosPage} />
           </WorkbenchTemplate>
         </div>
       )}
@@ -643,19 +691,6 @@ export function ColetaClient({
           <LogsConsole fonteInicial={logsFonte} />
         </div>
       )}
-
-      <ActionModal
-        open={modal !== null}
-        onClose={() => setModal(null)}
-        title={modal?.title ?? "Ações"}
-        description={modalObsolete ? undefined : "Escolha uma ação para este item."}
-        obsolete={modalObsolete}
-        options={DADO_ACTIONS}
-        onAction={() => {
-          setModal(null);
-          handleReadOnly("Apenas leitura — nenhuma ação foi executada.");
-        }}
-      />
 
       {toast ? <CockpitToast kind="info" message={toast.message} /> : null}
     </>

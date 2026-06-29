@@ -5,7 +5,11 @@ import { apiFetch } from "@/lib/api/client";
  * e extracao Tika/OCR, migradas para o PC pos-bloqueio do GitHub Actions). O PC
  * roda um servico de poll que pega o comando e dispara o wrapper .ps1.
  */
-export type ComandoLocalTipo = "nomus-processos" | "nomus-pessoas" | "tika-ocr";
+export type ComandoLocalTipo =
+  | "nomus-processos"
+  | "nomus-pessoas"
+  | "nomus-processos-full"
+  | "tika-ocr";
 
 /** Ciclo de vida do comando na fila (espelha o check da tabela comando_local). */
 export type ComandoLocalStatus = "pendente" | "executando" | "concluido" | "erro";

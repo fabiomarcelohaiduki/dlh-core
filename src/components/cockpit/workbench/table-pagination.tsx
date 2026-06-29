@@ -65,6 +65,76 @@ export function usePagination<T>(
   return { pageItems, page: safePage, setPage, totalPages, total, pageSize };
 }
 
+// =====================================================================
+// CursorPager — variante por keyset/cursor server-side (guia "Dados").
+//
+// Diferente do TablePager (paginacao client-side sobre uma lista ja carregada
+// inteira), aqui o backend devolve uma pagina por vez com um `nextCursor`
+// opaco: nao conhecemos o total de paginas. O estado do cursor (pilha de
+// cursores) vive no client da view; este componente so reflete os flags e
+// dispara os callbacks de navegacao. Quando nao ha proxima pagina, desabilita
+// "Proxima" e exibe um rodape neutro ("Fim dos resultados") sem chamada extra.
+// Mantem o mesmo idioma visual do TablePager (altura/raio/cores via tokens).
+// =====================================================================
+
+export interface CursorPaginationProps {
+  /** Pagina corrente (base 1), apenas para exibicao. */
+  page: number;
+  /** Ha pagina anterior na pilha de cursores. */
+  hasPrev: boolean;
+  /** Ha proxima pagina (nextCursor !== null). */
+  hasNext: boolean;
+  /** Volta para a pagina anterior (desempilha o cursor). */
+  onPrev: () => void;
+  /** Avanca para a proxima pagina (empilha o nextCursor). */
+  onNext: () => void;
+  /** Trava a navegacao enquanto a pagina esta sendo buscada. */
+  isFetching?: boolean;
+}
+
+/** Rodape de paginacao por cursor server-side (sempre visivel). */
+export function CursorPager({
+  page,
+  hasPrev,
+  hasNext,
+  onPrev,
+  onNext,
+  isFetching = false,
+}: CursorPaginationProps) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-[18px] py-3">
+      <span className="text-[12.5px] text-muted">
+        {hasNext ? `Página ${page}` : "Fim dos resultados"}
+      </span>
+      <div className="flex items-center gap-2.5">
+        <Button
+          variant="default"
+          size="sm"
+          type="button"
+          aria-label="Página anterior"
+          disabled={!hasPrev || isFetching}
+          onClick={onPrev}
+        >
+          <ChevronLeft aria-hidden="true" />
+          Anterior
+        </Button>
+        <span className="text-[12.5px] tabular-nums text-muted">{page}</span>
+        <Button
+          variant="default"
+          size="sm"
+          type="button"
+          aria-label="Próxima página"
+          disabled={!hasNext || isFetching}
+          onClick={onNext}
+        >
+          Próxima
+          <ChevronRight aria-hidden="true" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /** Rodape de paginacao da tabela. Some quando ha uma unica pagina. */
 export function TablePager<T>({ page, setPage, totalPages, total, pageSize }: Pagination<T>) {
   if (totalPages <= 1) return null;
