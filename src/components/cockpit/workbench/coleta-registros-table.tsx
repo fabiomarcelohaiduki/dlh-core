@@ -109,6 +109,11 @@ export function ColetaRegistrosRow({
   const objeto = registroObjeto(registro);
   const isEffecti = registro.fonte === "effecti";
   const isNomus = registro.fonte === "nomus";
+  // Rotulo da coluna "Registro": Effecti usa o ID (curto e estavel) em vez do
+  // objeto (texto longo que esticava a coluna); as demais fontes mantem o
+  // titulo curto (assunto do Gmail / nome do arquivo). O texto completo fica no
+  // `title` para hover, e a celula trunca para nao alargar a tabela.
+  const tituloExibido = isEffecti ? registro.origemId : registro.tituloCurto;
   const { data, hora } = splitDateTime(registro.captadoEm);
   const indexacao = indexacaoAgregadoDescriptor(registro.statusIndexacaoAgregado);
   const mostrarLink = registro.temLinkPublico && !isNomus && Boolean(registro.linkOriginal);
@@ -116,21 +121,23 @@ export function ColetaRegistrosRow({
   return (
     <>
       <TableRow data-selected={expanded || undefined}>
-        {/* Registro: expansor + titulo. */}
-        <TableCell className="font-medium">
+        {/* Registro: expansor + titulo (truncado, com texto completo no title). */}
+        <TableCell className="max-w-[360px] font-medium">
           <button
             type="button"
             aria-expanded={expanded}
             aria-controls={panelId}
             onClick={onToggleExpand}
-            className="flex items-center gap-2 text-left text-fg transition-colors hover:text-accent-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-line"
+            className="flex w-full min-w-0 items-center gap-2 text-left text-fg transition-colors hover:text-accent-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-line"
           >
             {expanded ? (
               <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-muted" />
             ) : (
               <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted" />
             )}
-            <span className="truncate">{registro.tituloCurto}</span>
+            <span className="min-w-0 truncate" title={registro.tituloCurto}>
+              {tituloExibido}
+            </span>
           </button>
         </TableCell>
 

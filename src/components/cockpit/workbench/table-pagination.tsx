@@ -90,6 +90,16 @@ export interface CursorPaginationProps {
   onNext: () => void;
   /** Trava a navegacao enquanto a pagina esta sendo buscada. */
   isFetching?: boolean;
+  /**
+   * Total de registros no conjunto filtrado, quando conhecido. Omitido (ex.:
+   * busca textual ativa) cai no rodape neutro "Página X" sem inventar total.
+   */
+  total?: number;
+  /**
+   * Total de paginas derivado do `total`. Quando presente, o rodape espelha a
+   * guia Execuções ("X de Y"); quando ausente, exibe so a pagina corrente.
+   */
+  totalPages?: number;
 }
 
 /** Rodape de paginacao por cursor server-side (sempre visivel). */
@@ -100,11 +110,17 @@ export function CursorPager({
   onPrev,
   onNext,
   isFetching = false,
+  total,
+  totalPages,
 }: CursorPaginationProps) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-[18px] py-3">
       <span className="text-[12.5px] text-muted">
-        {hasNext ? `Página ${page}` : "Fim dos resultados"}
+        {total !== undefined
+          ? `${total} ${total === 1 ? "registro" : "registros"}`
+          : hasNext
+            ? `Página ${page}`
+            : "Fim dos resultados"}
       </span>
       <div className="flex items-center gap-2.5">
         <Button
@@ -118,7 +134,9 @@ export function CursorPager({
           <ChevronLeft aria-hidden="true" />
           Anterior
         </Button>
-        <span className="text-[12.5px] tabular-nums text-muted">{page}</span>
+        <span className="text-[12.5px] tabular-nums text-muted">
+          {totalPages !== undefined ? `${page} de ${totalPages}` : page}
+        </span>
         <Button
           variant="default"
           size="sm"

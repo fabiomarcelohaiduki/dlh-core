@@ -352,6 +352,21 @@ export function ColetaClient({
     return c[tab] ?? 0;
   };
 
+  // Total de registros do conjunto PAGINADO (para o "Página X de Y" do rodapé,
+  // igual à guia Execuções). As contagensPorFonte são cumulativas e refletem
+  // exatamente o filtro de fonte; com busca textual ativa o total filtrado não
+  // é conhecido (o Edge não devolve count do termo), então fica indeterminado
+  // e o rodapé cai em "Página X" sem inventar um total.
+  const dadosTotal = dBusca.trim()
+    ? undefined
+    : dFonte === "todas"
+      ? registrosTotal
+      : dadoFonteCount(dFonte);
+  const dadosTotalPages =
+    dadosTotal && dadosTotal > 0
+      ? Math.max(1, Math.ceil(dadosTotal / DEFAULT_PAGE_SIZE))
+      : undefined;
+
   // Paginacao client-side (25 por pagina) sobre as listas ja filtradas. O
   // resetKey volta a pagina 1 sempre que o criterio de filtro muda.
   const runsPage = usePagination(
@@ -658,6 +673,8 @@ export function ColetaClient({
                 onPrev: handlePrevPage,
                 onNext: handleNextPage,
                 isFetching: registros.isFetching,
+                total: dadosTotal,
+                totalPages: dadosTotalPages,
               }}
               emptyTitle={
                 dFonte !== "todas" || dBusca.trim()
