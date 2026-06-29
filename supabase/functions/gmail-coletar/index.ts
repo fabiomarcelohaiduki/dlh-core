@@ -224,8 +224,24 @@ interface AnexoRef {
 interface MimePayload {
   mimeType?: string;
   filename?: string;
+  headers?: { name?: string; value?: string }[];
   body?: { data?: string; attachmentId?: string; size?: number };
   parts?: MimePayload[];
+}
+
+/**
+ * Le o header "Subject" (assunto) do payload MIME de topo. O assunto e o titulo
+ * legivel do e-mail na guia Dados (a coluna Registro), no lugar do nome tecnico
+ * do vinculo de corpo ("(corpo).txt"). Devolve null se ausente ou vazio.
+ */
+function extrairAssunto(message: Record<string, unknown>): string | null {
+  const payload = message.payload as MimePayload | undefined;
+  for (const h of payload?.headers ?? []) {
+    if ((h.name ?? "").toLowerCase() === "subject") {
+      return (h.value ?? "").trim() || null;
+    }
+  }
+  return null;
 }
 
 /**
@@ -287,10 +303,14 @@ interface ItemDescoberta {
   nome: string;
   extensao: string | null;
   attachment_id?: string;
+  // Assunto do e-mail (mesmo para corpo e anexos da mesma mensagem). Vira o
+  // titulo legivel do registro na guia Dados.
+  assunto: string | null;
 }
 
 function itensDaMensagem(message: Record<string, unknown>): ItemDescoberta[] {
   const { threadId, corpo, anexos } = extrairConteudo(message);
+  const assunto = extrairAssunto(message);
   const itens: ItemDescoberta[] = [];
   const messageId = String(message.id ?? "");
   if (corpo) {
@@ -300,6 +320,7 @@ function itensDaMensagem(message: Record<string, unknown>): ItemDescoberta[] {
       tipo: "corpo",
       nome: NOME_CORPO,
       extensao: "txt",
+      assunto,
     });
   }
   for (const a of anexos) {
@@ -311,6 +332,7 @@ function itensDaMensagem(message: Record<string, unknown>): ItemDescoberta[] {
       nome: a.nome,
       attachment_id: a.attachment_id,
       extensao: a.extensao,
+      assunto,
     });
   }
   return itens;

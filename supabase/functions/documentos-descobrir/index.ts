@@ -85,6 +85,8 @@ interface ItemGmail {
   nome: string;
   attachment_id: string | null;
   extensao: string | null;
+  // Assunto do e-mail; vira o titulo legivel do registro na guia Dados.
+  assunto: string | null;
 }
 
 interface DescobrirInput {
@@ -218,6 +220,7 @@ function parseItensGmail(o: Record<string, unknown>): ItemGmail[] {
       nome,
       attachment_id: typeof r.attachment_id === "string" ? r.attachment_id : null,
       extensao: typeof r.extensao === "string" ? r.extensao : null,
+      assunto: typeof r.assunto === "string" && r.assunto.trim() !== "" ? r.assunto.trim() : null,
     });
   }
   return out;
