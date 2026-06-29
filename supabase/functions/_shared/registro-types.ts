@@ -28,6 +28,24 @@ export type StatusExtracao =
 export type FonteColeta = "effecti" | "nomus" | "drive" | "gmail";
 
 /**
+ * Fonte canonica do ledger `execucao_registros` (coluna `fonte` da PK). Mesmo
+ * universo de FonteColeta; nome distinto para amarrar a assinatura do write-back
+ * a chave do ledger.
+ */
+export type FonteCanonical = "effecti" | "nomus" | "gmail" | "drive";
+
+/**
+ * Recurso canonico do ledger `execucao_registros` (coluna `recurso` da nova PK
+ * composta). NOT NULL: a PK nao aceita nulo, entao o write-back exige recurso.
+ */
+export type RecursoCanonical =
+  | "avisos"
+  | "processos"
+  | "pessoas"
+  | "mensagens"
+  | "arquivos";
+
+/**
  * Efeito de UMA execucao sobre UM registro (ledger execucao_registros): 'novo'
  * (1a vez que entrou) ou 'atualizado' (ja existia e foi mexido). Preenchido so
  * quando a lista vem recortada por execucao (clique numa execucao); null na
@@ -40,6 +58,7 @@ export type EfeitoColeta = "novo" | "atualizado";
  * deterministica a partir dos status_extracao dos vinculos (SPEC 4.5.4).
  */
 export type StatusIndexacaoAgregado =
+  | "sem_documentos"
   | "pendente"
   | "em_andamento"
   | "concluida"
@@ -74,6 +93,24 @@ export interface CabecalhoNomus {
   data_criacao: string | null;
 }
 
+/**
+ * Cabecalho de uma pessoa Nomus (recurso `pessoas`, colunas de `nomus_pessoas`).
+ * Discriminado por (fonte, recurso) — coabita com CabecalhoNomus (processos) sob
+ * fonte='nomus'. Campos podem ser null exceto os discriminantes e `nomusId`.
+ */
+export interface CabecalhoNomusPessoa {
+  fonte: "nomus";
+  recurso: "pessoas";
+  nome: string | null;
+  cnpj: string | null;
+  tipoPessoa: string | null;
+  municipio: string | null;
+  uf: string | null;
+  categorias?: string[] | null;
+  codigo: string | null;
+  nomusId: string;
+}
+
 /** Cabecalho de um item Gmail (documento_vinculos + ref_obtencao). */
 export interface CabecalhoGmail {
   fonte: "gmail";
@@ -98,6 +135,7 @@ export interface CabecalhoDrive {
 export type CabecalhoDiscriminado =
   | CabecalhoEffecti
   | CabecalhoNomus
+  | CabecalhoNomusPessoa
   | CabecalhoGmail
   | CabecalhoDrive;
 

@@ -12,33 +12,40 @@
 // =====================================================================
 
 import { type SupabaseClient } from "@supabase/supabase-js";
-import { type EfeitoColeta } from "./registro-types.ts";
+import {
+  type EfeitoColeta,
+  type FonteCanonical,
+  type RecursoCanonical,
+} from "./registro-types.ts";
 
 /**
  * Grava o efeito desta execucao sobre um registro no ledger. Idempotente: a PK
- * (execucao_id, fonte, registro_origem_id) com ignoreDuplicates preserva o
- * PRIMEIRO efeito da rodada (um 'novo' nao e rebaixado por um re-toque tardio).
+ * (execucao_id, fonte, recurso, registro_origem_id) com ignoreDuplicates preserva
+ * o PRIMEIRO efeito da rodada (um 'novo' nao e rebaixado por um re-toque tardio).
+ * `recurso` e obrigatorio porque a nova PK composta nao aceita NULL.
  * Best-effort: falha aqui NAO derruba a coleta (so loga) — o ledger e recorte
  * de visualizacao, nao caminho critico de ingestao.
  */
 export async function registrarEfeitoColeta(
   db: SupabaseClient,
   execucaoId: string,
-  fonte: string,
+  fonte: FonteCanonical,
+  recurso: RecursoCanonical,
   registroOrigemId: string,
   efeito: EfeitoColeta,
 ): Promise<void> {
   const { error } = await db
     .from("execucao_registros")
     .upsert(
-      { execucao_id: execucaoId, fonte, registro_origem_id: registroOrigemId, efeito },
-      { onConflict: "execucao_id,fonte,registro_origem_id", ignoreDuplicates: true },
+      { execucao_id: execucaoId, fonte, recurso, registro_origem_id: registroOrigemId, efeito },
+      { onConflict: "execucao_id,fonte,recurso,registro_origem_id", ignoreDuplicates: true },
     );
   if (error) {
     console.error("[execucao-registros] falha ao gravar efeito no ledger", {
       error: error.message,
       execucaoId,
       fonte,
+      recurso,
       registroOrigemId,
       efeito,
     });

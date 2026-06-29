@@ -671,15 +671,17 @@ async function handler(req: Request): Promise<Response> {
         else alterados += 1;
 
         // Ledger do efeito desta execucao (recorte da guia Dados por execucao).
-        // So processos entram na lista mestra; pessoas nao geram vinculo, ficam
-        // fora. "ignorado" nao deixou marca -> nao entra no ledger.
+        // Processos E pessoas entram na lista mestra re-ancorada (a view tem
+        // ramo proprio para nomus_pessoas), entao ambos gravam no ledger com o
+        // recurso correto. "ignorado" nao deixou marca -> nao entra no ledger.
         // registrarEfeitoColeta e best-effort (no-throw): nunca cai neste catch
         // nem contabiliza erro de persistencia por falha de ledger.
-        if (!isPessoa && outcome.acao !== "ignorado") {
+        if (outcome.acao !== "ignorado") {
           await registrarEfeitoColeta(
             service,
             execucaoId,
             "nomus",
+            isPessoa ? "pessoas" : "processos",
             String(record.nomus_id),
             outcome.acao === "inserido" ? "novo" : "atualizado",
           );

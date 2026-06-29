@@ -42,12 +42,14 @@ import type {
   CabecalhoEffecti,
   CabecalhoGmail,
   CabecalhoNomus,
+  CabecalhoNomusPessoa,
   ColetaRegistrosResponse,
   ContagensPorFonte,
   EfeitoColeta,
   ErroIngestao,
   Execucao,
   FonteColeta,
+  RecursoCanonical,
   RegistroColetado,
   RegistroColetadoDetalhe,
   StatusExtracao,
@@ -60,18 +62,31 @@ const FUNCTION_SEGMENT = "coleta-registros";
 
 // Paginacao da lista (keyset) e tamanho do lote nas consultas `.in(...)`.
 const DEFAULT_LIMIT = 25;
-const MAX_LIMIT = 100;
+const MAX_LIMIT = 200; // teto do clamp [1, 200] (alinhado as RPCs da Sprint 2).
 const IN_CHUNK = 300; // tamanho do lote em consultas `.in(...)` (limite de URL).
 
 // Fontes e status agregados travados (enums do dominio).
 const FONTES = ["effecti", "nomus", "drive", "gmail"] as const;
+// status_indexacao_agregado: inclui 'sem_documentos' (registro sem anexo) da
+// view re-ancorada (Sprint 1 da migration). Universo aceito no filtro ?status=.
 const STATUS_AGREGADO = [
+  "sem_documentos",
   "pendente",
   "em_andamento",
   "concluida",
   "erro",
   "mista",
 ] as const;
+
+// Allowlist canonica FECHADA de (fonte, recurso). O id_composto carrega a
+// tripla (fonte:recurso:registro_origem_id); o par precisa casar exatamente
+// um ramo da view re-ancorada. Fora desta tabela -> 422 (SEC-03).
+const RECURSO_POR_FONTE: Record<FonteColeta, readonly RecursoCanonical[]> = {
+  effecti: ["avisos"],
+  nomus: ["processos", "pessoas"],
+  gmail: ["mensagens"],
+  drive: ["arquivos"],
+};
 
 // ---------------------------------------------------------------------
 // Tipos internos (linhas lidas do banco e agregado por registro).
@@ -81,6 +96,7 @@ const STATUS_AGREGADO = [
 interface MestraRow {
   id_composto: string;
   fonte: string;
+  recurso: string;
   registro_origem_id: string;
   captado_em: string;
   qtd_documentos: number;
@@ -116,6 +132,18 @@ interface NomusLite {
   data_criacao: string | null;
 }
 
+/** Subset de nomus_pessoas para o cabecalho discriminado nomus/pessoas. */
+interface NomusPessoaLite {
+  nomus_id: string;
+  nome: string | null;
+  nome_razao_social: string | null;
+  cnpj: string | null;
+  tipo_pessoa: string | null;
+  codigo: string | null;
+  municipio: string | null;
+  uf: string | null;
+}
+
 /**
  * Linha mestra ja resolvida (vinda da view) consumida pelo montador de itens
  * da pagina. Espelha vw_coleta_registros_mestra em camelCase; o vinculo
@@ -123,6 +151,7 @@ interface NomusLite {
  */
 interface GroupAgg {
   fonte: FonteColeta;
+  recurso: RecursoCanonical;
   origemId: string;
   idComposto: string;
   qtdDocumentos: number;
@@ -311,6 +340,7 @@ function jsonStr(obj: unknown, key: string): string | null {
 function mestraRowToGroup(r: MestraRow): GroupAgg {
   return {
     fonte: r.fonte as FonteColeta,
+    recurso: r.recurso as RecursoCanonical,
     origemId: r.registro_origem_id,
     idComposto: r.id_composto,
     qtdDocumentos: r.qtd_documentos,
@@ -327,12 +357,16 @@ function mestraRowToGroup(r: MestraRow): GroupAgg {
   };
 }
 
-/** Monta ContagensPorFonte a partir das linhas da RPC de contagem. */
-function buildContagens(rows: { fonte: string; total: number | string }[]): ContagensPorFonte {
+/**
+ * Monta ContagensPorFonte a partir das linhas da RPC de contagem
+ * (coleta_registros_contagens -> colunas fonte/qtd). Nomus ja soma
+ * processos + pessoas na propria RPC (group by fonte sobre a view).
+ */
+function buildContagens(rows: { fonte: string; qtd: number | string }[]): ContagensPorFonte {
   const c: ContagensPorFonte = { effecti: 0, nomus: 0, gmail: 0, drive: 0, total: 0 };
   for (const r of rows) {
     if (!FONTES.includes(r.fonte as FonteColeta)) continue;
-    const n = Number(r.total) || 0;
+    const n = Number(r.qtd) || 0;
     c[r.fonte as FonteColeta] = n;
     c.total += n;
   }
@@ -348,22 +382,25 @@ async function handleList(req: Request): Promise<Response> {
   const service = createServiceClient();
 
   // 1) Pagina por keyset (RPC). Pede limit+1 p/ saber se ha proxima pagina.
-  //    Recorte por execucao -> ledger (coleta_registros_por_execucao, traz o
-  //    efeito novo|atualizado); lista mestra cumulativa -> coleta_registros_listar.
+  //    Recorte por execucao -> ledger (coleta_registros_por_execucao, INNER JOIN
+  //    pela tripla, traz o efeito novo|atualizado); lista mestra cumulativa ->
+  //    coleta_registros_listar (efeito sempre NULL). Mesmos filtros e keyset.
   const { data: pageData, error: pageErr } = params.execucaoId
     ? await service.rpc("coleta_registros_por_execucao", {
       p_execucao_id: params.execucaoId,
-      p_cursor_captado: params.cursor?.c ?? null,
-      p_cursor_id: params.cursor?.k ?? null,
+      p_fonte: params.fonte,
+      p_status: params.status,
+      p_busca: params.busca,
+      p_cursor_captado_em: params.cursor?.c ?? null,
+      p_cursor_id_composto: params.cursor?.k ?? null,
       p_limit: params.limit + 1,
     })
     : await service.rpc("coleta_registros_listar", {
       p_fonte: params.fonte,
       p_status: params.status,
-      p_tem_erro: params.temErro,
       p_busca: params.busca,
-      p_cursor_captado: params.cursor?.c ?? null,
-      p_cursor_id: params.cursor?.k ?? null,
+      p_cursor_captado_em: params.cursor?.c ?? null,
+      p_cursor_id_composto: params.cursor?.k ?? null,
       p_limit: params.limit + 1,
     });
   if (pageErr) {
@@ -371,21 +408,36 @@ async function handleList(req: Request): Promise<Response> {
   }
   const rows = (pageData ?? []) as MestraRow[];
   const hasMore = rows.length > params.limit;
-  const pageGroups = (hasMore ? rows.slice(0, params.limit) : rows).map(mestraRowToGroup);
+  const rawGroups = (hasMore ? rows.slice(0, params.limit) : rows).map(mestraRowToGroup);
 
-  // 2) contagensPorFonte: total por fonte (cumulativo, sem filtros) via RPC.
+  // tem_erro (E5): a RPC da Sprint 2 NAO recebe mais este filtro; aplicamos como
+  // intersecao AND silenciosa com o status, em cima das linhas ja paginadas
+  // (qtd_erros > 0). O keyset (hasMore/nextCursor) caminha sobre a ordenacao
+  // BRUTA (linhas antes do filtro), entao a paginacao varre todo o universo sem
+  // pular registros; combinacoes contraditorias (ex.: status=sem_documentos +
+  // tem_erro=true) caem para conjunto vazio sem erro.
+  const pageGroups = params.temErro ? rawGroups.filter((g) => g.qtdErros > 0) : rawGroups;
+
+  // 2) contagensPorFonte: total por fonte (cumulativo, sem filtros) via RPC
+  //    (1 chamada por request — RNF-02). Nomus = processos + pessoas.
   const { data: contData, error: contErr } = await service.rpc("coleta_registros_contagens");
   if (contErr) {
     throw new HttpError(500, "coleta_registros_contagens_failed", "falha ao contar registros");
   }
   const contagensPorFonte = buildContagens(
-    (contData ?? []) as { fonte: string; total: number | string }[],
+    (contData ?? []) as { fonte: string; qtd: number | string }[],
   );
 
-  // 3) Cross-ref (Effecti -> avisos; Nomus -> nomus_processos) APENAS dos itens
-  //    da pagina, para o cabecalho discriminado / aviso_id / execucao de origem.
+  // 3) Cross-ref (Effecti -> avisos; Nomus -> processos/pessoas por recurso)
+  //    APENAS dos itens da pagina, para o cabecalho discriminado / aviso_id /
+  //    execucao de origem.
   const effectiIds = pageGroups.filter((g) => g.fonte === "effecti").map((g) => g.origemId);
-  const nomusIds = pageGroups.filter((g) => g.fonte === "nomus").map((g) => g.origemId);
+  const nomusProcessosIds = pageGroups
+    .filter((g) => g.fonte === "nomus" && g.recurso === "processos")
+    .map((g) => g.origemId);
+  const nomusPessoasIds = pageGroups
+    .filter((g) => g.fonte === "nomus" && g.recurso === "pessoas")
+    .map((g) => g.origemId);
 
   const avisosByEffecti = new Map<string, AvisoLite>();
   if (effectiIds.length > 0) {
@@ -400,8 +452,8 @@ async function handleList(req: Request): Promise<Response> {
   }
 
   const nomusById = new Map<string, NomusLite>();
-  if (nomusIds.length > 0) {
-    const nomusRows = (await fetchByIn("nomus_processos", nomusIds, (chunk) =>
+  if (nomusProcessosIds.length > 0) {
+    const nomusRows = (await fetchByIn("nomus_processos", nomusProcessosIds, (chunk) =>
       service
         .from("nomus_processos")
         .select("nomus_id, etapa, pessoa, tipo, data_criacao")
@@ -409,11 +461,29 @@ async function handleList(req: Request): Promise<Response> {
     for (const n of nomusRows) nomusById.set(n.nomus_id, n);
   }
 
-  // 4) Cabecalho discriminado + link_original APENAS para os itens da pagina.
-  const itens = await buildPageItems(service, pageGroups, avisosByEffecti, nomusById);
+  const nomusPessoaById = new Map<string, NomusPessoaLite>();
+  if (nomusPessoasIds.length > 0) {
+    const pessoaRows = (await fetchByIn("nomus_pessoas", nomusPessoasIds, (chunk) =>
+      service
+        .from("nomus_pessoas")
+        .select("nomus_id, nome, nome_razao_social, cnpj, tipo_pessoa, codigo, municipio, uf")
+        .in("nomus_id", chunk))) as NomusPessoaLite[];
+    for (const p of pessoaRows) nomusPessoaById.set(p.nomus_id, p);
+  }
 
-  // 5) Cursor da proxima pagina (captado_em + id_composto da ultima linha).
-  const last = pageGroups[pageGroups.length - 1];
+  // 4) Cabecalho discriminado + link_original APENAS para os itens da pagina.
+  const itens = await buildPageItems(
+    service,
+    pageGroups,
+    avisosByEffecti,
+    nomusById,
+    nomusPessoaById,
+  );
+
+  // 5) Cursor da proxima pagina: ancorado na ultima linha BRUTA da pagina
+  //    (rawGroups), nao na filtrada por tem_erro — assim o keyset nao pula
+  //    registros quando o filtro esvazia a pagina exibida.
+  const last = rawGroups[rawGroups.length - 1];
   const nextCursor = hasMore && last
     ? encodeCursor({ c: last.captadoEm, k: last.idComposto })
     : null;
@@ -428,6 +498,7 @@ async function buildPageItems(
   pageGroups: GroupAgg[],
   avisosByEffecti: Map<string, AvisoLite>,
   nomusById: Map<string, NomusLite>,
+  nomusPessoaById: Map<string, NomusPessoaLite>,
 ): Promise<RegistroColetado[]> {
   // payload_bruto Effecti (uf/uasg/edital) so dos avisos da pagina.
   const pageEffectiIds = pageGroups.filter((g) => g.fonte === "effecti").map((g) => g.origemId);
@@ -472,7 +543,15 @@ async function buildPageItems(
   }
 
   return pageGroups.map((g) =>
-    buildRegistro(g, avisosByEffecti, nomusById, payloadByEffecti, refById, extByDoc)
+    buildRegistro(
+      g,
+      avisosByEffecti,
+      nomusById,
+      nomusPessoaById,
+      payloadByEffecti,
+      refById,
+      extByDoc,
+    )
   );
 }
 
@@ -484,6 +563,8 @@ async function buildPageItems(
  */
 interface CabecalhoInput {
   fonte: FonteColeta;
+  /** Recurso canonico (discrimina nomus/processos vs nomus/pessoas). */
+  recurso: RecursoCanonical;
   origemId: string;
   /** Fallback de data_captura (Effecti) quando o aviso nao traz a coluna. */
   captadoEm: string;
@@ -491,6 +572,8 @@ interface CabecalhoInput {
   /** avisos.payload_bruto (jsonb) para uf/uasg/edital. */
   payloadEffecti: unknown;
   nomus: NomusLite | null;
+  /** nomus_pessoas resolvido (recurso='pessoas'); null nos demais. */
+  nomusPessoa: NomusPessoaLite | null;
   /** Vinculo representativo: nome do anexo/arquivo (Gmail/Drive). */
   repNomeAnexo: string | null;
   /** Vinculo representativo: ref_obtencao (jsonb) para tipo/thread_id/mimeType. */
@@ -524,6 +607,24 @@ function montarCabecalho(input: CabecalhoInput): CabecalhoDiscriminado {
       return cab;
     }
     case "nomus": {
+      // fonte='nomus' e ambigua (processos vs pessoas compartilham nomus_id):
+      // o recurso da tripla decide a variante do cabecalho.
+      if (input.recurso === "pessoas") {
+        const p = input.nomusPessoa;
+        const cab: CabecalhoNomusPessoa = {
+          fonte: "nomus",
+          recurso: "pessoas",
+          nome: p?.nome ?? p?.nome_razao_social ?? null,
+          cnpj: p?.cnpj ?? null,
+          tipoPessoa: p?.tipo_pessoa ?? null,
+          municipio: p?.municipio ?? null,
+          uf: p?.uf ?? null,
+          categorias: null,
+          codigo: p?.codigo ?? null,
+          nomusId: input.origemId,
+        };
+        return cab;
+      }
       const n = input.nomus;
       const cab: CabecalhoNomus = {
         fonte: "nomus",
@@ -590,12 +691,18 @@ function buildRegistro(
   g: GroupAgg,
   avisosByEffecti: Map<string, AvisoLite>,
   nomusById: Map<string, NomusLite>,
+  nomusPessoaById: Map<string, NomusPessoaLite>,
   payloadByEffecti: Map<string, unknown>,
   refById: Map<string, { ref_obtencao: unknown; documento_id: string | null }>,
   extByDoc: Map<string, string | null>,
 ): RegistroColetado {
   const aviso = g.fonte === "effecti" ? avisosByEffecti.get(g.origemId) ?? null : null;
-  const nomus = g.fonte === "nomus" ? nomusById.get(g.origemId) ?? null : null;
+  const nomus = g.fonte === "nomus" && g.recurso === "processos"
+    ? nomusById.get(g.origemId) ?? null
+    : null;
+  const nomusPessoa = g.fonte === "nomus" && g.recurso === "pessoas"
+    ? nomusPessoaById.get(g.origemId) ?? null
+    : null;
   const ref = (g.fonte === "gmail" || g.fonte === "drive")
     ? refById.get(g.repId)?.ref_obtencao ?? null
     : null;
@@ -605,11 +712,13 @@ function buildRegistro(
 
   const cabecalho = montarCabecalho({
     fonte: g.fonte,
+    recurso: g.recurso,
     origemId: g.origemId,
     captadoEm: g.captadoEm,
     aviso,
     payloadEffecti: g.fonte === "effecti" ? payloadByEffecti.get(g.origemId) ?? null : null,
     nomus,
+    nomusPessoa,
     repNomeAnexo: g.repNomeAnexo,
     repRef: ref,
     repExtensaoDoc: extDoc,
@@ -691,30 +800,64 @@ interface ExecucaoRow {
 }
 
 /**
- * Parseia o :id_composto (ja URL-decoded) em (fonte, registro_origem_id).
- * fonte fora do enum -> 422; id_composto malformado / origem vazia -> 400.
+ * Parseia o :id_composto (ja URL-decoded) na TRIPLA
+ * (fonte, recurso, registro_origem_id). O split e nos DOIS PRIMEIROS ':' —
+ * o registro_origem_id pode conter ':' (preservado integralmente).
+ *
+ * fonte fora do allowlist FONTES -> 422; recurso vazio -> 400;
+ * registro_origem_id vazio -> 400; par (fonte, recurso) fora da allowlist
+ * canonica fechada (RECURSO_POR_FONTE) -> 422. O registro_origem_id e SEMPRE
+ * binding parametrizado (.eq) a jusante, nunca concatenado em SQL.
  */
-function parseIdComposto(idComposto: string): { fonte: FonteColeta; origemId: string } {
-  const sep = idComposto.indexOf(":");
-  if (sep <= 0) {
+function parseIdComposto(
+  idComposto: string,
+): { fonte: FonteColeta; recurso: RecursoCanonical; origemId: string } {
+  const first = idComposto.indexOf(":");
+  if (first <= 0) {
     throw new HttpError(
       400,
       "id_composto_invalido",
-      "id_composto invalido: use o formato fonte:registro_origem_id",
+      "id_composto invalido: use o formato fonte:recurso:registro_origem_id",
     );
   }
-  const fonteRaw = idComposto.slice(0, sep);
-  const origemId = idComposto.slice(sep + 1);
+  const fonteRaw = idComposto.slice(0, first);
 
   // Whitelist do enum fonte (zod): fora do enum -> 422 (allowlist, SEC-03).
   const fonteParsed = idCompostoFonteSchema.safeParse(fonteRaw);
   if (!fonteParsed.success) {
     throw new HttpError(422, "fonte_invalida", `fonte invalida: use ${FONTES.join(", ")}`);
   }
+  const fonte = fonteParsed.data;
+
+  // Segundo ':' separa recurso de registro_origem_id (que pode conter ':').
+  const second = idComposto.indexOf(":", first + 1);
+  if (second < 0) {
+    throw new HttpError(
+      400,
+      "recurso_invalido",
+      "id_composto invalido: recurso ausente (use fonte:recurso:registro_origem_id)",
+    );
+  }
+  const recursoRaw = idComposto.slice(first + 1, second);
+  const origemId = idComposto.slice(second + 1);
+
+  if (recursoRaw.trim() === "") {
+    throw new HttpError(400, "recurso_invalido", "recurso ausente");
+  }
   if (origemId.trim() === "") {
     throw new HttpError(400, "registro_origem_id_invalido", "registro_origem_id ausente");
   }
-  return { fonte: fonteParsed.data, origemId };
+
+  // Par (fonte, recurso) precisa casar exatamente a allowlist canonica fechada.
+  const recursosPermitidos = RECURSO_POR_FONTE[fonte];
+  if (!recursosPermitidos.includes(recursoRaw as RecursoCanonical)) {
+    throw new HttpError(
+      422,
+      "par_fonte_recurso_invalido",
+      `par (fonte, recurso) invalido: ${fonte} aceita ${recursosPermitidos.join(", ")}`,
+    );
+  }
+  return { fonte, recurso: recursoRaw as RecursoCanonical, origemId };
 }
 
 /** Mapeia 1 linha de documento_vinculos (+ documento resolvido) p/ VinculoDetalhe. */
@@ -750,12 +893,73 @@ function montarVinculoDetalhe(
  * leitura via service_role; registro_origem_id SEMPRE binding parametrizado.
  */
 async function handleDetail(idComposto: string): Promise<Response> {
-  const { fonte, origemId } = parseIdComposto(idComposto);
+  const { fonte, recurso, origemId } = parseIdComposto(idComposto);
   const service = createServiceClient();
 
-  // 1) Vinculos do registro — binding parametrizado (.eq), sem concatenacao.
+  // 1) Registro-fonte por (fonte, recurso). O 404 do detalhe e governado pela
+  //    EXISTENCIA do registro na tabela-fonte (NAO pela presenca de anexo):
+  //    Effecti -> avisos, nomus/processos -> nomus_processos, nomus/pessoas ->
+  //    nomus_pessoas. Gmail/Drive nao tem tabela-fonte propria (existem so como
+  //    conjunto de documento_vinculos): a existencia e checada via vinculos (2).
+  let aviso: AvisoDetailRow | null = null;
+  let nomus: NomusLite | null = null;
+  let nomusPessoa: NomusPessoaLite | null = null;
+
+  if (fonte === "effecti") {
+    const { data, error } = await service
+      .from("avisos")
+      .select(
+        "id, effecti_id, objeto, orgao, modalidade, portal, data_publicacao, data_captura, execucao_origem_id, payload_bruto",
+      )
+      .eq("effecti_id", origemId)
+      .maybeSingle();
+    if (error) {
+      throw new HttpError(500, "avisos_query_failed", "falha ao consultar aviso do registro");
+    }
+    aviso = (data as AvisoDetailRow | null) ?? null;
+    if (!aviso) {
+      throw new HttpError(404, "registro_nao_encontrado", "registro nao encontrado");
+    }
+  } else if (fonte === "nomus" && recurso === "processos") {
+    const { data, error } = await service
+      .from("nomus_processos")
+      .select("nomus_id, etapa, pessoa, tipo, data_criacao")
+      .eq("nomus_id", origemId)
+      .maybeSingle();
+    if (error) {
+      throw new HttpError(
+        500,
+        "nomus_processos_query_failed",
+        "falha ao consultar processo do registro",
+      );
+    }
+    nomus = (data as NomusLite | null) ?? null;
+    if (!nomus) {
+      throw new HttpError(404, "registro_nao_encontrado", "registro nao encontrado");
+    }
+  } else if (fonte === "nomus" && recurso === "pessoas") {
+    const { data, error } = await service
+      .from("nomus_pessoas")
+      .select("nomus_id, nome, nome_razao_social, cnpj, tipo_pessoa, codigo, municipio, uf")
+      .eq("nomus_id", origemId)
+      .maybeSingle();
+    if (error) {
+      throw new HttpError(
+        500,
+        "nomus_pessoas_query_failed",
+        "falha ao consultar pessoa do registro",
+      );
+    }
+    nomusPessoa = (data as NomusPessoaLite | null) ?? null;
+    if (!nomusPessoa) {
+      throw new HttpError(404, "registro_nao_encontrado", "registro nao encontrado");
+    }
+  }
+
+  // 2) Vinculos do registro — binding parametrizado (.eq), sem concatenacao.
   //    Ordenado por created_at ASC (desempate id ASC): a 1a linha e o
-  //    vinculo representativo usado no cabecalho (Gmail/Drive).
+  //    vinculo representativo usado no cabecalho (Gmail/Drive). Pode vir VAZIO
+  //    para Effecti/Nomus (registro-fonte sem anexo) -> 200 com vinculos: [].
   const { data: vinculoData, error: vinculoErr } = await service
     .from("documento_vinculos")
     .select(
@@ -775,13 +979,13 @@ async function handleDetail(idComposto: string): Promise<Response> {
   }
   const vinculoRows = (vinculoData ?? []) as VinculoDetailRow[];
 
-  // Registro inexistente: a lista mestra so contem (fonte, registro) com ao
-  // menos um vinculo; sem vinculos => 404 (mesmo universo da lista).
-  if (vinculoRows.length === 0) {
+  // Gmail/Drive nao tem tabela-fonte: a existencia do registro e ter ao menos
+  // um vinculo. Sem vinculos => registro inexistente => 404.
+  if ((fonte === "gmail" || fonte === "drive") && vinculoRows.length === 0) {
     throw new HttpError(404, "registro_nao_encontrado", "registro nao encontrado");
   }
 
-  // 2) Resolve documentos dos vinculos com documento_id (lote .in).
+  // 3) Resolve documentos dos vinculos com documento_id (lote .in).
   const docIds = [
     ...new Set(
       vinculoRows.map((v) => v.documento_id).filter((id): id is string => typeof id === "string"),
@@ -797,58 +1001,31 @@ async function handleDetail(idComposto: string): Promise<Response> {
     for (const d of docRows) docsById.set(d.id, d);
   }
 
-  // 3) Cross-ref do cabecalho por fonte (Effecti -> avisos; Nomus -> processos).
-  let aviso: AvisoDetailRow | null = null;
-  let nomus: NomusLite | null = null;
-
-  if (fonte === "effecti") {
-    const { data, error } = await service
-      .from("avisos")
-      .select(
-        "id, effecti_id, objeto, orgao, modalidade, portal, data_publicacao, data_captura, execucao_origem_id, payload_bruto",
-      )
-      .eq("effecti_id", origemId)
-      .maybeSingle();
-    if (error) {
-      throw new HttpError(500, "avisos_query_failed", "falha ao consultar aviso do registro");
-    }
-    aviso = (data as AvisoDetailRow | null) ?? null;
-  } else if (fonte === "nomus") {
-    const { data, error } = await service
-      .from("nomus_processos")
-      .select("nomus_id, etapa, pessoa, tipo, data_criacao")
-      .eq("nomus_id", origemId)
-      .maybeSingle();
-    if (error) {
-      throw new HttpError(
-        500,
-        "nomus_processos_query_failed",
-        "falha ao consultar processo do registro",
-      );
-    }
-    nomus = (data as NomusLite | null) ?? null;
-  }
-
-  // 4) Cabecalho discriminado (reusa montarCabecalho da lista).
-  const rep = vinculoRows[0]; // representativo: menor created_at (desempate id).
-  const repExtensaoDoc = rep.documento_id
+  // 4) Cabecalho discriminado (reusa montarCabecalho da lista). rep pode ser
+  //    null quando o registro-fonte nao tem anexo (Effecti/Nomus): montarCabecalho
+  //    e null-safe e nao depende de rep para effecti/nomus.
+  const rep = vinculoRows[0] ?? null; // representativo: menor created_at (desempate id).
+  const repExtensaoDoc = rep?.documento_id
     ? docsById.get(rep.documento_id)?.extensao ?? null
     : null;
 
   const cabecalho = montarCabecalho({
     fonte,
+    recurso,
     origemId,
-    captadoEm: aviso?.data_captura ?? rep.created_at,
+    captadoEm: aviso?.data_captura ?? rep?.created_at ?? "",
     aviso,
     payloadEffecti: aviso?.payload_bruto ?? null,
     nomus,
-    repNomeAnexo: rep.nome_anexo,
-    repRef: rep.ref_obtencao,
+    nomusPessoa,
+    repNomeAnexo: rep?.nome_anexo ?? null,
+    repRef: rep?.ref_obtencao ?? null,
     repExtensaoDoc,
   });
 
-  // 5) Link do registro (mesma regra da lista; ref do representativo p/ Gmail).
-  const linkOriginal = linkOriginalRegistro(fonte, origemId, rep.ref_obtencao);
+  // 5) Link do registro (mesma regra da lista; ref do representativo p/ Gmail;
+  //    null para nomus/pessoas — fonte nomus nunca tem link publico).
+  const linkOriginal = linkOriginalRegistro(fonte, origemId, rep?.ref_obtencao ?? null);
 
   // 6) Vinculos detalhados (por anexo).
   const vinculos = vinculoRows.map((v) => montarVinculoDetalhe(v, fonte, origemId, docsById));

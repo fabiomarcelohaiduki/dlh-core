@@ -355,6 +355,7 @@ async function processAviso(
       db,
       execucaoId,
       "effecti",
+      "avisos",
       aviso.effectiId,
       status === "novo" ? "novo" : "atualizado",
     );
