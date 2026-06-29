@@ -7,6 +7,7 @@ import {
   dispararExtracao,
   dispararGmail,
   dispararOcr,
+  salvarAgendamentoDescoberta,
   salvarAgendamentoExtracao,
   salvarAgendamentoFonte,
   salvarConfig,
@@ -99,6 +100,21 @@ export function useSalvarAgendamentoFonte() {
 export function useSalvarAgendamentoExtracao() {
   return useMutation({
     mutationFn: (input: SalvarAgendamentoExtracaoInput) => salvarAgendamentoExtracao(input),
+  });
+}
+
+/**
+ * useSalvarAgendamentoDescobertaNomus — persiste o agendamento da DESCOBERTA
+ * (enfileiramento) do Nomus (PUT descoberta-agendamento). Reescreve o pg_cron
+ * 'descobrir-nomus' via aplicar_agendamento_descoberta('nomus'); na hora marcada
+ * o cron chama a Edge documentos-descobrir (server-side, sem PC) e materializa a
+ * fila de extracao. A `fonte` e fixada aqui; o form passa so a cadencia. Sem
+ * invalidacao: o agendamento nao altera o resumo da fila na hora.
+ */
+export function useSalvarAgendamentoDescobertaNomus() {
+  return useMutation({
+    mutationFn: (input: SalvarAgendamentoExtracaoInput) =>
+      salvarAgendamentoDescoberta({ fonte: "nomus", ...input }),
   });
 }
 

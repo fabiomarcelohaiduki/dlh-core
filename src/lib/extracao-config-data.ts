@@ -122,3 +122,31 @@ export async function loadAgendamentoExtracao(): Promise<AgendamentoExtracaoStat
     diaMes: data?.dia_mes ?? null,
   };
 }
+
+/**
+ * Agendamento da DESCOBERTA (enfileiramento) do Nomus (tabela config_descoberta,
+ * 1 linha por fonte). Materializa a fila de extracao server-side na hora marcada.
+ * Sem linha cai nos defaults do produto (desligado, manual). So o Nomus tem
+ * relogio proprio: Effecti auto-descobre pos-coleta e Gmail/Drive entregam a
+ * lista na coleta. `frequencia` invalida -> 'manual' (desligado).
+ */
+export async function loadAgendamentoDescobertaNomus(): Promise<AgendamentoExtracaoState> {
+  const supabase = await createClient();
+  const { data: raw } = await supabase
+    .from("config_descoberta")
+    .select("agendamento_ativo, frequencia, horario_referencia, dia_semana, dia_mes")
+    .eq("fonte", "nomus")
+    .maybeSingle();
+
+  const data = (raw ?? null) as AgendamentoExtracaoRow | null;
+  const freq = data?.frequencia;
+
+  return {
+    ativo: data?.agendamento_ativo ?? false,
+    frequencia:
+      freq && FREQUENCIAS_VALIDAS.has(freq) ? (freq as Frequencia) : "manual",
+    horarioReferencia: data?.horario_referencia ?? null,
+    diaSemana: data?.dia_semana ?? null,
+    diaMes: data?.dia_mes ?? null,
+  };
+}

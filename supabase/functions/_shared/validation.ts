@@ -915,6 +915,43 @@ export const extracaoAgendamentoSchema = z
 
 export type ExtracaoAgendamentoInput = z.infer<typeof extracaoAgendamentoSchema>;
 
+// ---------------------------------------------------------------------
+// Schema: agendamento da DESCOBERTA / enfileiramento (PUT /descoberta-agendamento).
+// Mora na tabela config_descoberta (1 linha por fonte) e materializa o pg_cron
+// 'descobrir-<fonte>' via aplicar_agendamento_descoberta(fonte). Tem `fonte`
+// (so 'nomus' por ora: Effecti auto-descobre, Gmail/Drive entregam pronto na
+// coleta). Demais campos espelham extracaoAgendamentoSchema.
+// ---------------------------------------------------------------------
+export const descobertaAgendamentoSchema = z
+  .object({
+    fonte: z.enum(["nomus"], {
+      errorMap: () => ({ message: "fonte invalida (use: nomus)" }),
+    }),
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }),
+    frequencia: z.enum(FREQUENCIAS, {
+      errorMap: () => ({ message: `frequencia invalida (use: ${FREQUENCIAS.join(", ")})` }),
+    }),
+    horarioReferencia: z
+      .string({ invalid_type_error: "horarioReferencia deve ser string" })
+      .regex(/^([01]?\d|2[0-3]):[0-5]\d$/, "horario invalido (use HH:MM, 00:00 a 23:59)")
+      .nullish(),
+    diaSemana: z
+      .number({ invalid_type_error: "diaSemana deve ser numero" })
+      .int("diaSemana deve ser inteiro")
+      .min(0, "diaSemana deve estar entre 0 (dom) e 6 (sab)")
+      .max(6, "diaSemana deve estar entre 0 (dom) e 6 (sab)")
+      .nullish(),
+    diaMes: z
+      .number({ invalid_type_error: "diaMes deve ser numero" })
+      .int("diaMes deve ser inteiro")
+      .min(1, "diaMes deve estar entre 1 e 28")
+      .max(28, "diaMes deve estar entre 1 e 28")
+      .nullish(),
+  })
+  .strict();
+
+export type DescobertaAgendamentoInput = z.infer<typeof descobertaAgendamentoSchema>;
+
 // =====================================================================
 // Dominio A (Produtos): Linhas, Atributos, Produtos e SKUs (secao 3.2).
 // Payloads JSON em snake_case; .strict() rejeita chaves desconhecidas (400).

@@ -129,12 +129,14 @@ export function ColetaClient({
   nomusConfigurado,
   configExtracao,
   agendamentoExtracao,
+  agendamentoDescobertaNomus,
 }: {
   agendamentos: AgendamentosColetaData;
   escopo: EscopoColetaData;
   nomusConfigurado: boolean;
   configExtracao: ConfigExtracaoState;
   agendamentoExtracao: AgendamentoExtracaoState;
+  agendamentoDescobertaNomus: AgendamentoExtracaoState;
 }) {
   const [subtab, setSubtab] = useState<Subtab>("execucoes");
 
@@ -816,7 +818,11 @@ export function ColetaClient({
 
       {subtab === "agendamento" && (
         <div data-subpane="coleta-agendamento" data-scope="ingestao/coleta/agendamento">
-          <AgendamentoColeta {...agendamentos} extracao={agendamentoExtracao} />
+          <AgendamentoColeta
+            {...agendamentos}
+            extracao={agendamentoExtracao}
+            descobertaNomus={agendamentoDescobertaNomus}
+          />
         </div>
       )}
 

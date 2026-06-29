@@ -1,9 +1,10 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Factory, Gavel, HardDrive, Mail, ScanText } from "lucide-react";
+import { Factory, Gavel, HardDrive, ListPlus, Mail, ScanText } from "lucide-react";
 import { AgendamentoFonteForm } from "@/components/cockpit/agendamento-fonte-form";
 import { AgendamentoExtracaoForm } from "@/components/cockpit/agendamento-extracao-form";
+import { AgendamentoDescobertaNomusForm } from "@/components/cockpit/agendamento-descoberta-nomus-form";
 import { CfgAccordion } from "@/components/cockpit/config/cfg-accordion";
 import { StatusPill } from "@/components/cockpit/status-pill";
 import type { AgendamentosColetaData } from "@/lib/fontes-credenciais-data";
@@ -29,6 +30,13 @@ import type { AgendamentoExtracaoState, AgendamentoFonteState } from "@/lib/api/
  * que drena a fila de anexos pendentes. Saiu do drawer "Parametros" da guia Fila
  * de extracao (nao fazia sentido um agendamento dentro de parametros) e passou a
  * morar aqui, junto dos demais agendamentos. Usa AgendamentoExtracaoForm.
+ *
+ * E o card "Enfileiramento · Nomus": o relogio da DESCOBERTA do Nomus. Effecti
+ * auto-descobre pos-coleta e Gmail/Drive entregam a lista pronta — so o Nomus
+ * dependia do botao manual "Trazer para a fila". Na hora marcada, o pg_cron
+ * 'descobrir-nomus' chama a Edge documentos-descobrir (server-side, sem PC) e
+ * materializa os anexos pendentes na fila de extracao. Usa
+ * AgendamentoDescobertaNomusForm; o botao manual segue como atalho.
  */
 
 interface FonteAgendamento {
@@ -50,7 +58,11 @@ export function AgendamentoColeta({
   gmail,
   drive,
   extracao,
-}: AgendamentosColetaData & { extracao: AgendamentoExtracaoState }) {
+  descobertaNomus,
+}: AgendamentosColetaData & {
+  extracao: AgendamentoExtracaoState;
+  descobertaNomus: AgendamentoExtracaoState;
+}) {
   const fontes: FonteAgendamento[] = [
     {
       id: "effecti",
@@ -175,6 +187,47 @@ export function AgendamentoColeta({
         </div>
         <div className="cfg-panel-body">
           <AgendamentoExtracaoForm initial={extracao} />
+        </div>
+      </section>
+
+      <section
+        className="cfg-panel-card"
+        aria-labelledby="agendamento-descoberta-nomus-h"
+      >
+        <div className="panel-header">
+          <div
+            className="panel-title"
+            style={{ display: "flex", alignItems: "center", gap: 12 }}
+          >
+            <span
+              className="avatar"
+              style={{
+                borderRadius: 9,
+                width: 34,
+                height: 34,
+                color: "var(--accent)",
+                background: "var(--accent-soft)",
+                borderColor: "var(--accent-line)",
+              }}
+            >
+              <ListPlus aria-hidden="true" style={ICON_STYLE} />
+            </span>
+            <div>
+              <h3 id="agendamento-descoberta-nomus-h">Enfileiramento · Nomus</h3>
+              <p>
+                Na hora marcada, descobre os anexos do Nomus e os enfileira na fila de
+                extração. Roda no servidor (sem PC); o botão manual “Trazer para a fila”
+                segue como atalho.
+              </p>
+            </div>
+          </div>
+          <StatusPill
+            state={descobertaNomus.ativo ? "ok" : "idle"}
+            label={descobertaNomus.ativo ? "Ativa" : "Pausada"}
+          />
+        </div>
+        <div className="cfg-panel-body">
+          <AgendamentoDescobertaNomusForm initial={descobertaNomus} />
         </div>
       </section>
     </CfgAccordion>

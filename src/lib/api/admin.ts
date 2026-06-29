@@ -137,6 +137,32 @@ export function salvarAgendamentoExtracao(
   });
 }
 
+/** Payload validado (cliente) do PUT /descoberta-agendamento (por fonte). */
+export interface SalvarAgendamentoDescobertaInput {
+  fonte: "nomus";
+  ativo: boolean;
+  frequencia: Frequencia;
+  horarioReferencia: string | null;
+  diaSemana: number | null;
+  diaMes: number | null;
+}
+
+/**
+ * PUT /descoberta-agendamento — persiste o agendamento da DESCOBERTA
+ * (enfileiramento) DESTA fonte na tabela config_descoberta e reescreve o
+ * pg_cron 'descobrir-<fonte>' via aplicar_agendamento_descoberta(fonte). So o
+ * Nomus precisa de relogio proprio (Effecti auto-descobre; Gmail/Drive entregam
+ * a lista na coleta). A resposta traz o texto do agendamento aplicado.
+ */
+export function salvarAgendamentoDescoberta(
+  input: SalvarAgendamentoDescobertaInput,
+): Promise<SalvarAgendamentoResponse> {
+  return apiFetch<SalvarAgendamentoResponse>("descoberta-agendamento", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
 /**
  * POST /gmail-disparar — aciona MANUALMENTE a coleta do Gmail pelo card da
  * fonte. O Gmail coleta no runner do GitHub Actions (coletar-gmail.yml); a

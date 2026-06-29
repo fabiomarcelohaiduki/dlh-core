@@ -5,6 +5,7 @@ import {
   loadEscopoColeta,
 } from "@/lib/fontes-credenciais-data";
 import {
+  loadAgendamentoDescobertaNomus,
   loadAgendamentoExtracao,
   loadConfigExtracao,
   loadNomusConfigurado,
@@ -19,12 +20,14 @@ export default async function IngestaoColetaPage() {
     nomusConfigurado,
     configExtracao,
     agendamentoExtracao,
+    agendamentoDescobertaNomus,
   ] = await Promise.all([
     loadAgendamentosColeta(),
     loadEscopoColeta(),
     loadNomusConfigurado(),
     loadConfigExtracao(),
     loadAgendamentoExtracao(),
+    loadAgendamentoDescobertaNomus(),
   ]);
   return (
     <ColetaClient
@@ -33,6 +36,7 @@ export default async function IngestaoColetaPage() {
       nomusConfigurado={nomusConfigurado}
       configExtracao={configExtracao}
       agendamentoExtracao={agendamentoExtracao}
+      agendamentoDescobertaNomus={agendamentoDescobertaNomus}
     />
   );
 }
