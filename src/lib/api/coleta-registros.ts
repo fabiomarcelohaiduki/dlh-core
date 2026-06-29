@@ -64,15 +64,27 @@ export interface CabecalhoEffecti {
   dataCaptura: string;
 }
 
-/** Cabecalho de um processo Nomus (colunas diretas de `nomus_processos`). */
+/** Cabecalho de um processo Nomus (colunas diretas de `nomus_processos` + payload_bruto). */
 export interface CabecalhoNomus {
   fonte: "nomus";
   recurso: "processos";
   nomusId: string;
+  /** Empresa do grupo dona do processo (Darlu/Famaha). */
+  empresa: string | null;
+  /** Etapa do processo; faz o papel de "status" (ex.: "APROVADO", "Sem cobrança"). */
   etapa: string | null;
-  pessoa: string | null;
+  /** Tipo do processo ("Cobrança DARLU" | "Venda Governamental"). */
   tipo: string | null;
+  pessoa: string | null;
+  /** Titulo do processo; na Cobrança embute o valor (ex.: "Conta 37859 ... $39,90"). */
+  nome: string | null;
+  responsavel: string | null;
+  reportador: string | null;
+  /** Descricao/observacoes; HTML cru na Venda Governamental (lista de itens). So no detalhe. */
+  descricao: string | null;
   dataCriacao: string | null;
+  /** Data/hora programada (formato cru do Nomus); so resolvida no detalhe. */
+  dataProgramada: string | null;
 }
 
 /** Cabecalho de uma pessoa Nomus (colunas diretas de `nomus_pessoas`). */
@@ -284,10 +296,16 @@ interface RawCabecalhoNomus {
   fonte: "nomus";
   recurso?: "processos";
   nomus_id: string;
+  empresa: string | null;
   etapa: string | null;
-  pessoa: string | null;
   tipo: string | null;
+  pessoa: string | null;
+  nome: string | null;
+  responsavel: string | null;
+  reportador: string | null;
+  descricao: string | null;
   data_criacao: string | null;
+  data_programada: string | null;
 }
 
 interface RawCabecalhoNomusPessoa {
@@ -443,10 +461,16 @@ function toCabecalho(raw: RawCabecalho): CabecalhoDiscriminado {
         fonte: "nomus",
         recurso: "processos",
         nomusId: raw.nomus_id,
+        empresa: raw.empresa ?? null,
         etapa: raw.etapa ?? null,
-        pessoa: raw.pessoa ?? null,
         tipo: raw.tipo ?? null,
+        pessoa: raw.pessoa ?? null,
+        nome: raw.nome ?? null,
+        responsavel: raw.responsavel ?? null,
+        reportador: raw.reportador ?? null,
+        descricao: raw.descricao ?? null,
         dataCriacao: raw.data_criacao ?? null,
+        dataProgramada: raw.data_programada ?? null,
       };
     case "gmail":
       return {

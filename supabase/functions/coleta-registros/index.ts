@@ -132,6 +132,12 @@ interface NomusLite {
   pessoa: string | null;
   tipo: string | null;
   data_criacao: string | null;
+  empresa: string | null;
+  nome: string | null;
+  responsavel: string | null;
+  reportador: string | null;
+  /** Resolvido SO no detalhe (a lista nao carrega o blob de descricao). */
+  descricao?: string | null;
 }
 
 /** Subset de nomus_pessoas para o cabecalho discriminado nomus/pessoas. */
@@ -472,7 +478,7 @@ async function handleList(req: Request): Promise<Response> {
     const nomusRows = (await fetchByIn("nomus_processos", nomusProcessosIds, (chunk) =>
       service
         .from("nomus_processos")
-        .select("nomus_id, etapa, pessoa, tipo, data_criacao")
+        .select("nomus_id, etapa, pessoa, tipo, data_criacao, empresa, nome, responsavel, reportador")
         .in("nomus_id", chunk))) as NomusLite[];
     for (const n of nomusRows) nomusById.set(n.nomus_id, n);
   }
@@ -588,6 +594,8 @@ interface CabecalhoInput {
   /** avisos.payload_bruto (jsonb) para uf/uasg/edital. */
   payloadEffecti: unknown;
   nomus: NomusLite | null;
+  /** nomus_processos.payload_bruto (jsonb) para data_programada; so no detalhe. */
+  payloadNomus: unknown;
   /** nomus_pessoas resolvido (recurso='pessoas'); null nos demais. */
   nomusPessoa: NomusPessoaLite | null;
   /** Vinculo representativo: nome do anexo/arquivo (Gmail/Drive). */
@@ -656,10 +664,16 @@ function montarCabecalho(input: CabecalhoInput): CabecalhoDiscriminado {
       const cab: CabecalhoNomus = {
         fonte: "nomus",
         nomus_id: input.origemId,
+        empresa: n?.empresa ?? null,
         etapa: n?.etapa ?? null,
-        pessoa: n?.pessoa ?? null,
         tipo: n?.tipo ?? null,
+        pessoa: n?.pessoa ?? null,
+        nome: n?.nome ?? null,
+        responsavel: n?.responsavel ?? null,
+        reportador: n?.reportador ?? null,
+        descricao: n?.descricao ?? null,
         data_criacao: n?.data_criacao ?? null,
+        data_programada: jsonStr(input.payloadNomus, "dataHoraProgramada"),
       };
       return cab;
     }
@@ -750,6 +764,8 @@ function buildRegistro(
     aviso,
     payloadEffecti: g.fonte === "effecti" ? payloadByEffecti.get(g.origemId) ?? null : null,
     nomus,
+    // A lista nao carrega payload_bruto do Nomus (data_programada e lazy, so no detalhe).
+    payloadNomus: null,
     nomusPessoa,
     repNomeAnexo: g.repNomeAnexo,
     repRef: ref,
@@ -935,6 +951,7 @@ async function handleDetail(idComposto: string): Promise<Response> {
   //    conjunto de documento_vinculos): a existencia e checada via vinculos (2).
   let aviso: AvisoDetailRow | null = null;
   let nomus: NomusLite | null = null;
+  let nomusPayload: unknown = null;
   let nomusPessoa: NomusPessoaLite | null = null;
 
   if (fonte === "effecti") {
@@ -955,7 +972,9 @@ async function handleDetail(idComposto: string): Promise<Response> {
   } else if (fonte === "nomus" && recurso === "processos") {
     const { data, error } = await service
       .from("nomus_processos")
-      .select("nomus_id, etapa, pessoa, tipo, data_criacao")
+      .select(
+        "nomus_id, etapa, pessoa, tipo, data_criacao, empresa, nome, responsavel, reportador, descricao, payload_bruto",
+      )
       .eq("nomus_id", origemId)
       .maybeSingle();
     if (error) {
@@ -965,7 +984,9 @@ async function handleDetail(idComposto: string): Promise<Response> {
         "falha ao consultar processo do registro",
       );
     }
-    nomus = (data as NomusLite | null) ?? null;
+    const row = (data as (NomusLite & { payload_bruto?: unknown }) | null) ?? null;
+    nomus = row;
+    nomusPayload = row?.payload_bruto ?? null;
     if (!nomus) {
       throw new HttpError(404, "registro_nao_encontrado", "registro nao encontrado");
     }
@@ -1049,6 +1070,7 @@ async function handleDetail(idComposto: string): Promise<Response> {
     aviso,
     payloadEffecti: aviso?.payload_bruto ?? null,
     nomus,
+    payloadNomus: nomusPayload,
     nomusPessoa,
     repNomeAnexo: rep?.nome_anexo ?? null,
     repRef: rep?.ref_obtencao ?? null,

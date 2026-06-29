@@ -89,6 +89,30 @@ function formatBRL(value: string | null): string | null {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+/**
+ * Converte o HTML cru da descricao Nomus (ex.: lista de itens da Venda
+ * Governamental) em texto legivel, preservando quebras. NAO usa
+ * dangerouslySetInnerHTML: a saida e renderizada como texto puro (sem risco de
+ * XSS). Retorna "" quando vazio apos limpar.
+ */
+function htmlToText(html: string): string {
+  return html
+    .replace(/<\s*li[^>]*>/gi, "\u2022 ")
+    .replace(/<\s*(br|\/p|\/li|\/h[1-6]|\/div|\/tr)\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .split("\n")
+    .map((line) => line.trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /** Par rotulo/valor do cabecalho; omite valores nulos exibindo "—". */
 function Field({ label, value }: { label: string; value: string | null }) {
   return (
@@ -165,18 +189,36 @@ export function CabecalhoDiscriminadoRenderer({
           </CabecalhoGrid>
         );
       }
-      return (
-        <CabecalhoGrid>
-          <Field label="ID Nomus" value={cabecalho.nomusId} />
-          <Field label="Etapa" value={cabecalho.etapa} />
-          <Field label="Pessoa" value={cabecalho.pessoa} />
-          <Field label="Tipo" value={cabecalho.tipo} />
-          <Field
-            label="Criação"
-            value={cabecalho.dataCriacao ? formatDateTime(cabecalho.dataCriacao) : null}
-          />
-        </CabecalhoGrid>
-      );
+      {
+        const descricao = cabecalho.descricao ? htmlToText(cabecalho.descricao) : "";
+        return (
+          <div className="flex w-full flex-col gap-4">
+            <CabecalhoGrid>
+              <Field label="ID Nomus" value={cabecalho.nomusId} />
+              <Field label="Empresa" value={cabecalho.empresa} />
+              <Field label="Tipo" value={cabecalho.tipo} />
+              <Field label="Etapa (status)" value={cabecalho.etapa} />
+              <Field label="Pessoa" value={cabecalho.pessoa} />
+              <Field label="Responsável" value={cabecalho.responsavel} />
+              <Field label="Reportador" value={cabecalho.reportador} />
+              <Field
+                label="Criação"
+                value={cabecalho.dataCriacao ? formatDateTime(cabecalho.dataCriacao) : null}
+              />
+              <Field label="Programada" value={cabecalho.dataProgramada} />
+            </CabecalhoGrid>
+            <Field label="Nome do processo" value={cabecalho.nome} />
+            {descricao ? (
+              <div className="flex flex-col gap-0.5">
+                <dt className="text-[11px] font-bold uppercase tracking-wide text-soft">
+                  Descrição
+                </dt>
+                <dd className="whitespace-pre-wrap text-[13px] text-fg">{descricao}</dd>
+              </div>
+            ) : null}
+          </div>
+        );
+      }
     case "gmail":
       return (
         <CabecalhoGrid>
@@ -339,6 +381,9 @@ export function ColetaRegistroDetalheExpansion({
   const vinculos = detalhe.data?.vinculos ?? [];
   const erros = detalhe.data?.erros ?? [];
   const execucaoOrigem = detalhe.data?.execucaoOrigem ?? null;
+  // Cabecalho da linha mestra (instantaneo) ate o detalhe chegar; o detalhe
+  // traz campos lazy que a lista nao carrega (Nomus: descricao, data_programada).
+  const cabecalhoExibido = detalhe.data?.cabecalho ?? cabecalho;
 
   return (
     <section
@@ -348,7 +393,7 @@ export function ColetaRegistroDetalheExpansion({
     >
       {/* Cabecalho discriminado (instantaneo, da linha mestra). */}
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <CabecalhoDiscriminadoRenderer cabecalho={cabecalho} />
+        <CabecalhoDiscriminadoRenderer cabecalho={cabecalhoExibido} />
         {isEffecti ? (
           <Button
             type="button"

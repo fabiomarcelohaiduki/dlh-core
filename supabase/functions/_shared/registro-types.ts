@@ -93,14 +93,30 @@ export interface CabecalhoEffecti {
   data_captura: string;
 }
 
-/** Cabecalho de um processo Nomus (colunas diretas de `nomus_processos`). */
+/** Cabecalho de um processo Nomus (colunas diretas de `nomus_processos` + payload_bruto). */
 export interface CabecalhoNomus {
   fonte: "nomus";
   nomus_id: string;
+  /** Empresa do grupo dona do processo (Darlu/Famaha). */
+  empresa: string | null;
+  /** Etapa do processo; faz o papel de "status" (ex.: "APROVADO", "Sem cobrança"). */
   etapa: string | null;
-  pessoa: string | null;
+  /** Tipo do processo ("Cobrança DARLU" | "Venda Governamental"). */
   tipo: string | null;
+  /** Pessoa/orgao do processo. */
+  pessoa: string | null;
+  /** Titulo do processo; na Cobrança embute o valor (ex.: "Conta 37859 ... $39,90"). */
+  nome: string | null;
+  responsavel: string | null;
+  reportador: string | null;
+  /**
+   * Descricao/observacoes do processo. HTML cru na Venda Governamental
+   * (lista de itens); so resolvido no detalhe (a lista nao carrega o blob).
+   */
+  descricao: string | null;
   data_criacao: string | null;
+  /** Data/hora programada (payload_bruto->>dataHoraProgramada), no formato cru do Nomus. */
+  data_programada: string | null;
 }
 
 /**
