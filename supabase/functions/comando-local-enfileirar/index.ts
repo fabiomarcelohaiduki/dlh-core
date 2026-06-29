@@ -25,7 +25,12 @@ import { requireAuthorizedUser } from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 
-const COMANDOS_VALIDOS = ["nomus-processos", "nomus-pessoas", "tika-ocr"] as const;
+const COMANDOS_VALIDOS = [
+  "nomus-processos",
+  "nomus-pessoas",
+  "nomus-processos-full",
+  "tika-ocr",
+] as const;
 type ComandoTipo = (typeof COMANDOS_VALIDOS)[number];
 
 function ehComandoValido(v: unknown): v is ComandoTipo {
@@ -43,7 +48,11 @@ async function enfileirar(req: Request, service: ReturnType<typeof createService
     throw new HttpError(400, "body_invalido", "corpo JSON invalido");
   }
   if (!ehComandoValido(body.comando)) {
-    throw new HttpError(400, "comando_invalido", "comando deve ser nomus-processos, nomus-pessoas ou tika-ocr");
+    throw new HttpError(
+      400,
+      "comando_invalido",
+      "comando deve ser nomus-processos, nomus-pessoas, nomus-processos-full ou tika-ocr",
+    );
   }
   const comando = body.comando;
 

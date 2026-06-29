@@ -40,6 +40,7 @@ export function AgendamentoColeta({
   effectiJanelaDias,
   nomusProcessos,
   nomusPessoas,
+  nomusProcessosFull,
   gmail,
   drive,
 }: AgendamentosColetaData) {
@@ -64,6 +65,13 @@ export function AgendamentoColeta({
       nome: "Nomus · Pessoas",
       nota: "Coleta incremental de pessoas novas e edições desde a última coleta. Roda no PC local; o cockpit enfileira na hora marcada.",
       agendamento: nomusPessoas,
+    },
+    {
+      id: "nomus-processos-full",
+      icon: <Factory aria-hidden="true" style={ICON_STYLE} />,
+      nome: "Nomus · Processos (re-varredura full)",
+      nota: "Re-varre os processos dentro do corte de idade para pegar mudanças de etapa que a coleta incremental por id nunca revê. Roda no PC local; o cockpit enfileira na hora marcada.",
+      agendamento: nomusProcessosFull,
     },
     {
       id: "gmail",

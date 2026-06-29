@@ -502,18 +502,23 @@ export interface AgendamentosColetaData {
   effectiJanelaDias: number;
   nomusProcessos: AgendamentoFonteState;
   nomusPessoas: AgendamentoFonteState;
+  // Re-varredura FULL de processos (pseudo-recurso 'processos-full'): re-coleta
+  // processos antigos p/ pegar mudancas de etapa que a incremental por id nao
+  // reve. So tem cadencia, sem filtros proprios.
+  nomusProcessosFull: AgendamentoFonteState;
   gmail: AgendamentoFonteState;
   drive: AgendamentoFonteState;
 }
 
-/** Carrega em paralelo os 5 agendamentos de coleta para a guia Agendamento. */
+/** Carrega em paralelo os 6 agendamentos de coleta para a guia Agendamento. */
 export async function loadAgendamentosColeta(): Promise<AgendamentosColetaData> {
-  const [effecti, effectiConfig, nomusProcessos, nomusPessoas, gmail, drive] =
+  const [effecti, effectiConfig, nomusProcessos, nomusPessoas, nomusProcessosFull, gmail, drive] =
     await Promise.all([
       loadAgendamentoFonte("effecti"),
       loadConfig(),
       loadAgendamentoFonte("nomus", "processos"),
       loadAgendamentoFonte("nomus", "pessoas"),
+      loadAgendamentoFonte("nomus", "processos-full"),
       loadAgendamentoFonte("gmail"),
       loadAgendamentoFonte("drive"),
     ]);
@@ -523,6 +528,7 @@ export async function loadAgendamentosColeta(): Promise<AgendamentosColetaData> 
     effectiJanelaDias: effectiConfig.janelaDias,
     nomusProcessos,
     nomusPessoas,
+    nomusProcessosFull,
     gmail,
     drive,
   };

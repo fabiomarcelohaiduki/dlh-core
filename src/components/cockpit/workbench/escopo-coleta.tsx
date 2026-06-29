@@ -98,6 +98,9 @@ export function EscopoColeta({
         <div style={{ display: "grid", gap: 16, marginTop: 16 }}>
           <ComandoLocalDisparo comando="nomus-processos" rotulo="Coletar processos" />
           <ComandoLocalDisparo comando="nomus-pessoas" rotulo="Coletar pessoas" />
+          {/* Re-varredura full: re-coleta processos antigos dentro do corte de
+              idade p/ pegar mudancas de etapa que a coleta incremental nao ve. */}
+          <ComandoLocalDisparo comando="nomus-processos-full" rotulo="Re-varrer processos (full)" />
         </div>
       </EscopoCard>
 

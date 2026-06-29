@@ -304,6 +304,10 @@ async function coletarEEnviarFull(desdePagina = 1, dataCorte = null) {
     const body = {
       gatilho: GATILHO,
       recurso: RECURSO,
+      // Quem chama coletarEEnviarFull varreu TODAS as paginas (backfill explicito
+      // OU 1a coleta de banco vazio): modo efetivo = full. A Edge grava no
+      // checkpoint p/ a coluna JANELA distinguir de incremental.
+      modo: "full",
       pagina,
       processos: lista,
       ...(execucaoId ? { execucao_id: execucaoId } : {}),
@@ -564,6 +568,7 @@ async function pushEmLotes(processos) {
     const r = await postLote({
       gatilho: GATILHO,
       recurso: RECURSO,
+      modo: "incremental",
       processos: [],
       final: true,
       duracao_ms: Date.now() - startedAt,
@@ -581,6 +586,9 @@ async function pushEmLotes(processos) {
     const body = {
       gatilho: GATILHO,
       recurso: RECURSO,
+      // pushEmLotes so e usado no caminho incremental (id > marca, modificados):
+      // modo efetivo = incremental. A Edge grava no checkpoint p/ a coluna JANELA.
+      modo: "incremental",
       processos: lote,
       ...(execucaoId ? { execucao_id: execucaoId } : {}),
       ...(isFinal ? { final: true, duracao_ms: Date.now() - startedAt } : {}),

@@ -58,6 +58,13 @@ interface IngerirInput {
   execucaoId?: string;
   final?: boolean;
   abort?: boolean;
+  /**
+   * Modo EFETIVO da coleta deste runner ('full' | 'incremental'), gravado no
+   * checkpoint p/ a coluna JANELA distinguir varredura completa de incremental.
+   * full = varreu todas as paginas (backfill / banco vazio); incremental = so
+   * novos por id (+ modificados de pessoas). Ausente em execucoes legadas.
+   */
+  modo?: "full" | "incremental";
   /** Pagina (1-indexed) deste lote no backfill — base do cursor de retomada. */
   pagina?: number;
   /**
@@ -122,6 +129,7 @@ async function parseInput(req: Request): Promise<IngerirInput> {
   const action = typeof o.action === "string" ? o.action : undefined;
   const abort = o.abort === true;
   const execucaoId = typeof o.execucao_id === "string" ? o.execucao_id : undefined;
+  const modo = o.modo === "full" || o.modo === "incremental" ? o.modo : undefined;
   const paginaRaw = typeof o.pagina === "number" ? o.pagina : NaN;
   const duracaoRaw = typeof o.duracao_ms === "number" ? o.duracao_ms : NaN;
 
@@ -135,6 +143,7 @@ async function parseInput(req: Request): Promise<IngerirInput> {
     recurso: typeof o.recurso === "string" ? o.recurso : undefined,
     processos: Array.isArray(o.processos) ? o.processos : [],
     execucaoId,
+    modo,
     final: o.final === true,
     abort,
     pagina: Number.isFinite(paginaRaw) && paginaRaw >= 1 ? Math.floor(paginaRaw) : undefined,
@@ -493,6 +502,31 @@ async function handler(req: Request): Promise<Response> {
     // criacao da execucao registre `janela_dias` (coluna JANELA das telas).
     const floor = await loadFloor(service, fonte.id, recurso);
 
+    // Periodo coletado (de–ate) p/ a coluna JANELA do cockpit, no mesmo formato
+    // do Effecti (limites no checkpoint jsonb). Inferior = corte do floor (janela
+    // deslizante de processos / data_inicial); superior = agora. Vai no checkpoint
+    // SEM `pagina_atual`, entao parseCheckpoint() do orquestrador pg_cron segue
+    // retornando null (so retoma com pagina_atual+janela_inicio) e o bloco
+    // "retomar" so le runner_ts/runner_pagina -> retomada inalterada. Recurso sem
+    // floor (ex.: pessoas = varre tudo) fica null -> a coluna JANELA exibe "completa".
+    const periodoNomus = floor.dataInicial
+      ? {
+        janela_inicio: `${floor.dataInicial}T00:00:00.000Z`,
+        janela_fim: new Date().toISOString(),
+      }
+      : null;
+
+    // Base do checkpoint comum ao insert e ao update: periodo da janela (quando ha
+    // floor) + o modo EFETIVO do runner ('full' | 'incremental'), p/ a coluna JANELA
+    // distinguir varredura completa de incremental mesmo quando o recurso nao tem
+    // janela (pessoas). Continua SEM `pagina_atual` -> parseCheckpoint() do
+    // orquestrador pg_cron segue null (nao avanca pelo Edge). Vazio -> sem checkpoint.
+    const checkpointBase: Record<string, unknown> = {
+      ...(periodoNomus ?? {}),
+      ...(input.modo ? { modo: input.modo } : {}),
+    };
+    const temCheckpointBase = Object.keys(checkpointBase).length > 0;
+
     // Resolve o provider de embeddings ANTES de criar a execucao em_andamento:
     // se a chave OpenAI faltar no Vault, falha (503) sem deixar execucao orfa
     // travando o single-flight do recurso.
@@ -564,6 +598,10 @@ async function handler(req: Request): Promise<Response> {
           processados_sucesso: 0,
           processados_erro: 0,
           pendentes: 0,
+          // Periodo da janela (de–ate) + modo (full|incremental) p/ a coluna
+          // JANELA. Recurso sem floor (pessoas) nao tem periodo, mas o modo
+          // ainda entra -> coluna distingue full de incremental.
+          ...(temCheckpointBase ? { checkpoint: checkpointBase } : {}),
         })
         .select("id")
         .single();
@@ -691,13 +729,22 @@ async function handler(req: Request): Promise<Response> {
         });
       }
     } else {
-      // Cursor de retomada: no backfill (input.pagina presente) grava a pagina
-      // ja confirmada + o timestamp do lote. Formato { runner_pagina, runner_ts }
-      // sem pagina_atual/janela_inicio para o orquestrador pg_cron ignorar (ver
-      // bloco "retomar"). No caminho incremental (sem pagina) o checkpoint nao
-      // e tocado.
+      // Cursor de retomada + periodo da janela. No backfill (input.pagina
+      // presente) grava a pagina ja confirmada + o timestamp do lote, mesclando o
+      // periodo (janela_inicio/janela_fim). Formato sem `pagina_atual` para o
+      // orquestrador pg_cron ignorar (ver bloco "retomar"; parseCheckpoint exige
+      // pagina_atual). No caminho incremental (sem pagina) grava so o periodo,
+      // quando ha floor (recurso sem floor -> checkpoint intocado).
       const checkpointUpd = typeof input.pagina === "number"
-        ? { checkpoint: { runner_pagina: input.pagina, runner_ts: new Date().toISOString() } }
+        ? {
+          checkpoint: {
+            ...checkpointBase,
+            runner_pagina: input.pagina,
+            runner_ts: new Date().toISOString(),
+          },
+        }
+        : temCheckpointBase
+        ? { checkpoint: checkpointBase }
         : {};
       const { error: updError } = await service
         .from("execucoes")
