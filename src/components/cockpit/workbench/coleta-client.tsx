@@ -22,13 +22,13 @@ import { useIngestaoConfig } from "@/hooks/use-fontes";
 import { useDispararGmail, useDispararDrive } from "@/hooks/use-admin";
 import { ApiError } from "@/lib/api/client";
 import {
-  execucaoDescriptor,
   normalizeOrigem,
   origemLabel,
   type OrigemKey,
   type PillState,
 } from "@/lib/status";
 import type { Execucao } from "@/lib/api/types";
+import type { ColetaLogOrigem } from "@/lib/api/coleta-log";
 import type {
   AgendamentosColetaData,
   EscopoColetaData,
@@ -63,24 +63,6 @@ const FONTE_TABS: { value: FonteTab; label: string }[] = [
   { value: "nomus", label: "Nomus" },
   { value: "gmail", label: "Gmail" },
   { value: "drive", label: "Drive" },
-];
-
-const RUN_ACTIONS: readonly ActionOption[] = [
-  {
-    id: "reexecutar",
-    label: "Reexecutar agora",
-    description: "Dispara novamente a coleta desta fonte.",
-  },
-  {
-    id: "conferir",
-    label: "Marcar como conferida",
-    description: "Confirma a checagem desta execução.",
-  },
-  {
-    id: "arquivar",
-    label: "Arquivar",
-    description: "Tira a execução da lista ativa.",
-  },
 ];
 
 const DADO_ACTIONS: readonly ActionOption[] = [
@@ -145,11 +127,8 @@ function dadoStatus(run: Execucao): { state: PillState; label: string } {
   }
 }
 
-/** Modal aberto (execucao ou dado). */
-type ModalState =
-  | { kind: "run"; id: string; title: string }
-  | { kind: "dado"; id: string; title: string }
-  | null;
+/** Modal de acoes de um dado coletado (clique na execucao navega para Logs). */
+type ModalState = { kind: "dado"; id: string; title: string } | null;
 
 type Toast = { message: string } | null;
 
@@ -161,6 +140,16 @@ export function ColetaClient({
   escopo: EscopoColetaData;
 }) {
   const [subtab, setSubtab] = useState<Subtab>("execucoes");
+
+  // Fonte pre-selecionada da guia Logs. Definida ao clicar numa execucao
+  // (abre Logs ja filtrado pela fonte da execucao); zerada ao abrir Logs
+  // manualmente pela barra de guias (volta a mostrar todas as fontes).
+  const [logsFonte, setLogsFonte] = useState<ColetaLogOrigem | undefined>(undefined);
+
+  const handleSubtabChange = (next: Subtab) => {
+    if (next === "logs") setLogsFonte(undefined);
+    setSubtab(next);
+  };
 
   // Quantas fontes tem a coleta automatica ligada (badge da guia Agendamento).
   const agendamentosAtivos = [
@@ -428,7 +417,7 @@ export function ColetaClient({
       <Subtabs<Subtab>
         ariaLabel="Guias do submódulo Coleta"
         value={subtab}
-        onValueChange={setSubtab}
+        onValueChange={handleSubtabChange}
         items={[
           { value: "execucoes", label: "Execuções", count: allRuns.length },
           { value: "dados", label: "Dados", count: allDados.length },
@@ -521,13 +510,12 @@ export function ColetaClient({
               error={execucoes.isError}
               onRetry={() => execucoes.refetch()}
               hidden={runsHidden}
-              onItemClick={(run) =>
-                setModal({
-                  kind: "run",
-                  id: run.id,
-                  title: `Execução · ${execucaoDescriptor(run).label}`,
-                })
-              }
+              onItemClick={(run) => {
+                // Clicar numa execucao abre a guia Logs ja filtrada pela fonte
+                // da execucao (console ao vivo daquela coleta).
+                setLogsFonte(normalizeOrigem(run.origem));
+                setSubtab("logs");
+              }}
               emptyTitle={
                 fonte !== "todas" ||
                 busca.trim() ||
@@ -652,7 +640,7 @@ export function ColetaClient({
 
       {subtab === "logs" && (
         <div data-subpane="coleta-logs" data-scope="ingestao/coleta/logs">
-          <LogsConsole />
+          <LogsConsole fonteInicial={logsFonte} />
         </div>
       )}
 
@@ -662,7 +650,7 @@ export function ColetaClient({
         title={modal?.title ?? "Ações"}
         description={modalObsolete ? undefined : "Escolha uma ação para este item."}
         obsolete={modalObsolete}
-        options={modal?.kind === "dado" ? DADO_ACTIONS : RUN_ACTIONS}
+        options={DADO_ACTIONS}
         onAction={() => {
           setModal(null);
           handleReadOnly("Apenas leitura — nenhuma ação foi executada.");

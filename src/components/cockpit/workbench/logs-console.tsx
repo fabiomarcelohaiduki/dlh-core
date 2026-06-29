@@ -53,8 +53,8 @@ function horaLinha(iso: string): string {
   return d.toLocaleTimeString("pt-BR", { hour12: false });
 }
 
-export function LogsConsole() {
-  const [fonte, setFonte] = useState<FonteLog>("todas");
+export function LogsConsole({ fonteInicial }: { fonteInicial?: ColetaLogOrigem } = {}) {
+  const [fonte, setFonte] = useState<FonteLog>(fonteInicial ?? "todas");
   const origem = fonte === "todas" ? undefined : fonte;
   const { linhas, connected, carregando, limpar } = useColetaLog(origem);
 
