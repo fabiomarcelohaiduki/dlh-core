@@ -260,13 +260,16 @@ export function conexaoFonteState(estado: string | null, conectado: boolean): Pi
  * da guia "Dados". Mapeamento travado da SPEC 4.5.2 (7 status_extracao -> 5
  * PillState), com rotulo e icone Lucide por estado. Reusa exclusivamente os 5
  * PillState existentes — sem novos tokens de cor:
+ * Rotulos alinhados ao vocabulario da Fila de extracao (STATUS_LABEL em
+ * extracao-fila-view.tsx) para nao confundir o usuario com nomes diferentes
+ * para o mesmo status:
  *  pendente    -> idle  "Pendente"
  *  extraido    -> ok    "Extraido"
- *  herdado     -> ok    "Herdado"      (Link)
- *  precisa_ocr -> warn  "Precisa OCR"  (ScanText)
- *  erro        -> err   "Erro"         (TriangleAlert)
- *  inobtenivel -> err   "Inobtenivel"  (Ban)
- *  ignorado    -> idle  "Ignorado"     (EyeOff)
+ *  herdado     -> ok    "Herdado"        (Link)
+ *  precisa_ocr -> warn  "Aguardando OCR" (ScanText)
+ *  erro        -> err   "Erro"           (TriangleAlert)
+ *  inobtenivel -> err   "Inacessivel"    (Ban)
+ *  ignorado    -> idle  "Ignorado"       (EyeOff)
  */
 export function coletaStatusDescriptor(status: StatusExtracao): PillDescriptor {
   switch (status) {
@@ -275,11 +278,11 @@ export function coletaStatusDescriptor(status: StatusExtracao): PillDescriptor {
     case "herdado":
       return { state: "ok", label: "Herdado", icon: Link };
     case "precisa_ocr":
-      return { state: "warn", label: "Precisa OCR", icon: ScanText };
+      return { state: "warn", label: "Aguardando OCR", icon: ScanText };
     case "erro":
       return { state: "err", label: "Erro", icon: TriangleAlert };
     case "inobtenivel":
-      return { state: "err", label: "Inobtenível", icon: Ban };
+      return { state: "err", label: "Inacessível", icon: Ban };
     case "ignorado":
       return { state: "idle", label: "Ignorado", icon: EyeOff };
     case "pendente":
@@ -295,8 +298,12 @@ export function coletaStatusDescriptor(status: StatusExtracao): PillDescriptor {
  * extracao/OCR, nao indexacao. Mapeamento travado da SPEC 4.5.3 (5 status
  * agregados -> 5 PillState), reusando exclusivamente os PillState existentes
  * (sem novos tokens de cor):
+ * "Na fila" (em_andamento) reflete que ha anexos ainda AGUARDANDO extracao
+ * (status pendente/precisa_ocr), nao um processamento ativo em curso — o
+ * "Extraindo" anterior confundia. Reusa o PillState run, mesma cor do card
+ * Pendentes da Fila de extracao.
  *  concluida      -> ok    "Extraído"
- *  em_andamento   -> run   "Extraindo"
+ *  em_andamento   -> run   "Na fila"
  *  erro           -> err   "Erro"
  *  mista          -> warn  "Parcial"
  *  sem_documentos -> idle  "Sem anexos"
@@ -309,7 +316,7 @@ export function indexacaoAgregadoDescriptor(
     case "concluida":
       return { state: "ok", label: "Extraído" };
     case "em_andamento":
-      return { state: "run", label: "Extraindo" };
+      return { state: "run", label: "Na fila" };
     case "erro":
       return { state: "err", label: "Erro" };
     case "mista":
