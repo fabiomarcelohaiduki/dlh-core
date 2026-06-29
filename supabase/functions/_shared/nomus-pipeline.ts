@@ -33,10 +33,13 @@ import {
   generateAndStoreMemoriaChunks,
 } from "./embeddings.ts";
 import { hashConteudoCanonico, hashTexto } from "./hash.ts";
+import { envInt, finalizeConcluida, loadCounters, updateExecucao } from "./block-source.ts";
 import { errorMessage, recordIngestErro } from "./ingest-errors.ts";
 import { captureException } from "./audit.ts";
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
+// Re-export do seam canonico: as bordas (ingestao-coletar/ingestao-orquestrar)
+// importam janelaMovel deste modulo (D6) e continuam resolvendo sem serem tocadas.
+export { janelaMovel } from "./block-source.ts";
 
 // ---------------------------------------------------------------------
 // Checkpoint (execucoes.checkpoint jsonb) - secao 2.1.5
@@ -45,7 +48,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 export type CheckpointModo = "incremental" | "backfill";
 export type CheckpointFase = "coleta" | "concluido";
 
-export interface NomusCheckpoint {
+export type NomusCheckpoint = {
   /** Proxima pagina a coletar (1-indexed). */
   pagina_atual: number;
   /** Limite inferior da janela (ISO-8601). */
@@ -60,7 +63,7 @@ export interface NomusCheckpoint {
   fase: CheckpointFase;
   /** Tentativas de retomada apos erro (teto NOMUS_MAX_RETOMADAS). */
   tentativas_retomada: number;
-}
+};
 
 /** Monta o checkpoint inicial de uma nova execucao. */
 export function buildInitialCheckpoint(
@@ -111,18 +114,6 @@ export function parseCheckpoint(raw: unknown): NomusCheckpoint | null {
 // ---------------------------------------------------------------------
 // Tuning por env (mesmo PADRAO do conector: lido em runtime, saneado)
 // ---------------------------------------------------------------------
-
-function envInt(name: string, fallback: number): number {
-  let raw: string | undefined;
-  try {
-    raw = Deno.env.get(name);
-  } catch {
-    return fallback;
-  }
-  if (!raw) return fallback;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
-}
 
 export function nomusBlocoMaxPaginas(): number {
   return envInt("NOMUS_BLOCO_MAX_PAGINAS", 10);
@@ -385,14 +376,6 @@ export interface BlockOutcome {
   processadosErro: number;
 }
 
-interface Counters {
-  novos: number;
-  alterados: number;
-  sucesso: number;
-  erro: number;
-  inicioMs: number;
-}
-
 /**
  * Processa UM bloco de paginas a partir de checkpoint.pagina_atual, encerrando
  * por teto de paginas (NOMUS_BLOCO_MAX_PAGINAS) ou tempo (NOMUS_BLOCO_MAX_MS).
@@ -626,89 +609,6 @@ function hashPessoaConteudo(pessoa: CollectedPessoa): string {
 // Helpers de estado / execucao
 // ---------------------------------------------------------------------
 
-interface ExecucaoPatch {
-  status?: string;
-  etapa_atual?: string | null;
-  fim?: string;
-  duracao?: string;
-  checkpoint?: NomusCheckpoint;
-  novos?: number;
-  alterados?: number;
-  total_processar?: number;
-  processados_sucesso?: number;
-  processados_erro?: number;
-  pendentes?: number;
-}
-
-async function loadCounters(db: SupabaseClient, execucaoId: string): Promise<Counters> {
-  const { data } = await db
-    .from("execucoes")
-    .select("novos, alterados, processados_sucesso, processados_erro, inicio")
-    .eq("id", execucaoId)
-    .maybeSingle();
-  const row = (data ?? {}) as {
-    novos?: number | null;
-    alterados?: number | null;
-    processados_sucesso?: number | null;
-    processados_erro?: number | null;
-    inicio?: string | null;
-  };
-  const inicioMs = row.inicio ? Date.parse(row.inicio) : Date.now();
-  return {
-    novos: row.novos ?? 0,
-    alterados: row.alterados ?? 0,
-    sucesso: row.processados_sucesso ?? 0,
-    erro: row.processados_erro ?? 0,
-    inicioMs: Number.isFinite(inicioMs) ? inicioMs : Date.now(),
-  };
-}
-
-async function finalizeConcluida(
-  db: SupabaseClient,
-  execucaoId: string,
-  fonteId: string,
-  checkpoint: NomusCheckpoint,
-  counters: Counters,
-): Promise<void> {
-  const fim = new Date();
-  await updateExecucao(db, execucaoId, {
-    status: "concluida",
-    etapa_atual: null,
-    fim: fim.toISOString(),
-    duracao: formatDuration(Date.now() - counters.inicioMs),
-    checkpoint,
-    novos: counters.novos,
-    alterados: counters.alterados,
-    processados_sucesso: counters.sucesso,
-    processados_erro: counters.erro,
-  });
-
-  const { error } = await db
-    .from("fontes")
-    .update({ ultima_coleta_em: fim.toISOString() })
-    .eq("id", fonteId);
-  if (error) {
-    console.error("[nomus-pipeline] falha ao atualizar fontes.ultima_coleta_em", {
-      fonteId,
-      error: error.message,
-    });
-  }
-}
-
-async function updateExecucao(
-  db: SupabaseClient,
-  execucaoId: string,
-  patch: ExecucaoPatch,
-): Promise<void> {
-  const { error } = await db.from("execucoes").update(patch).eq("id", execucaoId);
-  if (error) {
-    console.error("[nomus-pipeline] falha ao atualizar execucao", {
-      execucaoId,
-      error: error.message,
-    });
-  }
-}
-
 async function setStatusIndexacao(
   db: SupabaseClient,
   registroId: string,
@@ -752,17 +652,4 @@ async function resolveProcessoId(db: SupabaseClient, nomusId: string): Promise<s
     .eq("nomus_id", nomusId)
     .maybeSingle();
   return data ? String((data as { id: string }).id) : null;
-}
-
-/** Formata milissegundos em duracao legivel (ex.: "1m 23s"). */
-function formatDuration(ms: number): string {
-  const totalSeconds = Math.max(0, Math.round(ms / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-}
-
-/** Janela movel padrao (em dias) a partir de agora. */
-export function janelaMovel(janelaDias: number, until: Date = new Date()): Date {
-  return new Date(until.getTime() - janelaDias * MS_PER_DAY);
 }

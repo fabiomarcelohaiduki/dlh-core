@@ -24,6 +24,7 @@ import {
   type EffectiConnector,
 } from "./effecti-connector.ts";
 import { EmbeddingError, type EmbeddingProvider, generateAndStoreChunks } from "./embeddings.ts";
+import { envInt, finalizeConcluida, loadCounters, updateExecucao } from "./block-source.ts";
 import { incrementoDe, persistAvisoBase, resolveAvisoId, setStatusIndexacao } from "./pipeline.ts";
 import { errorMessage, recordIngestErro } from "./ingest-errors.ts";
 import { captureException } from "./audit.ts";
@@ -39,7 +40,7 @@ const MAX_WINDOW_DAYS = 5;
 
 export type EffectiCheckpointFase = "coleta" | "concluido";
 
-export interface EffectiCheckpoint {
+export type EffectiCheckpoint = {
   /** Inicio do bloco de <= 5 dias corrente (ISO-8601). */
   bloco_inicio: string;
   /** Proxima pagina a coletar DENTRO do bloco (0-indexed). */
@@ -52,7 +53,7 @@ export interface EffectiCheckpoint {
   fase: EffectiCheckpointFase;
   /** Tentativas de retomada apos erro (teto EFFECTI_MAX_RETOMADAS). */
   tentativas_retomada: number;
-}
+};
 
 /** Monta o checkpoint inicial de uma nova coleta Effecti. */
 export function buildInitialEffectiCheckpoint(since: Date, until: Date): EffectiCheckpoint {
@@ -99,18 +100,6 @@ export function parseEffectiCheckpoint(raw: unknown): EffectiCheckpoint | null {
 // ---------------------------------------------------------------------
 // Tuning por env (mesmo PADRAO do nomus-pipeline)
 // ---------------------------------------------------------------------
-
-function envInt(name: string, fallback: number): number {
-  let raw: string | undefined;
-  try {
-    raw = Deno.env.get(name);
-  } catch {
-    return fallback;
-  }
-  if (!raw) return fallback;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
-}
 
 export function effectiBlocoMaxPaginas(): number {
   return envInt("EFFECTI_BLOCO_MAX_PAGINAS", 10);
@@ -398,97 +387,4 @@ async function processAviso(
   }
 
   counters.sucesso += 1;
-}
-
-// ---------------------------------------------------------------------
-// Helpers de estado / execucao
-// ---------------------------------------------------------------------
-
-interface ExecucaoPatch {
-  status?: string;
-  etapa_atual?: string | null;
-  fim?: string;
-  duracao?: string;
-  checkpoint?: EffectiCheckpoint;
-  novos?: number;
-  alterados?: number;
-  processados_sucesso?: number;
-  processados_erro?: number;
-}
-
-async function loadCounters(db: SupabaseClient, execucaoId: string): Promise<Counters> {
-  const { data } = await db
-    .from("execucoes")
-    .select("novos, alterados, processados_sucesso, processados_erro, inicio")
-    .eq("id", execucaoId)
-    .maybeSingle();
-  const row = (data ?? {}) as {
-    novos?: number | null;
-    alterados?: number | null;
-    processados_sucesso?: number | null;
-    processados_erro?: number | null;
-    inicio?: string | null;
-  };
-  const inicioMs = row.inicio ? Date.parse(row.inicio) : Date.now();
-  return {
-    novos: row.novos ?? 0,
-    alterados: row.alterados ?? 0,
-    sucesso: row.processados_sucesso ?? 0,
-    erro: row.processados_erro ?? 0,
-    inicioMs: Number.isFinite(inicioMs) ? inicioMs : Date.now(),
-  };
-}
-
-async function finalizeConcluida(
-  db: SupabaseClient,
-  execucaoId: string,
-  fonteId: string,
-  checkpoint: EffectiCheckpoint,
-  counters: Counters,
-): Promise<void> {
-  const fim = new Date();
-  await updateExecucao(db, execucaoId, {
-    status: "concluida",
-    etapa_atual: null,
-    fim: fim.toISOString(),
-    duracao: formatDuration(Date.now() - counters.inicioMs),
-    checkpoint,
-    novos: counters.novos,
-    alterados: counters.alterados,
-    processados_sucesso: counters.sucesso,
-    processados_erro: counters.erro,
-  });
-
-  const { error } = await db
-    .from("fontes")
-    .update({ ultima_coleta_em: fim.toISOString() })
-    .eq("id", fonteId);
-  if (error) {
-    console.error("[effecti-pipeline] falha ao atualizar fontes.ultima_coleta_em", {
-      fonteId,
-      error: error.message,
-    });
-  }
-}
-
-async function updateExecucao(
-  db: SupabaseClient,
-  execucaoId: string,
-  patch: ExecucaoPatch,
-): Promise<void> {
-  const { error } = await db.from("execucoes").update(patch).eq("id", execucaoId);
-  if (error) {
-    console.error("[effecti-pipeline] falha ao atualizar execucao", {
-      execucaoId,
-      error: error.message,
-    });
-  }
-}
-
-/** Formata milissegundos em duracao legivel (ex.: "1m 23s"). */
-function formatDuration(ms: number): string {
-  const totalSeconds = Math.max(0, Math.round(ms / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 }

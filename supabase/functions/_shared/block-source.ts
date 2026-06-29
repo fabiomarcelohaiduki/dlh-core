@@ -258,7 +258,7 @@ export interface ExecucaoPatch {
   etapa_atual?: string | null;
   fim?: string;
   duracao?: string;
-  checkpoint?: CheckpointEnvelope<unknown>;
+  checkpoint?: { [k: string]: unknown };
   novos?: number;
   alterados?: number;
   total_processar?: number;
@@ -341,7 +341,7 @@ export async function finalizeConcluida(
   db: SupabaseClient,
   execucaoId: string,
   fonteId: string,
-  checkpoint: CheckpointEnvelope<unknown>,
+  checkpoint: { [k: string]: unknown },
   counters: Counters,
 ): Promise<void> {
   const fim = new Date();
