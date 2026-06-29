@@ -234,8 +234,192 @@ export interface PersistResult {
   /** Se o favorito desta linha JA foi propagado (write-back) para a Effecti.
    *  O caller (write-back) so propaga quando favorito===true && !favoritoPropagado. */
   favoritoPropagado: boolean;
+  /** Snapshot logico do aviso APOS o efeito de persistencia (proximoSnapshot da
+   *  decisao pura, com o id real preenchido no caminho insert). */
+  nextExisting: ExistingAvisoRow;
 }
 
+// ---------------------------------------------------------------------
+// Nucleo de decisao PURO (sem I/O): contrato de dominio da persistencia.
+//
+// decidirPersistencia e incrementoDe sao sincronas, deterministicas e NAO
+// tocam SupabaseClient/await/I/O. Falam SO dominio (7 campos), nunca nomes de
+// coluna Postgres (na_lixeira/status_indexacao ficam na borda persistAvisoBase).
+// O hash canonico e computado AQUI dentro e exposto em proximoSnapshot.
+// ---------------------------------------------------------------------
+
+/** Snapshot persistido do aviso: entrada (estado atual) e saida (proximo) da pura. */
+export interface ExistingAvisoRow {
+  id: string;
+  conteudo_hash: string | null;
+  conteudo_verbatim: string | null;
+  execucao_origem_id: string | null;
+  favorito: boolean | null;
+  favorito_propagado: boolean | null;
+  data_captura: string | null;
+}
+
+/** Caminho de materializacao escolhido pela decisao pura. */
+export type PersistCaminho = "insert" | "update" | "stamp";
+
+/** Resultado puro da decisao de persistencia (dominio, sem colunas Postgres). */
+export interface DecisaoPersistencia {
+  caminho: PersistCaminho;
+  status: PersistStatus;
+  reindexar: boolean;
+  favoritoFinal: boolean;
+  resetPropagado: boolean;
+  espelharLixeira: boolean;
+  proximoSnapshot: ExistingAvisoRow;
+}
+
+/**
+ * Mapeia o status do item para o incremento dos contadores da execucao.
+ * Unico ponto onde a regra status->contagem existe (D5). Puro e total.
+ */
+export function incrementoDe(
+  status: PersistStatus,
+): { novos: number; alterados: number } {
+  if (status === "novo") return { novos: 1, alterados: 0 };
+  if (status === "alterado") return { novos: 0, alterados: 1 };
+  return { novos: 0, alterados: 0 };
+}
+
+/**
+ * Decide PURAMENTE (sem db/await/I-O) como persistir um aviso, dado o snapshot
+ * atual (ou null) e o execucaoId da run. Espelha 1:1 a derivacao inline de
+ * persistAvisoBase (hash, primeiraDaRun, favoritoFinal OR intra-run, maisRecente,
+ * status, reindexar) e emite os 7 campos preenchidos em TODOS os caminhos.
+ */
+export function decidirPersistencia(
+  aviso: CollectedAviso,
+  snapshot: ExistingAvisoRow | null,
+  execucaoId: string,
+): DecisaoPersistencia {
+  // Hash dos campos de negocio NORMALIZADOS (nunca do payload bruto volatil).
+  const hash = hashAvisoCanonico(aviso);
+
+  // Caminho insert: aviso inedito (sem snapshot). O DB atribui o id (id="").
+  if (snapshot === null) {
+    const favoritoFinal = aviso.favorito === true;
+    return {
+      caminho: "insert",
+      status: "novo",
+      reindexar: true,
+      favoritoFinal,
+      resetPropagado: false,
+      espelharLixeira: false,
+      proximoSnapshot: {
+        id: "",
+        conteudo_hash: hash,
+        conteudo_verbatim: aviso.conteudoVerbatim,
+        execucao_origem_id: execucaoId,
+        favorito: favoritoFinal,
+        favorito_propagado: false,
+        data_captura: aviso.dataCaptura,
+      },
+    };
+  }
+
+  // FAVORITO = OR das ocorrencias do id na run. A 1a ocorrencia (execucao
+  // diferente) reseta a base; reocorrencias so SOBEM, nunca rebaixam na run.
+  const primeiraDaRun = snapshot.execucao_origem_id !== execucaoId;
+  const favoritoFinal = primeiraDaRun
+    ? aviso.favorito === true
+    : snapshot.favorito === true || aviso.favorito === true;
+
+  // Write-back: quando o favorito CAI para false e ja fora propagado, reseta a
+  // flag para que um eventual re-favoritar volte a propagar.
+  const jaPropagado = snapshot.favorito_propagado === true;
+  const resetPropagado = favoritoFinal === false && jaPropagado;
+
+  // EVENTO MAIS RECENTE VENCE P/ CONTEUDO. dataCaptura discrimina o evento;
+  // re-servico de paginacao mantem a data (nunca "mais recente"). Tratamento
+  // explicito de NaN/data invalida/vazia: atual ilegivel => sempre reescreve.
+  const dcNovo = aviso.dataCaptura ? new Date(aviso.dataCaptura).getTime() : NaN;
+  const dcAtual = snapshot.data_captura
+    ? new Date(snapshot.data_captura).getTime()
+    : NaN;
+  const maisRecente = !Number.isFinite(dcAtual) ||
+    (Number.isFinite(dcNovo) && dcNovo > dcAtual);
+
+  if (maisRecente) {
+    // Reescreve o conteudo com o evento mais recente. So conta 'alterado' quando
+    // um campo de NEGOCIO mudou (hash != persistido). Legado (hash NULL) so
+    // popula sem inflar 'alterados'. So re-embed quando o verbatim muda.
+    const persistido = snapshot.conteudo_hash ?? null;
+    const status: PersistStatus = persistido !== null && persistido !== hash
+      ? "alterado"
+      : "ignorado";
+    const reindexar = (snapshot.conteudo_verbatim ?? "") !==
+      (aviso.conteudoVerbatim ?? "");
+    return {
+      caminho: "update",
+      status,
+      reindexar,
+      favoritoFinal,
+      resetPropagado,
+      espelharLixeira: false,
+      proximoSnapshot: {
+        id: snapshot.id,
+        conteudo_hash: hash,
+        conteudo_verbatim: aviso.conteudoVerbatim,
+        execucao_origem_id: execucaoId,
+        favorito: favoritoFinal,
+        favorito_propagado: resetPropagado ? false : jaPropagado,
+        data_captura: aviso.dataCaptura,
+      },
+    };
+  }
+
+  // Evento mais antigo OU re-servico do mesmo evento: NAO toca o conteudo, mas
+  // CARIMBA a execucao e sincroniza o favorito. na_lixeira so espelha na 1a
+  // ocorrencia da run (espelharLixeira = primeiraDaRun).
+  return {
+    caminho: "stamp",
+    status: "ignorado",
+    reindexar: false,
+    favoritoFinal,
+    resetPropagado,
+    espelharLixeira: primeiraDaRun,
+    proximoSnapshot: {
+      id: snapshot.id,
+      conteudo_hash: snapshot.conteudo_hash,
+      conteudo_verbatim: snapshot.conteudo_verbatim,
+      execucao_origem_id: execucaoId,
+      favorito: favoritoFinal,
+      favorito_propagado: resetPropagado ? false : jaPropagado,
+      data_captura: snapshot.data_captura,
+    },
+  };
+}
+
+/**
+ * Monta o PersistResult a partir do avisoId (real) e da decisao pura. Ponto
+ * unico de traducao decisao->contrato: favoritoPropagado deriva do snapshot
+ * logico (proximoSnapshot.favorito_propagado === true) e nextExisting e o
+ * proprio proximoSnapshot pos-efeito.
+ */
+function montarPersistResult(
+  avisoId: string,
+  d: DecisaoPersistencia,
+): PersistResult {
+  return {
+    avisoId,
+    status: d.status,
+    reindexar: d.reindexar,
+    favorito: d.favoritoFinal,
+    favoritoPropagado: d.proximoSnapshot.favorito_propagado === true,
+    nextExisting: d.proximoSnapshot,
+  };
+}
+
+/**
+ * Involucro fino de I/O: le o snapshot, delega a DECISAO pura a
+ * decidirPersistencia e apenas TRADUZ/EXECUTA o efeito (insert/update/stamp).
+ * Nao recomputa hash (consome d.proximoSnapshot.conteudo_hash) e nao reabriga
+ * regra de dominio. Envelopes de erro de I/O preservados verbatim.
+ */
 export async function persistAvisoBase(
   db: SupabaseClient,
   aviso: CollectedAviso,
@@ -253,134 +437,83 @@ export async function persistAvisoBase(
     throw new Error(`falha ao consultar aviso existente: ${selError.message}`);
   }
 
-  // Hash dos campos de negocio NORMALIZADOS (espelha o Nomus). NUNCA do
-  // payload bruto: ele carrega campos volateis por fetch (dataCaptura,
-  // favorito, naLixeira, rankingCapag) + chaves reordenadas pelo Postgres ->
-  // o hash nunca baterea e tudo viraria 'alterado'. So conta 'alterado'
-  // quando um campo de negocio muda de verdade.
-  const hash = hashAvisoCanonico(aviso);
+  const snapshot = (existing as ExistingAvisoRow | null) ?? null;
+  const d = decidirPersistencia(aviso, snapshot, execucaoId);
 
-  if (existing) {
-    const row = existing as {
-      id: string;
-      conteudo_hash: string | null;
-      conteudo_verbatim: string | null;
-      execucao_origem_id: string | null;
-      favorito: boolean | null;
-      favorito_propagado: boolean | null;
-      data_captura: string | null;
-    };
-    const persistido = row.conteudo_hash ?? null;
-    const avisoId = String(row.id);
-
-    // FAVORITO = OR de todas as ocorrencias do id na coleta. A MESMA licitacao gera
-    // N avisos (re-servico de paginacao + eventos/comunicados distintos), com favorito
-    // POR OCORRENCIA. A 1a ocorrencia da run reseta a base (estado atual da Effecti ->
-    // permite DESMARCAR entre coletas); reocorrencias so SOBEM (nunca rebaixam dentro
-    // da run). Compartilha o mesmo execucaoId atraves dos blocos/ticks da coleta.
-    const primeiraDaRun = row.execucao_origem_id !== execucaoId;
-    const favoritoFinal = primeiraDaRun
-      ? aviso.favorito === true
-      : row.favorito === true || aviso.favorito === true;
-
-    // Write-back: o caller propaga (PUT favoritar-licitacao) quando favoritoFinal
-    // vira true e ainda nao foi propagado. Quando o favorito CAI para false, reseta
-    // a flag para que um eventual re-favoritar volte a propagar.
-    const jaPropagado = row.favorito_propagado === true;
-    const resetPropagado = favoritoFinal === false && jaPropagado;
-
-    // EVENTO MAIS RECENTE VENCE P/ CONTEUDO. dataCaptura discrimina o EVENTO: o
-    // re-servico de paginacao do MESMO evento mantem a dataCaptura (nunca "mais
-    // recente" -> nao reescreve -> mata o auto-flip dos 'alterados'); um evento/
-    // comunicado novo (ex "licitacao deserta") traz dataCaptura MAIOR -> a linha unica
-    // do idLicitacao passa a refletir o aviso mais atual. Uma linha por licitacao:
-    // comunicados sao atualizacoes da mesma licitacao, nunca novas linhas.
-    const dcNovo = aviso.dataCaptura ? new Date(aviso.dataCaptura).getTime() : NaN;
-    const dcAtual = row.data_captura ? new Date(row.data_captura).getTime() : NaN;
-    const maisRecente = !Number.isFinite(dcAtual) ||
-      (Number.isFinite(dcNovo) && dcNovo > dcAtual);
-
-    if (maisRecente) {
-      // Reescreve o conteudo com o evento mais recente. So conta 'alterado' quando um
-      // campo de NEGOCIO mudou de verdade (hash != persistido). Legado (hash NULL) so
-      // popula sem contar como alterado (evita falso pico na estabilizacao). So
-      // re-embed quando o verbatim (texto que vira vetor) muda.
-      const status: PersistStatus = persistido !== null && persistido !== hash
-        ? "alterado"
-        : "ignorado";
-      const reindexar = (row.conteudo_verbatim ?? "") !== (aviso.conteudoVerbatim ?? "");
-      const updateRow = {
-        ...buildRow(aviso, execucaoId, hash, reindexar, favoritoFinal),
-        ...(resetPropagado ? { favorito_propagado: false } : {}),
-      };
-      const { error: upError } = await db
-        .from("avisos")
-        .update(updateRow)
-        .eq("id", avisoId);
-      if (upError) {
-        throw new Error(`falha ao atualizar aviso: ${upError.message}`);
-      }
-      return {
-        avisoId,
-        status,
-        reindexar,
-        favorito: favoritoFinal,
-        favoritoPropagado: resetPropagado ? false : jaPropagado,
-      };
-    }
-
-    // Evento mais antigo OU re-servico do mesmo evento (dataCaptura <= atual): NAO
-    // toca o conteudo (a linha ja reflete o evento mais recente), mas CARIMBA a
-    // execucao (dedup/OR cross-tick) e sincroniza o favorito (reset na 1a ocorrencia,
-    // OR nas seguintes). na_lixeira so espelha na 1a ocorrencia da run (sem OR).
-    const stamp: {
-      execucao_origem_id: string;
-      favorito: boolean;
-      na_lixeira?: boolean | null;
-      favorito_propagado?: boolean;
-    } = { execucao_origem_id: execucaoId, favorito: favoritoFinal };
-    if (primeiraDaRun) {
-      stamp.na_lixeira = aviso.naLixeira;
-    }
-    if (resetPropagado) {
-      stamp.favorito_propagado = false;
-    }
-    const { error: stampError } = await db
+  if (d.caminho === "insert") {
+    // Aviso inedito: o DB atribui o id. buildRow consome o hash da decisao pura
+    // (proximoSnapshot.conteudo_hash) -> nao recomputa no involucro.
+    const row = buildRow(
+      aviso,
+      execucaoId,
+      d.proximoSnapshot.conteudo_hash,
+      true,
+      d.favoritoFinal,
+    );
+    const { data, error: upError } = await db
       .from("avisos")
-      .update(stamp)
-      .eq("id", avisoId);
-    if (stampError) {
-      throw new Error(`falha ao carimbar execucao no aviso: ${stampError.message}`);
+      .insert(row)
+      .select("id")
+      .single();
+
+    if (upError || !data) {
+      throw new Error(`falha ao persistir aviso: ${upError?.message ?? "sem id"}`);
     }
-    return {
-      avisoId,
-      status: "ignorado",
-      reindexar: false,
-      favorito: favoritoFinal,
-      favoritoPropagado: resetPropagado ? false : jaPropagado,
+
+    const avisoId = String((data as { id: string }).id);
+    // Preenche o id real no snapshot logico (era "" antes do efeito).
+    d.proximoSnapshot.id = avisoId;
+    return montarPersistResult(avisoId, d);
+  }
+
+  const avisoId = d.proximoSnapshot.id;
+
+  if (d.caminho === "update") {
+    // Reescreve o conteudo com o evento mais recente. buildRow consome o hash da
+    // decisao pura e o reindexar/favoritoFinal ja decididos. na_lixeira segue
+    // espelhado dentro do buildRow (insert/update), preservando o comportamento.
+    const updateRow = {
+      ...buildRow(
+        aviso,
+        execucaoId,
+        d.proximoSnapshot.conteudo_hash,
+        d.reindexar,
+        d.favoritoFinal,
+      ),
+      ...(d.resetPropagado ? { favorito_propagado: false } : {}),
     };
+    const { error: upError } = await db
+      .from("avisos")
+      .update(updateRow)
+      .eq("id", avisoId);
+    if (upError) {
+      throw new Error(`falha ao atualizar aviso: ${upError.message}`);
+    }
+    return montarPersistResult(avisoId, d);
   }
 
-  const favoritoNovo = aviso.favorito === true;
-  const row = buildRow(aviso, execucaoId, hash, true, favoritoNovo);
-  const { data, error: upError } = await db
+  // Caminho stamp: NAO toca o conteudo, apenas CARIMBA a execucao e sincroniza
+  // o favorito. na_lixeira so espelha na 1a ocorrencia da run (d.espelharLixeira).
+  const stamp: {
+    execucao_origem_id: string;
+    favorito: boolean;
+    na_lixeira?: boolean | null;
+    favorito_propagado?: boolean;
+  } = { execucao_origem_id: execucaoId, favorito: d.favoritoFinal };
+  if (d.espelharLixeira) {
+    stamp.na_lixeira = aviso.naLixeira;
+  }
+  if (d.resetPropagado) {
+    stamp.favorito_propagado = false;
+  }
+  const { error: stampError } = await db
     .from("avisos")
-    .insert(row)
-    .select("id")
-    .single();
-
-  if (upError || !data) {
-    throw new Error(`falha ao persistir aviso: ${upError?.message ?? "sem id"}`);
+    .update(stamp)
+    .eq("id", avisoId);
+  if (stampError) {
+    throw new Error(`falha ao carimbar execucao no aviso: ${stampError.message}`);
   }
-
-  // Aviso novo: favorito_propagado tem default false -> se favorito, o caller propaga.
-  return {
-    avisoId: String((data as { id: string }).id),
-    status: "novo",
-    reindexar: true,
-    favorito: favoritoNovo,
-    favoritoPropagado: false,
-  };
+  return montarPersistResult(avisoId, d);
 }
 
 // Separador estavel entre campos (ASCII Unit Separator), igual ao hash.ts.
@@ -391,7 +524,7 @@ const CANONICO_SEP = "\u001f";
  * conector (ordem fixa). Exclui dataCaptura e o payload bruto (volateis) para
  * que re-coletar um aviso inalterado produza o MESMO hash.
  */
-function hashAvisoCanonico(aviso: CollectedAviso): string {
+export function hashAvisoCanonico(aviso: CollectedAviso): string {
   const canonical = [
     aviso.modalidade ?? "",
     aviso.orgao ?? "",
@@ -408,7 +541,7 @@ function hashAvisoCanonico(aviso: CollectedAviso): string {
 function buildRow(
   aviso: CollectedAviso,
   execucaoId: string,
-  hash: string,
+  hash: string | null,
   reindexar: boolean,
   favorito: boolean,
 ) {

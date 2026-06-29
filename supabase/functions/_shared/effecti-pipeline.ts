@@ -24,7 +24,7 @@ import {
   type EffectiConnector,
 } from "./effecti-connector.ts";
 import { EmbeddingError, type EmbeddingProvider, generateAndStoreChunks } from "./embeddings.ts";
-import { persistAvisoBase, resolveAvisoId, setStatusIndexacao } from "./pipeline.ts";
+import { incrementoDe, persistAvisoBase, resolveAvisoId, setStatusIndexacao } from "./pipeline.ts";
 import { errorMessage, recordIngestErro } from "./ingest-errors.ts";
 import { captureException } from "./audit.ts";
 import { type ColetaLogger, createColetaLogger } from "./coleta-log.ts";
@@ -352,9 +352,10 @@ async function processAviso(
     aviso,
     execucaoId,
   );
-  if (status === "novo") counters.novos += 1;
-  else if (status === "alterado") counters.alterados += 1;
-  // "ignorado" / legado: nao conta (espelha o Nomus).
+  const inc = incrementoDe(status);
+  counters.novos += inc.novos;
+  counters.alterados += inc.alterados;
+  // "ignorado" / legado: incrementoDe retorna {0,0} (espelha o Nomus).
   log.info(`aviso ${aviso.effectiId}: ${status}${favorito ? " (favorito)" : ""}`);
 
   // Write-back INLINE: propaga o favorito para a Effecti (PUT favoritar-licitacao
