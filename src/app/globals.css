@@ -1354,7 +1354,11 @@ body.comfortable :is(th, td) {
 
 .screen {
   padding: var(--sp);
-  max-width: 1180px;
+  /* Fluido: preenche a coluna de conteudo (.main) em vez de travar em 1180px,
+     que deixava faixa vazia a direita em telas largas / zoom baixo e empurrava
+     as tabelas largas para o scroll horizontal (cortando colunas). Blocos de
+     texto/cards internos ja tem seus proprios max-width (60ch etc.). */
+  max-width: 100%;
   animation: fade 0.28s ease;
 }
 @keyframes fade {
