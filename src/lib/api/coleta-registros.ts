@@ -50,13 +50,18 @@ export interface CabecalhoEffecti {
   fonte: "effecti";
   objeto: string;
   orgao: string;
+  unidadeGestora: string | null;
   modalidade: string;
   portal: string | null;
-  dataPublicacao: string | null;
-  dataCaptura: string;
   uf: string | null;
   uasg: string | null;
   edital: string | null;
+  srp: string | null;
+  valorEstimado: string | null;
+  dataInicial: string | null;
+  dataFinal: string | null;
+  dataPublicacao: string | null;
+  dataCaptura: string;
 }
 
 /** Cabecalho de um processo Nomus (colunas diretas de `nomus_processos`). */
@@ -261,13 +266,18 @@ interface RawCabecalhoEffecti {
   fonte: "effecti";
   objeto: string;
   orgao: string;
+  unidade_gestora: string | null;
   modalidade: string;
   portal: string | null;
-  data_publicacao: string | null;
-  data_captura: string;
   uf: string | null;
   uasg: string | null;
   edital: string | null;
+  srp: string | null;
+  valor_estimado: string | null;
+  data_inicial: string | null;
+  data_final: string | null;
+  data_publicacao: string | null;
+  data_captura: string;
 }
 
 interface RawCabecalhoNomus {
@@ -399,13 +409,18 @@ function toCabecalho(raw: RawCabecalho): CabecalhoDiscriminado {
         fonte: "effecti",
         objeto: raw.objeto,
         orgao: raw.orgao,
+        unidadeGestora: raw.unidade_gestora ?? null,
         modalidade: raw.modalidade,
         portal: raw.portal ?? null,
-        dataPublicacao: raw.data_publicacao ?? null,
-        dataCaptura: raw.data_captura,
         uf: raw.uf ?? null,
         uasg: raw.uasg ?? null,
         edital: raw.edital ?? null,
+        srp: raw.srp ?? null,
+        valorEstimado: raw.valor_estimado ?? null,
+        dataInicial: raw.data_inicial ?? null,
+        dataFinal: raw.data_final ?? null,
+        dataPublicacao: raw.data_publicacao ?? null,
+        dataCaptura: raw.data_captura,
       };
     case "nomus":
       // Dentro de Nomus, o `recurso` discrimina processos x pessoas. Default

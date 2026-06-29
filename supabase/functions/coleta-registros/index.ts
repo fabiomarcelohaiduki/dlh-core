@@ -121,6 +121,8 @@ interface AvisoLite {
   portal: string | null;
   data_publicacao: string | null;
   data_captura: string | null;
+  data_inicial: string | null;
+  data_final: string | null;
   execucao_origem_id: string | null;
 }
 
@@ -336,6 +338,20 @@ function jsonStr(obj: unknown, key: string): string | null {
   return null;
 }
 
+/** Booleano JSONB tolerante (bool nativo, "true"/"false", 1/0); ausente -> null. */
+function jsonBool(obj: unknown, key: string): boolean | null {
+  if (!obj || typeof obj !== "object") return null;
+  const v = (obj as Record<string, unknown>)[key];
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v === 1 ? true : v === 0 ? false : null;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (s === "true" || s === "1" || s === "sim") return true;
+    if (s === "false" || s === "0" || s === "nao" || s === "não") return false;
+  }
+  return null;
+}
+
 /** Mapeia 1 linha da view (snake_case) para o modelo da pagina (camelCase). */
 function mestraRowToGroup(r: MestraRow): GroupAgg {
   return {
@@ -445,7 +461,7 @@ async function handleList(req: Request): Promise<Response> {
       service
         .from("avisos")
         .select(
-          "id, effecti_id, objeto, orgao, modalidade, portal, data_publicacao, data_captura, execucao_origem_id",
+          "id, effecti_id, objeto, orgao, modalidade, portal, data_publicacao, data_captura, data_inicial, data_final, execucao_origem_id",
         )
         .in("effecti_id", chunk))) as AvisoLite[];
     for (const a of avisoRows) avisosByEffecti.set(a.effecti_id, a);
@@ -592,17 +608,28 @@ function montarCabecalho(input: CabecalhoInput): CabecalhoDiscriminado {
     case "effecti": {
       const aviso = input.aviso;
       const payload = input.payloadEffecti;
+      // SRP: descricao textual quando houver, senao deriva do booleano `srp`.
+      const srpBool = jsonBool(payload, "srp");
+      const srp = jsonStr(payload, "srpDescricao") ??
+        (srpBool === true ? "Sim" : srpBool === false ? "Não" : null);
       const cab: CabecalhoEffecti = {
         fonte: "effecti",
         objeto: (aviso?.objeto ?? "").trim(),
         orgao: aviso?.orgao ?? "",
+        unidade_gestora: jsonStr(payload, "unidadeGestora"),
         modalidade: aviso?.modalidade ?? "",
         portal: aviso?.portal ?? null,
+        uf: jsonStr(payload, "uf") ?? jsonStr(payload, "estado") ??
+          jsonStr(payload, "siglaUf"),
+        uasg: jsonStr(payload, "uasg"),
+        edital: jsonStr(payload, "processo") ?? jsonStr(payload, "edital") ??
+          jsonStr(payload, "numero_edital"),
+        srp,
+        valor_estimado: jsonStr(payload, "valorTotalEstimado"),
+        data_inicial: aviso?.data_inicial ?? jsonStr(payload, "dataInicialProposta"),
+        data_final: aviso?.data_final ?? jsonStr(payload, "dataFinalProposta"),
         data_publicacao: aviso?.data_publicacao ?? null,
         data_captura: aviso?.data_captura ?? input.captadoEm,
-        uf: jsonStr(payload, "uf"),
-        uasg: jsonStr(payload, "uasg"),
-        edital: jsonStr(payload, "edital") ?? jsonStr(payload, "numero_edital"),
       };
       return cab;
     }
@@ -914,7 +941,7 @@ async function handleDetail(idComposto: string): Promise<Response> {
     const { data, error } = await service
       .from("avisos")
       .select(
-        "id, effecti_id, objeto, orgao, modalidade, portal, data_publicacao, data_captura, execucao_origem_id, payload_bruto",
+        "id, effecti_id, objeto, orgao, modalidade, portal, data_publicacao, data_captura, data_inicial, data_final, execucao_origem_id, payload_bruto",
       )
       .eq("effecti_id", origemId)
       .maybeSingle();

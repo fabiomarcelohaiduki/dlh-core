@@ -81,6 +81,14 @@ const IGNORAR_BLOQUEIO_TITLE =
 // Cabecalho discriminado por fonte.
 // ---------------------------------------------------------------------
 
+/** Formata um valor numerico cru (string) em BRL; null/invalido -> null. */
+function formatBRL(value: string | null): string | null {
+  if (!value) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
 /** Par rotulo/valor do cabecalho; omite valores nulos exibindo "—". */
 function Field({ label, value }: { label: string; value: string | null }) {
   return (
@@ -116,13 +124,23 @@ export function CabecalhoDiscriminadoRenderer({
     case "effecti":
       return (
         <CabecalhoGrid>
-          <Field label="Objeto" value={cabecalho.objeto} />
           <Field label="Órgão" value={cabecalho.orgao} />
+          <Field label="Unidade gestora" value={cabecalho.unidadeGestora} />
           <Field label="Modalidade" value={cabecalho.modalidade} />
           <Field label="Portal" value={cabecalho.portal} />
           <Field label="UF" value={cabecalho.uf} />
           <Field label="UASG" value={cabecalho.uasg} />
           <Field label="Edital" value={cabecalho.edital} />
+          <Field label="SRP" value={cabecalho.srp} />
+          <Field label="Valor estimado" value={formatBRL(cabecalho.valorEstimado)} />
+          <Field
+            label="Abertura de propostas"
+            value={cabecalho.dataInicial ? formatDateTime(cabecalho.dataInicial) : null}
+          />
+          <Field
+            label="Abertura de lances"
+            value={cabecalho.dataFinal ? formatDateTime(cabecalho.dataFinal) : null}
+          />
           <Field
             label="Publicação"
             value={

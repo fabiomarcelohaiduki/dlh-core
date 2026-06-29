@@ -74,13 +74,23 @@ export interface CabecalhoEffecti {
   fonte: "effecti";
   objeto: string;
   orgao: string;
+  /** payload_bruto->>unidadeGestora. */
+  unidade_gestora: string | null;
   modalidade: string;
   portal: string | null;
-  data_publicacao: string | null;
-  data_captura: string;
   uf: string | null;
   uasg: string | null;
   edital: string | null;
+  /** Sistema de Registro de Precos (payload_bruto: srpDescricao ou srp bool). */
+  srp: string | null;
+  /** Valor total estimado, numero cru (payload_bruto->>valorTotalEstimado). */
+  valor_estimado: string | null;
+  /** Abertura das propostas (avisos.data_inicial). */
+  data_inicial: string | null;
+  /** Abertura dos lances / encerramento das propostas (avisos.data_final). */
+  data_final: string | null;
+  data_publicacao: string | null;
+  data_captura: string;
 }
 
 /** Cabecalho de um processo Nomus (colunas diretas de `nomus_processos`). */
