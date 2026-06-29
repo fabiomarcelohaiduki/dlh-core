@@ -652,6 +652,11 @@ function montarCabecalho(input: CabecalhoInput): CabecalhoDiscriminado {
         extensao: input.repExtensaoDoc ?? jsonStr(ref, "extensao"),
         tipo,
         thread_id: jsonStr(ref, "thread_id"),
+        assunto: jsonStr(ref, "assunto"),
+        remetente: jsonStr(ref, "remetente"),
+        destinatarios: jsonStr(ref, "destinatarios"),
+        cc: jsonStr(ref, "cc"),
+        data_email: jsonStr(ref, "data_email"),
       };
       return cab;
     }

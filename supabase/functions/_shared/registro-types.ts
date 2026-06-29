@@ -118,6 +118,16 @@ export interface CabecalhoGmail {
   extensao: string | null;
   tipo: "corpo" | "anexo";
   thread_id: string | null;
+  /** Assunto do e-mail (header Subject). */
+  assunto: string | null;
+  /** Remetente do e-mail (header From). */
+  remetente: string | null;
+  /** Destinatarios do e-mail (header To); pode listar varios enderecos. */
+  destinatarios: string | null;
+  /** Copia do e-mail (header Cc); pode listar varios enderecos. */
+  cc: string | null;
+  /** Data de envio do e-mail (header Date), ISO-8601; null se ausente. */
+  data_email: string | null;
 }
 
 /** Cabecalho de um arquivo Drive (documento_vinculos + ref_obtencao). */

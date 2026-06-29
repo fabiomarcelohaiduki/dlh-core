@@ -162,6 +162,14 @@ export function CabecalhoDiscriminadoRenderer({
     case "gmail":
       return (
         <CabecalhoGrid>
+          <Field label="Assunto" value={cabecalho.assunto} />
+          <Field label="De" value={cabecalho.remetente} />
+          <Field label="Para" value={cabecalho.destinatarios} />
+          <Field label="Cópia" value={cabecalho.cc} />
+          <Field
+            label="Data do e-mail"
+            value={cabecalho.dataEmail ? formatDateTime(cabecalho.dataEmail) : null}
+          />
           <Field label="Anexo" value={cabecalho.nomeAnexo} />
           <Field label="Extensão" value={cabecalho.extensao} />
           <Field label="Tipo" value={cabecalho.tipo} />

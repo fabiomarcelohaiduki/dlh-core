@@ -92,6 +92,16 @@ export interface CabecalhoGmail {
   extensao: string | null;
   tipo: "corpo" | "anexo";
   threadId: string | null;
+  /** Assunto do e-mail (header Subject). */
+  assunto: string | null;
+  /** Remetente do e-mail (header From). */
+  remetente: string | null;
+  /** Destinatarios do e-mail (header To); pode listar varios enderecos. */
+  destinatarios: string | null;
+  /** Copia do e-mail (header Cc); pode listar varios enderecos. */
+  cc: string | null;
+  /** Data de envio do e-mail (header Date), ISO-8601; null se ausente. */
+  dataEmail: string | null;
 }
 
 /** Cabecalho de um arquivo Drive (documento_vinculos + ref_obtencao). */
@@ -289,6 +299,11 @@ interface RawCabecalhoGmail {
   extensao: string | null;
   tipo: "corpo" | "anexo";
   thread_id: string | null;
+  assunto: string | null;
+  remetente: string | null;
+  destinatarios: string | null;
+  cc: string | null;
+  data_email: string | null;
 }
 
 interface RawCabecalhoDrive {
@@ -425,6 +440,11 @@ function toCabecalho(raw: RawCabecalho): CabecalhoDiscriminado {
         extensao: raw.extensao ?? null,
         tipo: raw.tipo,
         threadId: raw.thread_id ?? null,
+        assunto: raw.assunto ?? null,
+        remetente: raw.remetente ?? null,
+        destinatarios: raw.destinatarios ?? null,
+        cc: raw.cc ?? null,
+        dataEmail: raw.data_email ?? null,
       };
     case "drive":
       return {

@@ -230,18 +230,30 @@ interface MimePayload {
 }
 
 /**
- * Le o header "Subject" (assunto) do payload MIME de topo. O assunto e o titulo
- * legivel do e-mail na guia Dados (a coluna Registro), no lugar do nome tecnico
- * do vinculo de corpo ("(corpo).txt"). Devolve null se ausente ou vazio.
+ * Le um header do payload MIME de topo, case-insensitive (ex.: "Subject",
+ * "From", "To", "Cc", "Date"). Devolve o valor trimado ou null se ausente/vazio.
  */
-function extrairAssunto(message: Record<string, unknown>): string | null {
+function lerHeader(message: Record<string, unknown>, nome: string): string | null {
   const payload = message.payload as MimePayload | undefined;
+  const alvo = nome.toLowerCase();
   for (const h of payload?.headers ?? []) {
-    if ((h.name ?? "").toLowerCase() === "subject") {
+    if ((h.name ?? "").toLowerCase() === alvo) {
       return (h.value ?? "").trim() || null;
     }
   }
   return null;
+}
+
+/**
+ * Converte o header "Date" (RFC 2822, ex.: "Mon, 29 Jun 2026 16:24:00 -0300")
+ * para ISO-8601. Devolve null quando ausente ou nao-parseavel, preservando o
+ * contrato null-safe dos demais metadados.
+ */
+function dataEmailIso(message: Record<string, unknown>): string | null {
+  const raw = lerHeader(message, "date");
+  if (!raw) return null;
+  const t = Date.parse(raw);
+  return Number.isNaN(t) ? null : new Date(t).toISOString();
 }
 
 /**
@@ -303,14 +315,26 @@ interface ItemDescoberta {
   nome: string;
   extensao: string | null;
   attachment_id?: string;
-  // Assunto do e-mail (mesmo para corpo e anexos da mesma mensagem). Vira o
-  // titulo legivel do registro na guia Dados.
+  // Metadados do e-mail (iguais para o corpo e todos os anexos da mesma
+  // mensagem, pois vem dos headers MIME de topo). Alimentam o cabecalho da
+  // guia Dados: assunto (titulo do registro) + remetente/destinatarios/cc/data.
   assunto: string | null;
+  remetente: string | null;
+  destinatarios: string | null;
+  cc: string | null;
+  data_email: string | null;
 }
 
 function itensDaMensagem(message: Record<string, unknown>): ItemDescoberta[] {
   const { threadId, corpo, anexos } = extrairConteudo(message);
-  const assunto = extrairAssunto(message);
+  // Metadados lidos uma vez por mensagem e propagados a todos os itens.
+  const meta = {
+    assunto: lerHeader(message, "subject"),
+    remetente: lerHeader(message, "from"),
+    destinatarios: lerHeader(message, "to"),
+    cc: lerHeader(message, "cc"),
+    data_email: dataEmailIso(message),
+  };
   const itens: ItemDescoberta[] = [];
   const messageId = String(message.id ?? "");
   if (corpo) {
@@ -320,7 +344,7 @@ function itensDaMensagem(message: Record<string, unknown>): ItemDescoberta[] {
       tipo: "corpo",
       nome: NOME_CORPO,
       extensao: "txt",
-      assunto,
+      ...meta,
     });
   }
   for (const a of anexos) {
@@ -332,7 +356,7 @@ function itensDaMensagem(message: Record<string, unknown>): ItemDescoberta[] {
       nome: a.nome,
       attachment_id: a.attachment_id,
       extensao: a.extensao,
-      assunto,
+      ...meta,
     });
   }
   return itens;

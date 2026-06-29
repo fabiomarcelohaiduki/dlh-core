@@ -85,8 +85,13 @@ interface ItemGmail {
   nome: string;
   attachment_id: string | null;
   extensao: string | null;
-  // Assunto do e-mail; vira o titulo legivel do registro na guia Dados.
+  // Metadados do e-mail (headers MIME). assunto vira o titulo do registro;
+  // remetente/destinatarios/cc/data_email alimentam o cabecalho da guia Dados.
   assunto: string | null;
+  remetente: string | null;
+  destinatarios: string | null;
+  cc: string | null;
+  data_email: string | null;
 }
 
 interface DescobrirInput {
@@ -205,6 +210,9 @@ function parseItensGmail(o: Record<string, unknown>): ItemGmail[] {
   if (o.itens.length > MAX_ARQUIVOS_DRIVE) {
     throw new HttpError(422, "itens_demais", `maximo de ${MAX_ARQUIVOS_DRIVE} itens por chamada`);
   }
+  // String trimada ou null (metadados opcionais do e-mail vindos do runner).
+  const strOuNull = (v: unknown): string | null =>
+    typeof v === "string" && v.trim() !== "" ? v.trim() : null;
   const out: ItemGmail[] = [];
   for (const raw of o.itens) {
     if (!raw || typeof raw !== "object") continue;
@@ -220,7 +228,11 @@ function parseItensGmail(o: Record<string, unknown>): ItemGmail[] {
       nome,
       attachment_id: typeof r.attachment_id === "string" ? r.attachment_id : null,
       extensao: typeof r.extensao === "string" ? r.extensao : null,
-      assunto: typeof r.assunto === "string" && r.assunto.trim() !== "" ? r.assunto.trim() : null,
+      assunto: strOuNull(r.assunto),
+      remetente: strOuNull(r.remetente),
+      destinatarios: strOuNull(r.destinatarios),
+      cc: strOuNull(r.cc),
+      data_email: strOuNull(r.data_email),
     });
   }
   return out;
