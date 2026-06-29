@@ -106,15 +106,15 @@ const DADOS_SCOPE: WorkbenchScopeRef = {
 type Toast = { message: string } | null;
 
 /**
- * Filtro de execucao da guia "Dados": recorta a lista nos registros captados
- * por UMA rodada de coleta. Setado ao clicar numa linha da guia "Execucoes";
- * a janela [de, ate] e o intervalo de captacao da execucao (fim em andamento =
- * "agora"). `label` e a data/hora de inicio formatada para o chip dispensavel.
+ * Filtro de execucao da guia "Dados": recorta a lista nos registros TOCADOS
+ * por UMA rodada de coleta (ledger execucao_registros, via execucaoId). Setado
+ * ao clicar numa linha da guia "Execucoes". `fonte` fixa os chips/filtros na
+ * fonte da execucao; `label` e a data/hora de inicio formatada para o chip
+ * dispensavel.
  */
 type ExecFilter = {
   fonte: OrigemKey;
-  de: string;
-  ate: string;
+  id: string;
   label: string;
 };
 
@@ -316,14 +316,14 @@ export function ColetaClient({
   }, [dFonte, dBusca, execFilter]);
 
   // Polling adaptativo do hook cuida do intervalo; aqui so montamos os params.
-  // execFilter recorta na janela de captacao da execucao clicada (a fonte ja
-  // foi fixada em dFonte ao clicar, entao o filtro de fonte cobre a fonte alvo).
+  // Com execFilter, a lista vem do ledger (registros tocados por aquela
+  // execucao, rotulados novo|atualizado); o execucaoId recorta no servidor e a
+  // fonte ja foi fixada em dFonte ao clicar para os chips baterem.
   const registros = useColetaRegistros({
     fonte: dFonte === "todas" ? null : dFonte,
     busca: dBusca.trim() || null,
     cursor: currentCursor,
-    execDe: execFilter?.de ?? null,
-    execAte: execFilter?.ate ?? null,
+    execucaoId: execFilter?.id ?? null,
   });
 
   const registrosList = registros.data?.itens ?? [];
@@ -627,15 +627,14 @@ export function ColetaClient({
               hidden={runsHidden}
               onRowClick={(run) => {
                 // Clicar na linha leva a guia Dados recortada nos registros
-                // captados POR esta execucao (fonte da execucao + janela de
-                // captacao [inicio, fim ?? agora]). Fixa a fonte em dFonte para
-                // os chips/filtros baterem com o conjunto recortado.
+                // TOCADOS por esta execucao (ledger execucao_registros, via
+                // run.id), rotulados novo|atualizado. Fixa a fonte em dFonte
+                // para os chips/filtros baterem com o conjunto recortado.
                 const fonte = normalizeOrigem(run.origem);
                 setDFonte(fonte);
                 setExecFilter({
                   fonte,
-                  de: run.inicio,
-                  ate: run.fim ?? new Date().toISOString(),
+                  id: run.id,
                   label: formatDateTime(run.inicio),
                 });
                 setSubtab("dados");
@@ -724,6 +723,7 @@ export function ColetaClient({
               onToggleExpand={handleToggleExpand}
               onCloseExpand={handleCloseExpand}
               onTriarAviso={handleTriarAviso}
+              mostrarEfeito={execFilter !== null}
               pagination={{
                 page: pageNumber,
                 hasPrev: cursors.length > 0,

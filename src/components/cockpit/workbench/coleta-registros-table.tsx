@@ -49,8 +49,23 @@ import {
 } from "./table-pagination";
 import { ColetaRegistroDetalheExpansion } from "./coleta-registro-detalhe-expansion";
 
-/** Numero fixo de colunas da linha mestra (define o colSpan dos estados). */
-const COL_SPAN = 6;
+/**
+ * Colunas da linha mestra (define o colSpan dos estados). A coluna "Efeito"
+ * (novo|atualizado) so existe no recorte por execucao, entao o colSpan e
+ * derivado de mostrarEfeito.
+ */
+const COL_SPAN_BASE = 6;
+const colSpanDe = (mostrarEfeito: boolean): number =>
+  COL_SPAN_BASE + (mostrarEfeito ? 1 : 0);
+
+/** Pill do efeito da execucao sobre o registro (recorte por execucao). */
+function EfeitoPill({ efeito }: { efeito: "novo" | "atualizado" }) {
+  return efeito === "novo" ? (
+    <span className="pill ok">Novo</span>
+  ) : (
+    <span className="pill accent">Atualizado</span>
+  );
+}
 
 /** id estavel e seguro do painel expandido (alvo do aria-controls). */
 function panelIdFor(idComposto: string): string {
@@ -96,6 +111,8 @@ export interface ColetaRegistrosRowProps {
   onToggleExpand: () => void;
   onCloseExpand: () => void;
   onTriarAviso: () => void;
+  /** Renderiza a coluna "Efeito" (novo|atualizado) — recorte por execucao. */
+  mostrarEfeito: boolean;
 }
 
 export function ColetaRegistrosRow({
@@ -104,6 +121,7 @@ export function ColetaRegistrosRow({
   onToggleExpand,
   onCloseExpand,
   onTriarAviso,
+  mostrarEfeito,
 }: ColetaRegistrosRowProps) {
   const panelId = panelIdFor(registro.idComposto);
   const objeto = registroObjeto(registro);
@@ -145,6 +163,13 @@ export function ColetaRegistrosRow({
         <TableCell>
           <span className="pill src">{origemLabel(registro.fonte)}</span>
         </TableCell>
+
+        {/* Efeito (so no recorte por execucao): novo|atualizado. */}
+        {mostrarEfeito ? (
+          <TableCell>
+            {registro.efeito ? <EfeitoPill efeito={registro.efeito} /> : null}
+          </TableCell>
+        ) : null}
 
         {/* Captado em. */}
         <TableCell className="run-start">
@@ -200,7 +225,7 @@ export function ColetaRegistrosRow({
 
       {expanded ? (
         <TableRow>
-          <TableCell colSpan={COL_SPAN} className="p-0">
+          <TableCell colSpan={colSpanDe(mostrarEfeito)} className="p-0">
             <ColetaRegistroDetalheExpansion
               registro={registro}
               panelId={panelId}
@@ -229,6 +254,8 @@ export interface ColetaRegistrosTableProps {
   onTriarAviso: (registro: RegistroColetado) => void;
   /** Estado de navegacao por cursor server-side (gerido pelo ColetaClient). */
   pagination: CursorPaginationProps;
+  /** Mostra a coluna "Efeito" (novo|atualizado) — ativo no recorte por execucao. */
+  mostrarEfeito?: boolean;
   emptyTitle: string;
   emptyDescription: string;
 }
@@ -243,9 +270,11 @@ export function ColetaRegistrosTable({
   onCloseExpand,
   onTriarAviso,
   pagination,
+  mostrarEfeito = false,
   emptyTitle,
   emptyDescription,
 }: ColetaRegistrosTableProps) {
+  const colSpan = colSpanDe(mostrarEfeito);
   return (
     <>
       <Table aria-label="Registros coletados">
@@ -253,6 +282,7 @@ export function ColetaRegistrosTable({
           <TableRow>
             <TableHead>Registro</TableHead>
             <TableHead>Fonte</TableHead>
+            {mostrarEfeito ? <TableHead>Efeito</TableHead> : null}
             <TableHead>Captado em</TableHead>
             <TableHead>Documentos</TableHead>
             <TableHead>Indexação</TableHead>
@@ -267,15 +297,15 @@ export function ColetaRegistrosTable({
               title="Registros indisponíveis"
               message="Não foi possível listar os registros coletados. Verifique a conexão e tente novamente."
               onRetry={onRetry}
-              colSpan={COL_SPAN}
+              colSpan={colSpan}
             />
           ) : loading ? (
-            <WorkbenchSkeletonRows cols={COL_SPAN} />
+            <WorkbenchSkeletonRows cols={colSpan} />
           ) : registros.length === 0 ? (
             <WorkbenchTableEmpty
               title={emptyTitle}
               description={emptyDescription}
-              colSpan={COL_SPAN}
+              colSpan={colSpan}
             />
           ) : (
             registros.map((registro) => (
@@ -286,6 +316,7 @@ export function ColetaRegistrosTable({
                 onToggleExpand={() => onToggleExpand(registro.idComposto)}
                 onCloseExpand={() => onCloseExpand(registro.idComposto)}
                 onTriarAviso={() => onTriarAviso(registro)}
+                mostrarEfeito={mostrarEfeito}
               />
             ))
           )}

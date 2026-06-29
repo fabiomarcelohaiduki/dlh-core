@@ -44,6 +44,7 @@ import {
   processoOrigemFina,
 } from "../_shared/nomus-pipeline.ts";
 import { errorMessage, recordIngestErro } from "../_shared/ingest-errors.ts";
+import { registrarEfeitoColeta } from "../_shared/execucao-registros.ts";
 
 const CRON_SECRET_NAME = "CRON_DISPATCH_SECRET" as const;
 const DEFAULT_RECURSO = "processos" as const;
@@ -668,6 +669,21 @@ async function handler(req: Request): Promise<Response> {
         if (outcome.acao === "ignorado") ignorados += 1;
         else if (outcome.acao === "inserido") novos += 1;
         else alterados += 1;
+
+        // Ledger do efeito desta execucao (recorte da guia Dados por execucao).
+        // So processos entram na lista mestra; pessoas nao geram vinculo, ficam
+        // fora. "ignorado" nao deixou marca -> nao entra no ledger.
+        // registrarEfeitoColeta e best-effort (no-throw): nunca cai neste catch
+        // nem contabiliza erro de persistencia por falha de ledger.
+        if (!isPessoa && outcome.acao !== "ignorado") {
+          await registrarEfeitoColeta(
+            service,
+            execucaoId,
+            "nomus",
+            String(record.nomus_id),
+            outcome.acao === "inserido" ? "novo" : "atualizado",
+          );
+        }
       } catch (err) {
         erros += 1;
         await recordIngestErro(service, {

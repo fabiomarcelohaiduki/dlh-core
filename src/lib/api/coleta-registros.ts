@@ -25,6 +25,13 @@ export type StatusExtracao =
 /** Fonte coletavel (documento_vinculos.fonte). */
 export type FonteColeta = "effecti" | "nomus" | "drive" | "gmail";
 
+/**
+ * Efeito de UMA execucao sobre UM registro: 'novo' (1a vez) ou 'atualizado'
+ * (ja existia e foi tocado). Presente SO no recorte por execucao; null na
+ * lista mestra cumulativa.
+ */
+export type EfeitoColeta = "novo" | "atualizado";
+
 /** Estado AGREGADO de indexacao exibido na linha mestra (SPEC 4.5.4). */
 export type StatusIndexacaoAgregado =
   | "pendente"
@@ -112,6 +119,12 @@ export interface RegistroColetado {
   execucaoOrigemId: string | null;
   /** avisos.id quando fonte='effecti'; null para as demais fontes. */
   avisoId: string | null;
+  /**
+   * Efeito desta execucao sobre o registro (novo|atualizado), presente SO
+   * quando a lista vem recortada por execucao (clique numa execucao). null na
+   * lista mestra cumulativa.
+   */
+  efeito: EfeitoColeta | null;
 }
 
 // ---------------------------------------------------------------------
@@ -201,10 +214,12 @@ export interface ColetaRegistrosParams {
   busca?: string | null;
   /** Apenas registros com algum vinculo em erro. */
   temErro?: boolean | null;
-  /** Filtro de execucao: inicio da janela de captacao (ISO). */
-  execDe?: string | null;
-  /** Filtro de execucao: fim da janela de captacao (ISO). */
-  execAte?: string | null;
+  /**
+   * Recorte por execucao (clique numa execucao da guia Execucoes): id da
+   * execucao. Quando presente, a lista vem do ledger (so os registros tocados
+   * por aquela rodada, rotulados novo|atualizado); null na lista mestra.
+   */
+  execucaoId?: string | null;
 }
 
 // ---------------------------------------------------------------------
@@ -269,6 +284,7 @@ interface RawRegistroColetado {
   link_original: string | null;
   execucao_origem_id: string | null;
   aviso_id: string | null;
+  efeito?: EfeitoColeta | null;
 }
 
 interface RawVinculoDetalhe {
@@ -383,6 +399,7 @@ function toRegistroColetado(raw: RawRegistroColetado): RegistroColetado {
     linkOriginal: raw.link_original ?? null,
     execucaoOrigemId: raw.execucao_origem_id ?? null,
     avisoId: raw.aviso_id ?? null,
+    efeito: raw.efeito ?? null,
   };
 }
 
@@ -473,8 +490,7 @@ export function fetchColetaRegistros(
     status: params.status,
     busca: params.busca,
     tem_erro: params.temErro,
-    exec_de: params.execDe,
-    exec_ate: params.execAte,
+    execucao_id: params.execucaoId,
   });
   return apiFetch<RawColetaRegistrosResponse>(`coleta-registros${qs}`, {
     method: "GET",

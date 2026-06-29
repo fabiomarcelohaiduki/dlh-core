@@ -28,6 +28,14 @@ export type StatusExtracao =
 export type FonteColeta = "effecti" | "nomus" | "drive" | "gmail";
 
 /**
+ * Efeito de UMA execucao sobre UM registro (ledger execucao_registros): 'novo'
+ * (1a vez que entrou) ou 'atualizado' (ja existia e foi mexido). Preenchido so
+ * quando a lista vem recortada por execucao (clique numa execucao); null na
+ * lista mestra cumulativa.
+ */
+export type EfeitoColeta = "novo" | "atualizado";
+
+/**
  * Estado AGREGADO de indexacao exibido na linha mestra. Derivado de forma
  * deterministica a partir dos status_extracao dos vinculos (SPEC 4.5.4).
  */
@@ -124,6 +132,12 @@ export interface RegistroColetado {
   execucao_origem_id: string | null;
   /** avisos.id quando fonte='effecti'; null para as demais fontes. */
   aviso_id: string | null;
+  /**
+   * Efeito desta execucao sobre o registro (novo|atualizado), presente SO
+   * quando a lista vem recortada por execucao (clique numa execucao). null na
+   * lista mestra cumulativa.
+   */
+  efeito: EfeitoColeta | null;
 }
 
 // ---------------------------------------------------------------------

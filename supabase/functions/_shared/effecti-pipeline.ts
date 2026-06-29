@@ -25,6 +25,7 @@ import {
 } from "./effecti-connector.ts";
 import { EmbeddingError, type EmbeddingProvider, generateAndStoreChunks } from "./embeddings.ts";
 import { envInt, finalizeConcluida, loadCounters, updateExecucao } from "./block-source.ts";
+import { registrarEfeitoColeta } from "./execucao-registros.ts";
 import { incrementoDe, persistAvisoBase, resolveAvisoId, setStatusIndexacao } from "./pipeline.ts";
 import { errorMessage, recordIngestErro } from "./ingest-errors.ts";
 import { captureException } from "./audit.ts";
@@ -346,6 +347,18 @@ async function processAviso(
   counters.alterados += inc.alterados;
   // "ignorado" / legado: incrementoDe retorna {0,0} (espelha o Nomus).
   log.info(`aviso ${aviso.effectiId}: ${status}${favorito ? " (favorito)" : ""}`);
+
+  // Ledger: registra o efeito desta execucao sobre o aviso (recorte da guia
+  // Dados por execucao). "ignorado" nao deixou marca -> nao entra no ledger.
+  if (status !== "ignorado") {
+    await registrarEfeitoColeta(
+      db,
+      execucaoId,
+      "effecti",
+      aviso.effectiId,
+      status === "novo" ? "novo" : "atualizado",
+    );
+  }
 
   // Write-back INLINE: propaga o favorito para a Effecti (PUT favoritar-licitacao
   // para TODAS as ocorrencias do idLicitacao) assim que encontrado e marca a flag

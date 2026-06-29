@@ -44,6 +44,7 @@ import type {
   CabecalhoNomus,
   ColetaRegistrosResponse,
   ContagensPorFonte,
+  EfeitoColeta,
   ErroIngestao,
   Execucao,
   FonteColeta,
@@ -91,6 +92,8 @@ interface MestraRow {
   rep_id: string;
   rep_nome_anexo: string | null;
   rep_documento_id: string | null;
+  /** Efeito da execucao sobre o registro; presente SO no recorte por execucao. */
+  efeito?: string | null;
 }
 
 interface AvisoLite {
@@ -132,6 +135,8 @@ interface GroupAgg {
   captadoEm: string;
   tituloCurto: string;
   statusAgregado: StatusIndexacaoAgregado;
+  /** Efeito (novo|atualizado) no recorte por execucao; null na lista mestra. */
+  efeito: EfeitoColeta | null;
 }
 
 interface CursorKeyset {
@@ -175,10 +180,13 @@ interface ListParams {
   /** Termo de busca ja trimado e lowercased; null quando < 2 chars/ausente. */
   busca: string | null;
   temErro: boolean;
-  /** Janela de captacao (filtro de execucao da guia Dados): inicio da rodada. */
-  execDe: string | null;
-  /** Janela de captacao: fim da rodada (ou "agora" p/ execucao em andamento). */
-  execAte: string | null;
+  /**
+   * Recorte por execucao (clique numa execucao da guia Execucoes): id da
+   * execucao. Quando presente, a lista vem do ledger execucao_registros (so os
+   * registros TOCADOS por aquela rodada, rotulados novo|atualizado); null na
+   * lista mestra cumulativa.
+   */
+  execucaoId: string | null;
 }
 
 /** limit: default 25, teto 100 (clampa); valor invalido -> 400. */
@@ -211,18 +219,6 @@ function parseCursor(raw: string | null): CursorKeyset | null {
 
 function encodeCursor(keyset: CursorKeyset): string {
   return btoa(JSON.stringify(keyset));
-}
-
-/**
- * Timestamp ISO da janela de captacao (filtro de execucao); ausente -> null,
- * data nao parseavel -> 400. O proprio ISO e repassado a RPC (timestamptz).
- */
-function parseTimestamp(raw: string | null, param: string): string | null {
-  if (raw === null || raw.trim() === "") return null;
-  if (Number.isNaN(Date.parse(raw))) {
-    throw new HttpError(400, "invalid_timestamp", `${param} invalido: use uma data ISO-8601`);
-  }
-  return raw;
 }
 
 // Schemas zod: fonte com status 422 (allowlist), demais filtros com 400.
@@ -269,8 +265,7 @@ function parseListParams(req: Request): ListParams {
     status: filtersParsed.data.status ?? null,
     busca: buscaRaw.length >= 2 ? buscaRaw.toLowerCase() : null,
     temErro: temErroRaw === "true" || temErroRaw === "1",
-    execDe: parseTimestamp(q.get("exec_de"), "exec_de"),
-    execAte: parseTimestamp(q.get("exec_ate"), "exec_ate"),
+    execucaoId: q.get("execucao_id")?.trim() || null,
   };
 }
 
@@ -328,6 +323,7 @@ function mestraRowToGroup(r: MestraRow): GroupAgg {
     captadoEm: r.captado_em,
     tituloCurto: r.titulo_curto,
     statusAgregado: r.status_indexacao_agregado as StatusIndexacaoAgregado,
+    efeito: (r.efeito as EfeitoColeta | null | undefined) ?? null,
   };
 }
 
@@ -352,17 +348,24 @@ async function handleList(req: Request): Promise<Response> {
   const service = createServiceClient();
 
   // 1) Pagina por keyset (RPC). Pede limit+1 p/ saber se ha proxima pagina.
-  const { data: pageData, error: pageErr } = await service.rpc("coleta_registros_listar", {
-    p_fonte: params.fonte,
-    p_status: params.status,
-    p_tem_erro: params.temErro,
-    p_busca: params.busca,
-    p_cursor_captado: params.cursor?.c ?? null,
-    p_cursor_id: params.cursor?.k ?? null,
-    p_limit: params.limit + 1,
-    p_captado_de: params.execDe,
-    p_captado_ate: params.execAte,
-  });
+  //    Recorte por execucao -> ledger (coleta_registros_por_execucao, traz o
+  //    efeito novo|atualizado); lista mestra cumulativa -> coleta_registros_listar.
+  const { data: pageData, error: pageErr } = params.execucaoId
+    ? await service.rpc("coleta_registros_por_execucao", {
+      p_execucao_id: params.execucaoId,
+      p_cursor_captado: params.cursor?.c ?? null,
+      p_cursor_id: params.cursor?.k ?? null,
+      p_limit: params.limit + 1,
+    })
+    : await service.rpc("coleta_registros_listar", {
+      p_fonte: params.fonte,
+      p_status: params.status,
+      p_tem_erro: params.temErro,
+      p_busca: params.busca,
+      p_cursor_captado: params.cursor?.c ?? null,
+      p_cursor_id: params.cursor?.k ?? null,
+      p_limit: params.limit + 1,
+    });
   if (pageErr) {
     throw new HttpError(500, "coleta_registros_listar_failed", "falha ao listar registros");
   }
@@ -632,6 +635,7 @@ function buildRegistro(
     link_original: linkOriginal,
     execucao_origem_id: execucaoOrigemId,
     aviso_id: avisoId,
+    efeito: g.efeito,
   };
 }
 
