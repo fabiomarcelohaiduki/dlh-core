@@ -1,75 +1,14 @@
 "use client";
 
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-  type QueryKey,
-  type UseQueryOptions,
-} from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   dispararIndexacao,
-  fetchIndexacaoResumo,
-  fetchIndexacaoResumoAvisos,
   reprocessarErrosIndexacao,
   salvarConfigIndexacao,
   type SalvarConfigIndexacaoInput,
 } from "@/lib/api/indexacao";
-import type { FonteIndexacao, IndexacaoResumo } from "@/lib/api/types";
-
-/** Tipo exato que useQuery aceita para refetchInterval (numero ou callback). */
-type ResumoRefetchInterval = UseQueryOptions<
-  IndexacaoResumo,
-  Error,
-  IndexacaoResumo,
-  QueryKey
->["refetchInterval"];
-
-/** Chaves de cache do painel de indexacao. Resumo e por conjunto de fontes. */
-export const indexacaoKeys = {
-  resumo: (fontes?: FonteIndexacao[] | null): QueryKey => [
-    "indexacao",
-    "resumo",
-    fontes && fontes.length > 0 ? [...fontes].sort().join(",") : "todas",
-  ],
-  resumoAvisos: (): QueryKey => ["indexacao", "resumo-avisos"],
-};
-
-/**
- * useIndexacaoResumo — contagens por status_indexacao da(s) fonte(s) (POST
- * indexacao { action:"resumo" }). As contagens vem do Edge (service_role), nao
- * de leitura direta do browser (count direto e fragil por RLS/grant). O
- * refetchInterval condicional da o progresso ao vivo enquanto ha trabalho.
- */
-export function useIndexacaoResumo(
-  fontes?: FonteIndexacao[] | null,
-  options?: { enabled?: boolean; refetchInterval?: ResumoRefetchInterval },
-) {
-  return useQuery({
-    queryKey: indexacaoKeys.resumo(fontes),
-    queryFn: () => fetchIndexacaoResumo(fontes),
-    enabled: options?.enabled ?? true,
-    refetchInterval: options?.refetchInterval ?? false,
-  });
-}
-
-/**
- * useIndexacaoResumoAvisos — contagens dos AVISOS (licitacoes Effecti) por
- * status_indexacao (POST indexacao { action:"resumo_avisos" }). Tabela
- * SEPARADA dos documentos; surfa avisos travados em 'pendente' que o resumo
- * de documentos nunca enxergou. Read-only (sem disparo nesta fase).
- */
-export function useIndexacaoResumoAvisos(options?: {
-  enabled?: boolean;
-  refetchInterval?: ResumoRefetchInterval;
-}) {
-  return useQuery({
-    queryKey: indexacaoKeys.resumoAvisos(),
-    queryFn: () => fetchIndexacaoResumoAvisos(),
-    enabled: options?.enabled ?? true,
-    refetchInterval: options?.refetchInterval ?? false,
-  });
-}
+import { indexacaoRegistrosKeys } from "@/hooks/use-indexacao-registros";
+import type { FonteIndexacao } from "@/lib/api/types";
 
 /**
  * useSalvarConfigIndexacao — persiste a config da indexacao (PUT /indexacao).
@@ -86,15 +25,15 @@ export function useSalvarConfigIndexacao() {
 /**
  * useDispararIndexacao — aciona 1 lote de backfill da indexacao (POST
  * indexacao { action:"disparar" }). Auto-encadeado pelo banco ate esgotar a
- * fila. So gasta quando o master switch esta ON. Em sucesso invalida o resumo
- * para o progresso comecar a refletir.
+ * fila. So gasta quando o master switch esta ON. Em sucesso invalida a lista
+ * mestra da guia Indexacao para o progresso comecar a refletir.
  */
 export function useDispararIndexacao() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => dispararIndexacao(),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["indexacao", "resumo"] });
+      queryClient.invalidateQueries({ queryKey: indexacaoRegistrosKeys.all });
     },
   });
 }
@@ -102,15 +41,15 @@ export function useDispararIndexacao() {
 /**
  * useReprocessarErrosIndexacao — move os documentos em erro de volta para
  * pendente da(s) fonte(s) e reabre o backfill (POST indexacao
- * { action:"reprocessar_erros" }). Em sucesso invalida o resumo para o
- * progresso refletir a fila reaberta.
+ * { action:"reprocessar_erros" }). Em sucesso invalida a lista mestra da guia
+ * Indexacao para refletir a fila reaberta.
  */
 export function useReprocessarErrosIndexacao(fontes?: FonteIndexacao[] | null) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => reprocessarErrosIndexacao(fontes),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["indexacao", "resumo"] });
+      queryClient.invalidateQueries({ queryKey: indexacaoRegistrosKeys.all });
     },
   });
 }

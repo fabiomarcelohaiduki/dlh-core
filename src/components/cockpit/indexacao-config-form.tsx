@@ -18,10 +18,10 @@ const FONTES: ReadonlyArray<{ value: FonteIndexacao; label: string }> = [
   { value: "gmail", label: "Gmail" },
 ];
 
-/** Espelha indexacaoConfigSchema do backend. */
+/** Espelha indexacaoConfigSchema do backend (sem os interruptores: estes vivem
+ * na aba Agendamento, ver IndexacaoAgendamentoForm). PUT parcial: este form só
+ * manda as chaves de parâmetro; os interruptores são donos disjuntos. */
 const cfgSchema = z.object({
-  ativo: z.boolean(),
-  processosAtivo: z.boolean(),
   fontes: z
     .array(z.enum(["nomus", "effecti", "drive", "gmail"]))
     .min(1, "Selecione ao menos uma fonte para indexar."),
@@ -72,8 +72,6 @@ type Feedback = { kind: "ok" | "err"; message: string };
 
 function toDefaults(initial: ConfigIndexacaoState): CfgValues {
   return {
-    ativo: initial.ativo,
-    processosAtivo: initial.processosAtivo,
     // null = todas: marca todas as fontes conhecidas.
     fontes: initial.fontesHabilitadas ?? FONTES.map((f) => f.value),
     loteChunks: initial.loteChunks,
@@ -115,8 +113,6 @@ export function IndexacaoConfigForm({ initial }: { initial: ConfigIndexacaoState
     defaultValues: toDefaults(initial),
   });
 
-  const ativo = watch("ativo");
-  const processosAtivo = watch("processosAtivo");
   const fontesSel = watch("fontes");
   const embeddingsProvider = watch("embeddingsProvider");
   // Trocar o provider muda o espaco vetorial: alerta de recall (reindex).
@@ -133,8 +129,6 @@ export function IndexacaoConfigForm({ initial }: { initial: ConfigIndexacaoState
     setFeedback(null);
     try {
       await salvar.mutateAsync({
-        ativo: values.ativo,
-        processosAtivo: values.processosAtivo,
         fontesHabilitadas: parseFontes(values.fontes),
         loteChunks: values.loteChunks,
         pausaMs: values.pausaMs,
@@ -165,9 +159,10 @@ export function IndexacaoConfigForm({ initial }: { initial: ConfigIndexacaoState
         <div>
           <b>Indexar gera embeddings na OpenAI (custo por token)</b>
           <p>
-            Com o interruptor LIGADO, todo documento novo é indexado no momento do push (contínuo) e
-            o botão &ldquo;Indexar agora&rdquo; processa o acervo parado. Desligado, nada é indexado
-            (os textos ficam pendentes). Mantenha desligado até decidir gastar.
+            Estes são os parâmetros do motor (orçamento, ritmo, fontes). Os interruptores que LIGAM a
+            indexação (documentos e processos) ficam na aba <b>Agendamento</b>. Com a indexação
+            ligada, todo documento novo é indexado no push (contínuo) e o botão &ldquo;Indexar
+            agora&rdquo; processa o acervo parado.
           </p>
         </div>
       </div>
@@ -239,33 +234,6 @@ export function IndexacaoConfigForm({ initial }: { initial: ConfigIndexacaoState
           </div>
         </div>
       )}
-
-      <div className="field">
-        <label>Interruptor da indexação · documentos</label>
-        <label className={cn("chk", ativo && "on")} style={{ maxWidth: 340 }}>
-          <input type="checkbox" checked={ativo} {...register("ativo")} />
-          <div className="t">{ativo ? "Ligada (gerando embeddings)" : "Desligada (sem custo)"}</div>
-        </label>
-        <div className="helper">
-          Master switch dos DOCUMENTOS (anexos extraídos das fontes): governa o contínuo e o
-          backfill. Recomendado desligado até decidir gastar na OpenAI.
-        </div>
-      </div>
-
-      <div className="field">
-        <label>Interruptor da indexação · processos</label>
-        <label className={cn("chk", processosAtivo && "on")} style={{ maxWidth: 340 }}>
-          <input type="checkbox" checked={processosAtivo} {...register("processosAtivo")} />
-          <div className="t">
-            {processosAtivo ? "Ligada (gerando embeddings)" : "Desligada (sem custo)"}
-          </div>
-        </label>
-        <div className="helper">
-          Master switch dos PROCESSOS do Nomus (indexa a descrição). Independente do interruptor de
-          documentos; compartilha o mesmo orçamento/pausa/ritmo abaixo. Recomendado desligado até
-          decidir gastar na OpenAI.
-        </div>
-      </div>
 
       <div className={cn("field", errors.fontes && "invalid")}>
         <label>Fontes a indexar</label>

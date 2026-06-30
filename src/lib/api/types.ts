@@ -290,15 +290,6 @@ export interface ConfigIndexacaoState {
   embeddingsEndpoint: string | null;
 }
 
-/** Contagem de documentos indexaveis por status (foto da fila de indexacao). */
-export interface IndexacaoResumo {
-  pendente: number;
-  emAndamento: number;
-  concluida: number;
-  erro: number;
-  total: number;
-}
-
 /**
  * Pasta do Google Drive cadastrada no cockpit (tabela drive_pastas), lida
  * server-side para hidratar o cmp-drive-pastas-form. O runner descobre as

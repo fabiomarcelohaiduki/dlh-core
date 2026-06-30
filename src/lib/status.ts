@@ -9,6 +9,7 @@ import type {
   StatusExtracao,
   StatusIndexacaoAgregado,
 } from "@/lib/api/coleta-registros";
+import type { IndexacaoStatusConsolidado } from "@/lib/api/indexacao";
 
 /**
  * Estados travados do Design Lock (convencao unica do projeto):
@@ -326,5 +327,39 @@ export function indexacaoAgregadoDescriptor(
     case "pendente":
     default:
       return { state: "idle", label: "Pendente" };
+  }
+}
+
+/**
+ * Status CONSOLIDADO de INDEXACAO (embeddings) de UM registro (linha mestra da
+ * guia "Indexacao", status_consolidado da vw_indexacao_registros) -> pill. Une
+ * o CORPO (avisos/nomus_*.status_indexacao) com os ANEXOS (documentos), pela
+ * precedencia da etapa mais a montante que falta. Reusa os 5 PillState (sem
+ * novos tokens de cor):
+ *  aguardando_extracao -> warn  "Aguardando extração" (ScanText) — anexo ainda
+ *                         nao virou texto; aponta a etapa ANTERIOR (Tika/OCR).
+ *  erro                -> err   "Erro"                (TriangleAlert)
+ *  indexando           -> run   "Indexando"
+ *  pendente            -> idle  "Pendente"
+ *  indexado            -> ok    "Indexado"
+ *  sem_conteudo        -> idle  "Sem conteúdo"        (nada indexável)
+ */
+export function indexacaoConsolidadoDescriptor(
+  status: IndexacaoStatusConsolidado,
+): PillDescriptor {
+  switch (status) {
+    case "indexado":
+      return { state: "ok", label: "Indexado" };
+    case "indexando":
+      return { state: "run", label: "Indexando" };
+    case "pendente":
+      return { state: "idle", label: "Pendente" };
+    case "aguardando_extracao":
+      return { state: "warn", label: "Aguardando extração", icon: ScanText };
+    case "erro":
+      return { state: "err", label: "Erro", icon: TriangleAlert };
+    case "sem_conteudo":
+    default:
+      return { state: "idle", label: "Sem conteúdo", icon: EyeOff };
   }
 }

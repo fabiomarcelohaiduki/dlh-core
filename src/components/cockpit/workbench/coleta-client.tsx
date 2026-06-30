@@ -38,11 +38,13 @@ import type {
 import type {
   AgendamentoExtracaoState,
   ConfigExtracaoState,
+  ConfigIndexacaoState,
 } from "@/lib/api/types";
 import { WorkbenchTemplate } from "./workbench-template";
 import { AgendamentoColeta } from "./agendamento-coleta";
 import { EscopoColeta } from "./escopo-coleta";
 import { ExtracaoFilaView } from "./extracao-fila-view";
+import { IndexacaoView } from "./indexacao-view";
 import { LogsConsole } from "./logs-console";
 import {
   RunsTable,
@@ -69,7 +71,7 @@ import type { WorkbenchScopeRef } from "./use-workbench-layout";
 const RUNNING_POLL_MS = 3000;
 const FALLBACK_POLL_MS = 5000;
 
-type Subtab = "execucoes" | "dados" | "extracao" | "escopo" | "agendamento" | "logs";
+type Subtab = "execucoes" | "dados" | "extracao" | "indexacao" | "escopo" | "agendamento" | "logs";
 type FonteTab = "todas" | OrigemKey;
 
 const FONTE_TABS: { value: FonteTab; label: string }[] = [
@@ -128,6 +130,7 @@ export function ColetaClient({
   escopo,
   nomusConfigurado,
   configExtracao,
+  configIndexacao,
   agendamentoExtracao,
   agendamentoDescobertaNomus,
 }: {
@@ -135,6 +138,7 @@ export function ColetaClient({
   escopo: EscopoColetaData;
   nomusConfigurado: boolean;
   configExtracao: ConfigExtracaoState;
+  configIndexacao: ConfigIndexacaoState;
   agendamentoExtracao: AgendamentoExtracaoState;
   agendamentoDescobertaNomus: AgendamentoExtracaoState;
 }) {
@@ -559,6 +563,7 @@ export function ColetaClient({
           { value: "execucoes", label: "Execuções", count: contagens?.total ?? allRuns.length },
           { value: "dados", label: "Dados", count: registrosTotal },
           { value: "extracao", label: "Fila de extração" },
+          { value: "indexacao", label: "Indexação" },
           { value: "escopo", label: "Escopo" },
           { value: "agendamento", label: "Agendamento", count: agendamentosAtivos },
           { value: "logs", label: "Logs" },
@@ -810,6 +815,12 @@ export function ColetaClient({
         </div>
       )}
 
+      {subtab === "indexacao" && (
+        <div data-subpane="coleta-indexacao" data-scope="ingestao/coleta/indexacao">
+          <IndexacaoView configIndexacao={configIndexacao} />
+        </div>
+      )}
+
       {subtab === "escopo" && (
         <div data-subpane="coleta-escopo" data-scope="ingestao/coleta/escopo">
           <EscopoColeta {...escopo} />
@@ -822,6 +833,7 @@ export function ColetaClient({
             {...agendamentos}
             extracao={agendamentoExtracao}
             descobertaNomus={agendamentoDescobertaNomus}
+            indexacao={configIndexacao}
           />
         </div>
       )}

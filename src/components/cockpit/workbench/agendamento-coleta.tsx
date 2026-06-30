@@ -1,14 +1,19 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Factory, Gavel, HardDrive, ListPlus, Mail, ScanText } from "lucide-react";
+import { Factory, Gavel, HardDrive, ListPlus, Mail, ScanText, Sparkles } from "lucide-react";
 import { AgendamentoFonteForm } from "@/components/cockpit/agendamento-fonte-form";
 import { AgendamentoExtracaoForm } from "@/components/cockpit/agendamento-extracao-form";
 import { AgendamentoDescobertaNomusForm } from "@/components/cockpit/agendamento-descoberta-nomus-form";
+import { IndexacaoAgendamentoForm } from "@/components/cockpit/indexacao-agendamento-form";
 import { CfgAccordion } from "@/components/cockpit/config/cfg-accordion";
 import { StatusPill } from "@/components/cockpit/status-pill";
 import type { AgendamentosColetaData } from "@/lib/fontes-credenciais-data";
-import type { AgendamentoExtracaoState, AgendamentoFonteState } from "@/lib/api/types";
+import type {
+  AgendamentoExtracaoState,
+  AgendamentoFonteState,
+  ConfigIndexacaoState,
+} from "@/lib/api/types";
 
 /**
  * cmp-agendamento-coleta — guia Agendamento do submodulo Coleta.
@@ -59,10 +64,13 @@ export function AgendamentoColeta({
   drive,
   extracao,
   descobertaNomus,
+  indexacao,
 }: AgendamentosColetaData & {
   extracao: AgendamentoExtracaoState;
   descobertaNomus: AgendamentoExtracaoState;
+  indexacao: ConfigIndexacaoState;
 }) {
+  const indexacaoLigada = indexacao.ativo || indexacao.processosAtivo;
   const fontes: FonteAgendamento[] = [
     {
       id: "effecti",
@@ -228,6 +236,46 @@ export function AgendamentoColeta({
         </div>
         <div className="cfg-panel-body">
           <AgendamentoDescobertaNomusForm initial={descobertaNomus} />
+        </div>
+      </section>
+
+      <section
+        className="cfg-panel-card"
+        aria-labelledby="agendamento-indexacao-h"
+      >
+        <div className="panel-header">
+          <div
+            className="panel-title"
+            style={{ display: "flex", alignItems: "center", gap: 12 }}
+          >
+            <span
+              className="avatar"
+              style={{
+                borderRadius: 9,
+                width: 34,
+                height: 34,
+                color: "var(--accent)",
+                background: "var(--accent-soft)",
+                borderColor: "var(--accent-line)",
+              }}
+            >
+              <Sparkles aria-hidden="true" style={ICON_STYLE} />
+            </span>
+            <div>
+              <h3 id="agendamento-indexacao-h">Indexação</h3>
+              <p>
+                Liga/desliga a geração de embeddings (sem horário: é contínua, gated pelos
+                interruptores). Ligada, indexa no momento da coleta e gasta na OpenAI.
+              </p>
+            </div>
+          </div>
+          <StatusPill
+            state={indexacaoLigada ? "ok" : "idle"}
+            label={indexacaoLigada ? "Ativa" : "Pausada"}
+          />
+        </div>
+        <div className="cfg-panel-body">
+          <IndexacaoAgendamentoForm initial={indexacao} />
         </div>
       </section>
     </CfgAccordion>

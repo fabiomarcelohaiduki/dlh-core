@@ -35,7 +35,6 @@ export const NAV_MODULES: NavModule[] = [
     icon: Inbox,
     items: [
       { id: "nav-coleta", label: "Coleta", href: "/ingestao/coleta" },
-      { id: "nav-indexacao", label: "Indexação", href: "/ingestao/indexacao" },
       { id: "nav-erros", label: "Erros", href: "/erros", badgeKey: "erros" },
       { id: "nav-api", label: "API LLM-ready", href: "/api" },
       { id: "nav-ingestao-config", label: "Configurações do módulo", href: "/ingestao/configuracoes-do-modulo" },
@@ -92,7 +91,6 @@ export function moduleForPath(pathname: string | null): NavModule["id"] | null {
 export const SCREEN_TITLES: Record<string, string> = {
   "/dashboard": "Dashboard",
   "/ingestao/coleta": "Coleta",
-  "/ingestao/indexacao": "Indexação",
   "/ingestao": "Ingestão",
   "/erros": "Erros",
   "/api": "API LLM-ready",

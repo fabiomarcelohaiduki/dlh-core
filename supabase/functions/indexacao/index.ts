@@ -8,15 +8,9 @@
 //           `pausaMs`. Exige sessao autorizada + audit. Vale na PROXIMA
 //           invocacao do backfill e no proximo push do continuo.
 //
-//   POST { action:"resumo", fontes? } -> contagem por status_indexacao da(s)
-//           fonte(s) (RPC resumo_indexacao, service_role). Foto da fila para
-//           o painel (pendente/em_andamento/concluida/erro). Conta DOCUMENTOS.
-//
-//   POST { action:"resumo_avisos" } -> contagem dos AVISOS (licitacoes Effecti)
-//           por status_indexacao (RPC resumo_indexacao_avisos, service_role).
-//           Tabela SEPARADA de documentos; surfa o ponto cego que escondia
-//           avisos travados em 'pendente'. avisos usam 'indexado' (mapeado
-//           para o bucket concluida/Indexados do painel).
+//   POST { action:"registros", ... } -> uma pagina (keyset) da lista mestra
+//           consolidada (corpo + anexos por registro) mais as contagens
+//           (chips/cards) da guia Indexacao. Read-only (sem audit, sem gasto).
 //
 //   POST { action:"disparar" } -> aciona 1 lote de backfill AGORA: chama
 //           reenfileirar_indexacao() (net.http_post no documentos-indexar,
@@ -35,7 +29,7 @@
 //   service_role/X-Cron-Secret (chamada interna). Esta funcao e a ponte com
 //   sessao de usuario -> service_role.
 //
-//   A LEITURA da config e hidratada server-side (RLS) na pagina Indexacao;
+//   A LEITURA da config e hidratada server-side (RLS) na pagina Coleta;
 //   nao ha GET aqui (evita superficie sem checagem de allowlist).
 // =====================================================================
 
@@ -52,30 +46,49 @@ import {
 } from "../_shared/validation.ts";
 import { z } from "zod";
 
+// Defaults de produto da config_indexacao (espelham as migrations). So entram
+// no PRIMEIRO insert; com a linha singleton ja seedada, o caminho vivo e o
+// update. ativo OFF por default (gasta dinheiro na OpenAI).
+const DEFAULTS_INDEXACAO = {
+  ativo: false,
+  processos_ativo: false,
+  fontes_habilitadas: null as string[] | null,
+  lote_chunks: 1500,
+  pausa_ms: 0,
+  tpm_alvo: 800_000,
+  tentativas_max: 3,
+  embeddings_provider: "openai",
+  embeddings_endpoint: null as string | null,
+};
+
 // ---------------------------------------------------------------------
-// PUT — salva a config_indexacao (singleton).
+// PUT — salva a config_indexacao (singleton) por MERGE PARCIAL. Cada chamador
+// (toggle do Agendamento vs drawer de Parametros) manda SO as chaves do seu
+// dominio; sobrepomos na linha existente sem zerar o que o outro form possui.
 // ---------------------------------------------------------------------
 async function handlePut(req: Request): Promise<Response> {
   const { db, email } = await requireAuthorizedUser(req);
   const input = await parseJsonBody(req, indexacaoConfigSchema);
 
-  const payload = {
-    ativo: input.ativo,
-    processos_ativo: input.processosAtivo,
-    fontes_habilitadas:
-      input.fontesHabilitadas && input.fontesHabilitadas.length > 0
-        ? input.fontesHabilitadas
-        : null,
-    lote_chunks: input.loteChunks,
-    pausa_ms: input.pausaMs,
-    tpm_alvo: input.tpmAlvo,
-    tentativas_max: input.tentativasMax,
-    embeddings_provider: input.embeddingsProvider,
-    // openai ignora endpoint: zera para nao deixar URL orfa de uma troca anterior.
-    embeddings_endpoint:
-      input.embeddingsProvider === "bge-m3-local" ? input.embeddingsEndpoint ?? null : null,
-    updated_at: new Date().toISOString(),
-  };
+  // Monta o patch SO com as chaves presentes no corpo (snake_case do banco).
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (input.ativo !== undefined) patch.ativo = input.ativo;
+  if (input.processosAtivo !== undefined) patch.processos_ativo = input.processosAtivo;
+  if (input.fontesHabilitadas !== undefined) {
+    patch.fontes_habilitadas =
+      input.fontesHabilitadas && input.fontesHabilitadas.length > 0 ? input.fontesHabilitadas : null;
+  }
+  if (input.loteChunks !== undefined) patch.lote_chunks = input.loteChunks;
+  if (input.pausaMs !== undefined) patch.pausa_ms = input.pausaMs;
+  if (input.tpmAlvo !== undefined) patch.tpm_alvo = input.tpmAlvo;
+  if (input.tentativasMax !== undefined) patch.tentativas_max = input.tentativasMax;
+  if (input.embeddingsProvider !== undefined) {
+    patch.embeddings_provider = input.embeddingsProvider;
+    // O provider e o endpoint sao do mesmo dono (drawer): openai zera o endpoint
+    // (sem URL orfa), bge-m3-local grava a URL informada.
+    patch.embeddings_endpoint =
+      input.embeddingsProvider === "bge-m3-local" ? input.embeddingsEndpoint ?? null : null;
+  }
 
   const { data: existing, error: selErr } = await db
     .from("config_indexacao")
@@ -89,13 +102,17 @@ async function handlePut(req: Request): Promise<Response> {
   if (existing?.id) {
     const { error: updErr } = await db
       .from("config_indexacao")
-      .update(payload)
+      .update(patch)
       .eq("id", (existing as { id: string }).id);
     if (updErr) {
       throw new HttpError(500, "indexacao_config_update_failed", "falha ao salvar a config de indexacao");
     }
   } else {
-    const { error: insErr } = await db.from("config_indexacao").insert(payload);
+    // Primeiro insert (defensivo — a linha e seedada na migration): defaults de
+    // produto sobrepostos pelo patch desta chamada.
+    const { error: insErr } = await db
+      .from("config_indexacao")
+      .insert({ ...DEFAULTS_INDEXACAO, ...patch });
     if (insErr) {
       throw new HttpError(500, "indexacao_config_insert_failed", "falha ao criar a config de indexacao");
     }
@@ -106,29 +123,33 @@ async function handlePut(req: Request): Promise<Response> {
     acao: "salvar_config_indexacao",
     registroId: existing?.id ?? null,
     usuario: email,
-    dadosNovos: {
-      ativo: input.ativo,
-      processosAtivo: input.processosAtivo,
-      fontesHabilitadas: payload.fontes_habilitadas,
-      loteChunks: input.loteChunks,
-      pausaMs: input.pausaMs,
-      tpmAlvo: input.tpmAlvo,
-      tentativasMax: input.tentativasMax,
-      embeddingsProvider: input.embeddingsProvider,
-      embeddingsEndpoint: payload.embeddings_endpoint,
-    },
+    // Audita SO o que mudou neste patch (sem updated_at).
+    dadosNovos: Object.fromEntries(Object.entries(patch).filter(([k]) => k !== "updated_at")),
   });
 
   return jsonResponse({ ok: true }, 200);
 }
 
 // ---------------------------------------------------------------------
-// POST { action } — resumo (contagens) ou disparar (backfill).
+// POST { action } — registros (lista+contagens), disparar/reprocessar (backfill).
 // ---------------------------------------------------------------------
+// Status consolidados da visao vw_indexacao_registros (corpo + anexos por
+// registro). Espelham o CASE da migration; usados como filtro da listagem.
+const STATUS_CONSOLIDADO = [
+  "aguardando_extracao",
+  "erro",
+  "indexando",
+  "pendente",
+  "indexado",
+  "sem_conteudo",
+] as const;
+
 const acaoSchema = z
   .object({
-    action: z.enum(["resumo", "resumo_avisos", "disparar", "reprocessar_erros"], {
-      errorMap: () => ({ message: "action invalida (use: resumo, resumo_avisos, disparar, reprocessar_erros)" }),
+    action: z.enum(["disparar", "reprocessar_erros", "registros"], {
+      errorMap: () => ({
+        message: "action invalida (use: disparar, reprocessar_erros, registros)",
+      }),
     }),
     fontes: z
       .array(
@@ -139,12 +160,52 @@ const acaoSchema = z
       .transform((items) => Array.from(new Set(items)))
       .nullable()
       .optional(),
+    // --- params da action "registros" (listagem paginada por keyset) ---
+    fonte: z
+      .enum(FONTES_EXTRACAO, {
+        errorMap: () => ({ message: `fonte invalida (use: ${FONTES_EXTRACAO.join(", ")})` }),
+      })
+      .nullable()
+      .optional(),
+    recurso: z.string().trim().min(1).max(40).nullable().optional(),
+    status: z
+      .enum(STATUS_CONSOLIDADO, {
+        errorMap: () => ({ message: `status invalido (use: ${STATUS_CONSOLIDADO.join(", ")})` }),
+      })
+      .nullable()
+      .optional(),
+    busca: z.string().max(200).nullable().optional(),
+    cursor: z
+      .object({ c: z.string(), k: z.string() })
+      .nullable()
+      .optional(),
+    limit: z.number().int().min(1).max(200).optional(),
   })
   .strict();
 
-interface ResumoRow {
+// Linha crua devolvida por indexacao_registros_listar (setof da view).
+interface RegistroRow {
+  id_composto: string;
+  fonte: string;
+  recurso: string;
+  registro_origem_id: string;
+  captado_em: string | null;
+  status_consolidado: string;
+  corpo_status: string | null;
+  anexos_indexavel: number | null;
+  anexos_indexados: number | null;
+  anexos_pendente: number | null;
+  anexos_andamento: number | null;
+  anexos_erro: number | null;
+  anexos_aguardando: number | null;
+  rep_nome_anexo: string | null;
+}
+
+interface ContagemRow {
+  fonte: string;
+  recurso: string | null;
   status: string | null;
-  total: number | null;
+  qtd: number | null;
 }
 
 async function handlePost(req: Request): Promise<Response> {
@@ -153,45 +214,78 @@ async function handlePost(req: Request): Promise<Response> {
   const input = await parseJsonBody(req, acaoSchema);
   const service = createServiceClient();
 
-  if (input.action === "resumo") {
-    const fontes = input.fontes && input.fontes.length > 0 ? input.fontes : null;
-    const { data, error } = await service.rpc("resumo_indexacao", { p_fontes: fontes });
-    if (error) {
-      throw new HttpError(500, "indexacao_resumo_failed", "falha ao apurar o resumo de indexacao");
-    }
-    const rows = (Array.isArray(data) ? data : []) as ResumoRow[];
-    const contagens = { pendente: 0, em_andamento: 0, concluida: 0, erro: 0, total: 0 };
-    for (const r of rows) {
-      const n = typeof r.total === "number" ? r.total : 0;
-      contagens.total += n;
-      if (r.status === "pendente") contagens.pendente += n;
-      else if (r.status === "em_andamento") contagens.em_andamento += n;
-      else if (r.status === "concluida") contagens.concluida += n;
-      else if (r.status === "erro") contagens.erro += n;
-    }
-    return jsonResponse({ contagens }, 200);
-  }
+  if (input.action === "registros") {
+    // Listagem paginada (keyset) da visao consolidada corpo+anexos, espelhando
+    // o contrato fila-paginada da extracao. Read-only: sem audit, sem gasto.
+    const limit = input.limit ?? 50;
+    const cursor = input.cursor ?? null;
 
-  if (input.action === "resumo_avisos") {
-    // Foto da fila dos AVISOS (licitacoes Effecti) — tabela separada de
-    // documentos, ciclo de indexacao proprio (aviso_chunks). Surfa o ponto
-    // cego que escondia avisos travados em 'pendente'. Avisos usam o status
-    // 'indexado' (nao 'concluida'): mapeado para o mesmo bucket do painel.
-    const { data, error } = await service.rpc("resumo_indexacao_avisos");
-    if (error) {
-      throw new HttpError(500, "indexacao_resumo_avisos_failed", "falha ao apurar o resumo de indexacao dos avisos");
+    const { data: rowsRaw, error: listErr } = await service.rpc("indexacao_registros_listar", {
+      p_fonte: input.fonte ?? null,
+      p_recurso: input.recurso ?? null,
+      p_status: input.status ?? null,
+      p_busca: input.busca ?? null,
+      p_cursor_captado_em: cursor?.c ?? null,
+      p_cursor_id_composto: cursor?.k ?? null,
+      // pede 1 a mais para detectar a proxima pagina sem COUNT.
+      p_limit: limit + 1,
+    });
+    if (listErr) {
+      throw new HttpError(500, "indexacao_registros_failed", "falha ao listar os registros de indexacao");
     }
-    const rows = (Array.isArray(data) ? data : []) as ResumoRow[];
-    const contagens = { pendente: 0, em_andamento: 0, concluida: 0, erro: 0, total: 0 };
-    for (const r of rows) {
-      const n = typeof r.total === "number" ? r.total : 0;
-      contagens.total += n;
-      if (r.status === "pendente") contagens.pendente += n;
-      else if (r.status === "em_andamento") contagens.em_andamento += n;
-      else if (r.status === "indexado" || r.status === "concluida") contagens.concluida += n;
-      else if (r.status === "erro") contagens.erro += n;
+    const rows = (Array.isArray(rowsRaw) ? rowsRaw : []) as RegistroRow[];
+    const hasMore = rows.length > limit;
+    const pagina = hasMore ? rows.slice(0, limit) : rows;
+
+    const itens = pagina.map((r) => ({
+      idComposto: r.id_composto,
+      fonte: r.fonte,
+      recurso: r.recurso,
+      registroOrigemId: r.registro_origem_id,
+      captadoEm: r.captado_em,
+      status: r.status_consolidado,
+      corpoStatus: r.corpo_status,
+      anexosIndexavel: r.anexos_indexavel ?? 0,
+      anexosIndexados: r.anexos_indexados ?? 0,
+      anexosPendente: r.anexos_pendente ?? 0,
+      anexosAndamento: r.anexos_andamento ?? 0,
+      anexosErro: r.anexos_erro ?? 0,
+      anexosAguardando: r.anexos_aguardando ?? 0,
+      nomeAnexo: r.rep_nome_anexo,
+    }));
+
+    const ultima = pagina[pagina.length - 1];
+    const nextCursor =
+      hasMore && ultima ? { c: ultima.captado_em ?? "", k: ultima.id_composto } : null;
+
+    const { data: contRaw, error: contErr } = await service.rpc("indexacao_registros_contagens");
+    if (contErr) {
+      throw new HttpError(500, "indexacao_contagens_failed", "falha ao apurar as contagens de indexacao");
     }
-    return jsonResponse({ contagens }, 200);
+    const contRows = (Array.isArray(contRaw) ? contRaw : []) as ContagemRow[];
+    const porFonte: Record<string, number> = { effecti: 0, nomus: 0, gmail: 0, drive: 0 };
+    const porRecurso: Record<string, Record<string, number>> = {};
+    const porStatus: Record<string, number> = {
+      aguardando_extracao: 0,
+      erro: 0,
+      indexando: 0,
+      pendente: 0,
+      indexado: 0,
+      sem_conteudo: 0,
+    };
+    let total = 0;
+    for (const c of contRows) {
+      const n = typeof c.qtd === "number" ? c.qtd : 0;
+      total += n;
+      if (c.fonte in porFonte) porFonte[c.fonte] += n;
+      if (c.status && c.status in porStatus) porStatus[c.status] += n;
+      // Linhas-zero de fonte vazia vêm com recurso null: nada a aninhar.
+      if (c.recurso) {
+        (porRecurso[c.fonte] ??= {})[c.recurso] = (porRecurso[c.fonte]?.[c.recurso] ?? 0) + n;
+      }
+    }
+
+    return jsonResponse({ itens, nextCursor, contagens: { porFonte, porRecurso, porStatus, total } }, 200);
   }
 
   if (input.action === "reprocessar_erros") {
@@ -245,7 +339,7 @@ async function handler(req: Request): Promise<Response> {
   try {
     if (req.method === "PUT") return await handlePut(req);
     if (req.method === "POST") return await handlePost(req);
-    throw new HttpError(405, "method_not_allowed", "use PUT (config) ou POST (resumo/disparar)");
+    throw new HttpError(405, "method_not_allowed", "use PUT (config) ou POST (registros/disparar)");
   } catch (err) {
     return await errorResponse(err, { fn: "indexacao" });
   }

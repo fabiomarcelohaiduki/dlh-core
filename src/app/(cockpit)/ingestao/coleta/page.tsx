@@ -8,6 +8,7 @@ import {
   loadAgendamentoDescobertaNomus,
   loadAgendamentoExtracao,
   loadConfigExtracao,
+  loadConfigIndexacao,
   loadNomusConfigurado,
 } from "@/lib/extracao-config-data";
 
@@ -21,6 +22,7 @@ export default async function IngestaoColetaPage() {
     configExtracao,
     agendamentoExtracao,
     agendamentoDescobertaNomus,
+    configIndexacao,
   ] = await Promise.all([
     loadAgendamentosColeta(),
     loadEscopoColeta(),
@@ -28,6 +30,7 @@ export default async function IngestaoColetaPage() {
     loadConfigExtracao(),
     loadAgendamentoExtracao(),
     loadAgendamentoDescobertaNomus(),
+    loadConfigIndexacao(),
   ]);
   return (
     <ColetaClient
@@ -37,6 +40,7 @@ export default async function IngestaoColetaPage() {
       configExtracao={configExtracao}
       agendamentoExtracao={agendamentoExtracao}
       agendamentoDescobertaNomus={agendamentoDescobertaNomus}
+      configIndexacao={configIndexacao}
     />
   );
 }

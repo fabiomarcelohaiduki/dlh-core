@@ -2,8 +2,10 @@ import { createClient } from "@/lib/supabase/server";
 import type {
   AgendamentoExtracaoState,
   ConfigExtracaoState,
+  ConfigIndexacaoState,
   Frequencia,
   FonteExtracao,
+  FonteIndexacao,
 } from "@/lib/api/types";
 
 // =====================================================================
@@ -14,6 +16,12 @@ import type {
 // =====================================================================
 
 const FONTES_EXTRACAO_VALIDAS: ReadonlySet<string> = new Set(["nomus", "effecti", "drive"]);
+const FONTES_INDEXACAO_VALIDAS: ReadonlySet<string> = new Set([
+  "nomus",
+  "effecti",
+  "drive",
+  "gmail",
+]);
 const FREQUENCIAS_VALIDAS: ReadonlySet<string> = new Set([
   "manual",
   "horaria",
@@ -37,6 +45,19 @@ interface ConfigExtracaoRow {
   fontes_habilitadas: string[] | null;
   lote_tamanho: number | null;
   pausa_lote_ms: number | null;
+}
+
+/** Linha lida de public.config_indexacao (singleton da camada de embeddings). */
+interface ConfigIndexacaoRow {
+  ativo: boolean | null;
+  processos_ativo: boolean | null;
+  fontes_habilitadas: string[] | null;
+  lote_chunks: number | null;
+  pausa_ms: number | null;
+  tpm_alvo: number | null;
+  tentativas_max: number | null;
+  embeddings_provider: string | null;
+  embeddings_endpoint: string | null;
 }
 
 /** Colunas de agendamento da extracao (mesmo singleton config_extracao). */
@@ -120,6 +141,44 @@ export async function loadAgendamentoExtracao(): Promise<AgendamentoExtracaoStat
     horarioReferencia: data?.horario_referencia ?? null,
     diaSemana: data?.dia_semana ?? null,
     diaMes: data?.dia_mes ?? null,
+  };
+}
+
+/**
+ * Config da indexacao (singleton config_indexacao) para o cmp-indexacao-config-form
+ * (Parâmetros da guia Indexação) e os interruptores do agendamento. Sem linha
+ * (improvavel — ha seed) cai nos defaults do produto (desligado, todas as
+ * fontes, 1500/0). `embeddings_provider` invalido -> 'openai'.
+ */
+export async function loadConfigIndexacao(): Promise<ConfigIndexacaoState> {
+  const supabase = await createClient();
+  const { data: raw } = await supabase
+    .from("config_indexacao")
+    .select(
+      "ativo, processos_ativo, fontes_habilitadas, lote_chunks, pausa_ms, tpm_alvo, tentativas_max, embeddings_provider, embeddings_endpoint",
+    )
+    .limit(1)
+    .maybeSingle();
+
+  const data = (raw ?? null) as ConfigIndexacaoRow | null;
+  const fontes = data?.fontes_habilitadas;
+
+  return {
+    ativo: data?.ativo ?? false,
+    processosAtivo: data?.processos_ativo ?? false,
+    fontesHabilitadas:
+      Array.isArray(fontes) && fontes.length > 0
+        ? (fontes.filter((f) => FONTES_INDEXACAO_VALIDAS.has(f)) as FonteIndexacao[])
+        : null,
+    loteChunks: data?.lote_chunks ?? 1500,
+    pausaMs: data?.pausa_ms ?? 0,
+    tpmAlvo: data?.tpm_alvo ?? 800000,
+    tentativasMax: data?.tentativas_max ?? 3,
+    embeddingsProvider: data?.embeddings_provider === "bge-m3-local" ? "bge-m3-local" : "openai",
+    embeddingsEndpoint:
+      typeof data?.embeddings_endpoint === "string" && data.embeddings_endpoint.trim() !== ""
+        ? data.embeddings_endpoint.trim()
+        : null,
   };
 }
 

@@ -818,11 +818,20 @@ const MAX_LOTE_CHUNKS = 10_000;
 const MAX_TPM_ALVO = 10_000_000;
 const MAX_TENTATIVAS = 10;
 
+// PATCH PARCIAL (merge): todos os campos sao `.optional()` porque a config de
+// indexacao tem DOIS donos disjuntos no cockpit que persistem em momentos
+// diferentes — o toggle do Agendamento (ativo + processosAtivo) e o drawer de
+// Parametros (lote/pausa/tpm/tentativas/provider/endpoint). Cada PUT manda SO
+// as chaves do seu dono; a Edge sobrepoe na linha existente e so aplica os
+// defaults de produto no primeiro insert. Isso evita um formulario sobrescrever
+// o estado do outro (ambos hidratam uma vez no load da SPA).
 export const indexacaoConfigSchema = z
   .object({
-    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }),
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
     // Master switch da perna de processos (independente de `ativo`).
-    processosAtivo: z.boolean({ invalid_type_error: "processosAtivo deve ser booleano" }),
+    processosAtivo: z
+      .boolean({ invalid_type_error: "processosAtivo deve ser booleano" })
+      .optional(),
     // Allowlist de fontes: null/ausente = todas; array = subconjunto.
     fontesHabilitadas: z
       .array(
@@ -839,26 +848,32 @@ export const indexacaoConfigSchema = z
       .number({ invalid_type_error: "loteChunks deve ser numero" })
       .int("loteChunks deve ser inteiro")
       .min(1, "loteChunks deve ser >= 1")
-      .max(MAX_LOTE_CHUNKS, `loteChunks deve ser <= ${MAX_LOTE_CHUNKS}`),
+      .max(MAX_LOTE_CHUNKS, `loteChunks deve ser <= ${MAX_LOTE_CHUNKS}`)
+      .optional(),
     pausaMs: z
       .number({ invalid_type_error: "pausaMs deve ser numero" })
       .int("pausaMs deve ser inteiro")
       .min(0, "pausaMs deve ser >= 0")
-      .max(MAX_PAUSA_MS, "pausaMs excede o teto (10 min)"),
+      .max(MAX_PAUSA_MS, "pausaMs excede o teto (10 min)")
+      .optional(),
     tpmAlvo: z
       .number({ invalid_type_error: "tpmAlvo deve ser numero" })
       .int("tpmAlvo deve ser inteiro")
       .min(0, "tpmAlvo deve ser >= 0")
-      .max(MAX_TPM_ALVO, `tpmAlvo deve ser <= ${MAX_TPM_ALVO}`),
+      .max(MAX_TPM_ALVO, `tpmAlvo deve ser <= ${MAX_TPM_ALVO}`)
+      .optional(),
     tentativasMax: z
       .number({ invalid_type_error: "tentativasMax deve ser numero" })
       .int("tentativasMax deve ser inteiro")
       .min(1, "tentativasMax deve ser >= 1")
-      .max(MAX_TENTATIVAS, `tentativasMax deve ser <= ${MAX_TENTATIVAS}`),
+      .max(MAX_TENTATIVAS, `tentativasMax deve ser <= ${MAX_TENTATIVAS}`)
+      .optional(),
     // Motor de embeddings (administravel; trocar exige reindexar o acervo).
-    embeddingsProvider: z.enum(["openai", "bge-m3-local"], {
-      errorMap: () => ({ message: "embeddingsProvider invalido (use: openai, bge-m3-local)" }),
-    }),
+    embeddingsProvider: z
+      .enum(["openai", "bge-m3-local"], {
+        errorMap: () => ({ message: "embeddingsProvider invalido (use: openai, bge-m3-local)" }),
+      })
+      .optional(),
     // URL do servico self-hosted; obrigatorio para bge-m3-local, ignorado p/ openai.
     embeddingsEndpoint: z
       .string({ invalid_type_error: "embeddingsEndpoint deve ser string" })
@@ -869,6 +884,8 @@ export const indexacaoConfigSchema = z
   })
   .strict()
   // bge-m3-local sem endpoint nao indexa (503 em runtime) -> barra no boundary.
+  // So valida quando o provider vem NESTE patch (o drawer manda provider+endpoint
+  // juntos); patch de toggle nao toca provider e passa reto.
   .superRefine((val, ctx) => {
     if (val.embeddingsProvider === "bge-m3-local" && !val.embeddingsEndpoint) {
       ctx.addIssue({
