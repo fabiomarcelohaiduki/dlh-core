@@ -159,6 +159,7 @@ async function fetchPagina(pagina, query) {
 
   while (true) {
     let res;
+    let text;
     try {
       res = await fetch(url, {
         method: "GET",
@@ -169,6 +170,13 @@ async function fetchPagina(pagina, query) {
         },
         signal: AbortSignal.timeout(GET_TIMEOUT_MS),
       });
+      // Le o corpo AQUI DENTRO, sob o MESMO try e o MESMO AbortSignal. O tarpit
+      // do Nomus pode entregar os headers rapido mas streamar o corpo por
+      // minutos; se o timeout estourasse durante um res.text() FORA do try, o
+      // TimeoutError nascia nao-capturado e derrubava o run (exit 1, crash de
+      // pagina lenta). Lendo aqui, esse caso vira retry de rede como qualquer
+      // outra falha do fetch.
+      text = await res.text();
     } catch (err) {
       if (attempt >= MAX_RETRIES) {
         fail(`falha de rede ao contatar o Nomus (pagina ${pagina}): ${err?.message ?? err}`, 1);
@@ -210,10 +218,10 @@ async function fetchPagina(pagina, query) {
       continue;
     }
 
-    // Lemos o corpo ANTES de decidir falhar: o rate limit do Nomus
-    // ({tempoAteLiberar}) pode vir junto de um status 200 OU ate de um 400.
-    // Se ja falhassemos no !res.ok, perderiamos esse sinal de espera.
-    const text = await res.text();
+    // O corpo (`text`) ja foi lido acima, sob o try/AbortSignal do fetch. Isso
+    // importa porque o rate limit do Nomus ({tempoAteLiberar}) pode vir junto de
+    // um status 200 OU ate de um 400 — se falhassemos no !res.ok, perderiamos
+    // esse sinal de espera.
 
     // Rate limit pode vir no CORPO ({tempoAteLiberar}), independente do status.
     const tempoMs = peekTempoAteLiberar(text);
