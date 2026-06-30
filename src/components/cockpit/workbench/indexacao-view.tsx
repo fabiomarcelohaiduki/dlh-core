@@ -211,11 +211,11 @@ export function IndexacaoView({
     setCurrentCursor(previous);
   }
 
-  // Clicar num card seleciona o status da tabela (e zera o filtro de fonte, p/
-  // não esconder itens da nova seleção).
+  // Clicar num card seleciona o status da tabela, PRESERVANDO o filtro de fonte
+  // (cards e Tabs de fonte se compõem: fonte×status). O card já mostra a
+  // contagem da fonte selecionada, então clicar nele mantém esse recorte.
   function selecionarStatus(s: IndexacaoStatusConsolidado) {
     setStatus(s);
-    setFonte("todas");
   }
 
   // ---- Disparo GLOBAL "Indexar agora" (header). 1 lote de backfill
@@ -271,14 +271,19 @@ export function IndexacaoView({
     }
   }
 
-  const statusCount = (s: IndexacaoStatusConsolidado): number => contagens?.porStatus[s] ?? 0;
+  // Cards refletem o filtro de fonte: "Todas" usa o total por status; uma fonte
+  // específica usa a quebra fonte×status (cards conversam com as Tabs de fonte).
+  const statusCount = (s: IndexacaoStatusConsolidado): number =>
+    fonte === "todas"
+      ? contagens?.porStatus[s] ?? 0
+      : contagens?.porFonteStatus[fonte]?.[s] ?? 0;
   const fonteCount = (t: FonteTab): number =>
     t === "todas" ? contagens?.total ?? 0 : contagens?.porFonte[t] ?? 0;
 
-  // Total honesto p/ o rodapé: com fonte específica OU busca ativa, a
-  // interseção fonte×status não é conhecida -> "Página X". Caso contrário, é
-  // porStatus[status].
-  const ixTotal = busca.trim() || fonte !== "todas" ? undefined : statusCount(status);
+  // Total honesto p/ o rodapé: com busca ativa, a interseção não é conhecida
+  // (a contagem não filtra por busca) -> "Página X". Caso contrário, statusCount
+  // já é a interseção fonte×status exata (todas ou fonte específica).
+  const ixTotal = busca.trim() ? undefined : statusCount(status);
   const ixTotalPages =
     ixTotal && ixTotal > 0 ? Math.max(1, Math.ceil(ixTotal / PAGE_SIZE)) : undefined;
 

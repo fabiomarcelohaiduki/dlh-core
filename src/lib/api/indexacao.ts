@@ -123,6 +123,9 @@ export interface IndexacaoContagens {
   porFonte: Record<FonteIndexacao, number>;
   porRecurso: Record<string, Record<string, number>>;
   porStatus: Record<IndexacaoStatusConsolidado, number>;
+  /** Quebra fonte×status: cards refletem a fonte selecionada (não só o total
+   * global). Acesso esparso ([fonte]?.[status] ?? 0). */
+  porFonteStatus: Record<string, Partial<Record<IndexacaoStatusConsolidado, number>>>;
   total: number;
 }
 
@@ -247,6 +250,7 @@ export function fetchIndexacaoRegistros(
         indexado: raw.contagens?.porStatus?.indexado ?? 0,
         sem_conteudo: raw.contagens?.porStatus?.sem_conteudo ?? 0,
       },
+      porFonteStatus: raw.contagens?.porFonteStatus ?? {},
       total: raw.contagens?.total ?? 0,
     },
   }));

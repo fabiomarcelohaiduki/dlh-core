@@ -338,14 +338,17 @@ function mapItemFila(r: Record<string, unknown>): Record<string, unknown> {
 }
 
 /** Dobra (fonte, status, qtd) em contagens por fonte (chips), por status
- * (cards) e total. As 4 fontes vem sempre da RPC (linha NULL/0 quando vazia). */
+ * (cards), por fonte×status (cards quando ha fonte selecionada) e total. As 4
+ * fontes vem sempre da RPC (linha NULL/0 quando vazia). */
 function dobrarContagens(linhas: Array<Record<string, unknown>>): {
   porFonte: Record<string, number>;
   porStatus: Record<string, number>;
+  porFonteStatus: Record<string, Record<string, number>>;
   total: number;
 } {
   const porFonte: Record<string, number> = { effecti: 0, nomus: 0, gmail: 0, drive: 0 };
   const porStatus: Record<string, number> = {};
+  const porFonteStatus: Record<string, Record<string, number>> = {};
   for (const s of STATUS_VINCULO) porStatus[s] = 0;
   let total = 0;
   for (const l of linhas) {
@@ -355,9 +358,10 @@ function dobrarContagens(linhas: Array<Record<string, unknown>>): {
     if (!status) continue; // linha de fonte-vazia (placeholder): nao soma
     if (fonte && fonte in porFonte) porFonte[fonte] += qtd;
     if (status in porStatus) porStatus[status] += qtd;
+    if (fonte) (porFonteStatus[fonte] ??= {})[status] = (porFonteStatus[fonte]?.[status] ?? 0) + qtd;
     total += qtd;
   }
-  return { porFonte, porStatus, total };
+  return { porFonte, porStatus, porFonteStatus, total };
 }
 
 async function montarFilaPaginada(

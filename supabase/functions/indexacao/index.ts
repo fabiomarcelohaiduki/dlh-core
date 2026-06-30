@@ -305,19 +305,25 @@ async function handlePost(req: Request): Promise<Response> {
       indexado: 0,
       sem_conteudo: 0,
     };
+    // porFonte×status: alimenta os cards quando ha uma fonte selecionada (os
+    // cards passam a refletir o filtro de fonte, nao so o total global).
+    const porFonteStatus: Record<string, Record<string, number>> = {};
     let total = 0;
     for (const c of contRows) {
       const n = typeof c.qtd === "number" ? c.qtd : 0;
       total += n;
       if (c.fonte in porFonte) porFonte[c.fonte] += n;
       if (c.status && c.status in porStatus) porStatus[c.status] += n;
+      if (c.status) {
+        (porFonteStatus[c.fonte] ??= {})[c.status] = (porFonteStatus[c.fonte]?.[c.status] ?? 0) + n;
+      }
       // Linhas-zero de fonte vazia vêm com recurso null: nada a aninhar.
       if (c.recurso) {
         (porRecurso[c.fonte] ??= {})[c.recurso] = (porRecurso[c.fonte]?.[c.recurso] ?? 0) + n;
       }
     }
 
-    return jsonResponse({ itens, nextCursor, contagens: { porFonte, porRecurso, porStatus, total } }, 200);
+    return jsonResponse({ itens, nextCursor, contagens: { porFonte, porRecurso, porStatus, porFonteStatus, total } }, 200);
   }
 
   if (input.action === "detalhe") {

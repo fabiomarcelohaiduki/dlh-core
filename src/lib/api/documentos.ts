@@ -217,6 +217,9 @@ export interface ExtracaoFilaContagens {
     inobtenivel: number;
     ignorado: number;
   };
+  /** Quebra fonte×status: cards refletem a fonte selecionada (não só o total
+   * global). Acesso esparso ([fonte]?.[status] ?? 0). */
+  porFonteStatus: Record<string, Partial<ExtracaoFilaContagens["porStatus"]>>;
   total: number;
 }
 
@@ -232,6 +235,7 @@ interface ExtracaoFilaRaw {
   contagens?: {
     porFonte?: Partial<ExtracaoFilaContagens["porFonte"]>;
     porStatus?: Partial<ExtracaoFilaContagens["porStatus"]>;
+    porFonteStatus?: ExtracaoFilaContagens["porFonteStatus"];
     total?: number;
   };
 }
@@ -283,6 +287,7 @@ export function fetchExtracaoFila(
         inobtenivel: raw.contagens?.porStatus?.inobtenivel ?? 0,
         ignorado: raw.contagens?.porStatus?.ignorado ?? 0,
       },
+      porFonteStatus: raw.contagens?.porFonteStatus ?? {},
       total: raw.contagens?.total ?? 0,
     },
   }));
