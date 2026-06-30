@@ -3,8 +3,9 @@
 // =====================================================================
 // ExtracaoFilaView — guia "Fila de extração" do submódulo Coleta.
 //
-// Espelha a tela de Extração (extracao-panel) sobre o WorkbenchTemplate, mas
-// com leitura PAGINADA server-side por keyset (recall total, sem cap de 200).
+// Única tela de extração do cockpit (a antiga tela standalone foi removida).
+// Roda sobre o WorkbenchTemplate com leitura PAGINADA server-side por keyset
+// (recall total, sem cap de 200).
 // Fonte da verdade = documento_vinculos (1 anexo por linha); não há recurso
 // aqui (a tabela não tem a coluna), só fonte + status + busca.
 //
@@ -207,7 +208,7 @@ export function ExtracaoFilaView({
   }
 
   // Clicar num card seleciona o status da tabela (e zera o filtro de fonte, p/
-  // não esconder itens da nova seleção). Mesma semântica do extracao-panel.
+  // não esconder itens da nova seleção).
   function selecionarStatus(s: StatusItemExtracao) {
     setStatus(s);
     setFonte("todas");

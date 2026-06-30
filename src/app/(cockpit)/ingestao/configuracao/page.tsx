@@ -5,9 +5,10 @@ import { redirect } from "next/navigation";
 export const dynamic = "force-dynamic";
 
 /**
- * Os parâmetros agora vivem dentro da aba Extração (botão "Parâmetros" abre o
- * drawer lateral). Esta rota redireciona para lá.
+ * Os parâmetros agora vivem na Coleta (/ingestao/coleta): agendamento na guia
+ * "Agendamento" e config na guia "Fila de extração" (botão "Parâmetros"). Esta
+ * rota legada redireciona para lá.
  */
 export default function IngestaoConfiguracaoPage() {
-  redirect("/ingestao/extracao");
+  redirect("/ingestao/coleta");
 }

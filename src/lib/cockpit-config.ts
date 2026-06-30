@@ -175,7 +175,6 @@ export const MODULE_CONFIGS: Readonly<Record<ModuloId, ModuleConfig>> = {
         label: "Coleta",
         blocks: ["fontes", "recurso", "tempo-real", "busca", "filtros", "acao-principal", "acoes-linha"],
       },
-      { id: "extracao", label: "Extração", blocks: ["busca", "filtros", "acao-principal", "lote", "acoes-linha"] },
       { id: "indexacao", label: "Indexação", blocks: ["busca", "filtros", "acao-principal", "acoes-linha"] },
     ],
     estado: [

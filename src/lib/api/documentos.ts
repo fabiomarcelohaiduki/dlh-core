@@ -5,8 +5,8 @@ import type { ConfigExtracaoState } from "@/lib/api/types";
 // Cliente do Edge documentos-descobrir (camada 1 do pipeline de documentos).
 //   - descobrirAnexos: enfileira documento_vinculos pendentes a partir dos
 //     anexos ja presentes em nomus_processos (idempotente).
-//   - fetchExtracaoResumo: contagens por status + anexos que falharam.
-// Variaveis em camelCase; o Edge ja aceita camel no body.
+//   - fetchExtracaoFila: pagina a fila de extracao por keyset (guia "Fila de
+//     extracao" da Coleta). Variaveis em camelCase; o Edge ja aceita camel.
 // ---------------------------------------------------------------------
 
 /** Fontes que tem funcao de descoberta de anexos (mesma fila, adaptador por fonte). */
@@ -182,56 +182,6 @@ export interface ExtracaoItem {
   avisoUrl: string | null;
   erro: string | null;
   quando: string | null;
-}
-
-export interface ExtracaoResumo {
-  contagens: {
-    pendente: number;
-    extraido: number;
-    herdado: number;
-    erro: number;
-    precisa_ocr: number;
-    inobtenivel: number;
-    ignorado: number;
-    total: number;
-  };
-  itens: ExtracaoItem[];
-}
-
-interface ExtracaoResumoRaw {
-  contagens?: Partial<ExtracaoResumo["contagens"]>;
-  itens?: Array<Partial<ExtracaoItem> & { id: string; status: StatusItemExtracao }>;
-}
-
-/** POST /documentos-descobrir { action:'resumo' } — status + itens acionaveis. */
-export function fetchExtracaoResumo(): Promise<ExtracaoResumo> {
-  return apiFetch<ExtracaoResumoRaw>("documentos-descobrir", {
-    method: "POST",
-    body: JSON.stringify({ action: "resumo" }),
-  }).then((raw) => ({
-    contagens: {
-      pendente: raw.contagens?.pendente ?? 0,
-      extraido: raw.contagens?.extraido ?? 0,
-      herdado: raw.contagens?.herdado ?? 0,
-      erro: raw.contagens?.erro ?? 0,
-      precisa_ocr: raw.contagens?.precisa_ocr ?? 0,
-      inobtenivel: raw.contagens?.inobtenivel ?? 0,
-      ignorado: raw.contagens?.ignorado ?? 0,
-      total: raw.contagens?.total ?? 0,
-    },
-    itens: (raw.itens ?? []).map((e) => ({
-      id: e.id,
-      status: e.status,
-      fonte: e.fonte ?? null,
-      processoId: e.processoId ?? null,
-      nomeAnexo: e.nomeAnexo ?? null,
-      extensao: e.extensao ?? null,
-      url: e.url ?? null,
-      avisoUrl: e.avisoUrl ?? null,
-      erro: e.erro ?? null,
-      quando: e.quando ?? null,
-    })),
-  }));
 }
 
 // ---------------------------------------------------------------------

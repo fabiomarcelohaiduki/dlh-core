@@ -5,9 +5,9 @@ import { redirect } from "next/navigation";
 export const dynamic = "force-dynamic";
 
 /**
- * A Extração agora vive dentro do menu Ingestão (aba "Extração"). Esta rota
- * legada redireciona para o novo lugar.
+ * A Extração agora vive como a guia "Fila de extração" dentro da Coleta
+ * (/ingestao/coleta). Esta rota legada redireciona para o novo lugar.
  */
 export default function ExtracaoPage() {
-  redirect("/ingestao/extracao");
+  redirect("/ingestao/coleta");
 }
