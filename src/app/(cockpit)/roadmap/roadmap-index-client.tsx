@@ -34,7 +34,13 @@ function formatarData(iso: string | null): string {
 
 function formatarMtime(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return d.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export function RoadmapIndexClient({ items }: { items: RoadmapItem[] }) {

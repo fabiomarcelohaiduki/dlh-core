@@ -25,7 +25,7 @@ export type RoadmapItem = {
   statusDate: string | null;
   /** Resumo: primeiro parágrafo após o bloco de metadados */
   summary: string;
-  /** Data da última atualização do MD (mtime do arquivo) */
+  /** Data da última atualização: frontmatter `**Última atualização:** YYYY-MM-DD HH:MM` (fallback mtime) */
   atualizadoEm: string;
 };
 
@@ -49,6 +49,33 @@ const KNOWN_EMOJI: ReadonlySet<RoadmapStatusEmoji> = new Set([
   "⚫",
   "✅",
 ]);
+
+/**
+ * Lê a linha `**Última atualização:** ...` em qualquer lugar do MD.
+ * Aceita o prefixo `>` de blockquote (formato do feature-relacionamentos.md).
+ * Retorna a string bruta (`YYYY-MM-DD HH:MM` ou `YYYY-MM-DD`) ou null.
+ */
+function parseAtualizadoEm(md: string): string | null {
+  for (const line of md.split("\n")) {
+    const trimmed = line.trim().replace(/^>\s*/, "");
+    const m = trimmed.match(/^\*\*Última atualização:\*\*\s+(.+)$/);
+    if (m) return m[1].trim();
+  }
+  return null;
+}
+
+/** Converte `YYYY-MM-DD HH:MM` (ou só `YYYY-MM-DD`) em Date; cai pro mtime se inválido. */
+function parseDataAtualizacao(texto: string | null, fallback: Date): Date {
+  if (!texto) return fallback;
+  const m = texto.match(/^(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}):(\d{2}))?/);
+  if (!m) return fallback;
+  const date = m[1];
+  const hora = m[2] ?? "00";
+  const min = m[3] ?? "00";
+  // Horário de Brasília (-03:00) — escrita humana, não UTC.
+  const d = new Date(`${date}T${hora}:${min}:00-03:00`);
+  return isNaN(d.getTime()) ? fallback : d;
+}
 
 /** Lê o `**Status:** ...` no topo do MD. Retorna null se não achar. */
 function parseStatus(md: string): { emoji: RoadmapStatusEmoji; label: string; date: string | null } | null {
@@ -119,7 +146,7 @@ function extractContent(md: string): string {
   return out.join("\n").trim();
 }
 
-/** Lista todos os MDs do diretório (ordenados por título). */
+/** Lista todos os MDs do diretório (ordenados por última atualização DESC). */
 export async function listarRoadmap(): Promise<RoadmapItem[]> {
   const dir = docsDir();
   let entries: string[];
@@ -137,6 +164,7 @@ export async function listarRoadmap(): Promise<RoadmapItem[]> {
       const fullPath = path.join(dir, file);
       const [raw, stat] = await Promise.all([fs.readFile(fullPath, "utf8"), fs.stat(fullPath)]);
       const status = parseStatus(raw);
+      const atualizadoEm = parseDataAtualizacao(parseAtualizadoEm(raw), stat.mtime).toISOString();
       return {
         slug,
         title: extractTitle(raw, slug),
@@ -144,12 +172,13 @@ export async function listarRoadmap(): Promise<RoadmapItem[]> {
         statusEmoji: status ? status.emoji : "❔",
         statusDate: status?.date ?? null,
         summary: extractSummary(raw),
-        atualizadoEm: stat.mtime.toISOString(),
+        atualizadoEm,
       };
     }),
   );
   const filtered = items.filter((x): x is RoadmapItem => x !== null);
-  filtered.sort((a, b) => a.title.localeCompare(b.title, "pt-BR"));
+  // Última mexida fica em cima; ISO ordena lexicograficamente igual cronológico.
+  filtered.sort((a, b) => b.atualizadoEm.localeCompare(a.atualizadoEm));
   return filtered;
 }
 
@@ -165,6 +194,7 @@ export async function lerRoadmap(slug: string): Promise<RoadmapDetalhe | null> {
   }
   const stat = await fs.stat(filePath);
   const status = parseStatus(raw);
+  const atualizadoEm = parseDataAtualizacao(parseAtualizadoEm(raw), stat.mtime).toISOString();
   return {
     slug,
     title: extractTitle(raw, slug),
@@ -172,7 +202,7 @@ export async function lerRoadmap(slug: string): Promise<RoadmapDetalhe | null> {
     statusEmoji: status ? status.emoji : "❔",
     statusDate: status?.date ?? null,
     summary: extractSummary(raw),
-    atualizadoEm: stat.mtime.toISOString(),
+    atualizadoEm,
     content: extractContent(raw),
   };
 }
