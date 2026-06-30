@@ -2,10 +2,12 @@
 
 import { useQuery, type QueryKey } from "@tanstack/react-query";
 import {
+  fetchIndexacaoRegistroDetalhe,
   fetchIndexacaoRegistros,
   type FetchIndexacaoRegistrosParams,
   type IndexacaoRegistrosResponse,
 } from "@/lib/api/indexacao";
+import type { FonteIndexacao } from "@/lib/api/types";
 
 /**
  * Polling de fundo da guia "Indexacao". A indexacao (embeddings) e drenada por
@@ -23,6 +25,7 @@ export const indexacaoRegistrosKeys = {
     "list",
     params,
   ],
+  detail: (idComposto: string): QueryKey => ["indexacao-registros", "detail", idComposto],
 };
 
 /**
@@ -41,6 +44,24 @@ export function useIndexacaoRegistros(
     enabled: options?.enabled ?? true,
     refetchInterval: INDEXACAO_POLL_MS,
     refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+  });
+}
+
+/**
+ * useIndexacaoRegistroDetalhe — anexos de 1 registro com o status de indexacao
+ * individual (POST /indexacao { action:'detalhe' }). LAZY: so dispara quando o
+ * registro e expandido na UI (`enabled` externo) e a identidade existe.
+ */
+export function useIndexacaoRegistroDetalhe(
+  idComposto: string | undefined,
+  params: { fonte: FonteIndexacao; recurso?: string | null; registroOrigemId: string } | undefined,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: indexacaoRegistrosKeys.detail(idComposto ?? "—"),
+    queryFn: () => fetchIndexacaoRegistroDetalhe(params!),
+    enabled: (options?.enabled ?? true) && Boolean(idComposto) && Boolean(params),
     refetchOnWindowFocus: true,
   });
 }

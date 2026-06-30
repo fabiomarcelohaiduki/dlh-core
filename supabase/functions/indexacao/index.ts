@@ -146,9 +146,9 @@ const STATUS_CONSOLIDADO = [
 
 const acaoSchema = z
   .object({
-    action: z.enum(["disparar", "reprocessar_erros", "registros"], {
+    action: z.enum(["disparar", "reprocessar_erros", "registros", "detalhe"], {
       errorMap: () => ({
-        message: "action invalida (use: disparar, reprocessar_erros, registros)",
+        message: "action invalida (use: disparar, reprocessar_erros, registros, detalhe)",
       }),
     }),
     fontes: z
@@ -168,6 +168,8 @@ const acaoSchema = z
       .nullable()
       .optional(),
     recurso: z.string().trim().min(1).max(40).nullable().optional(),
+    // --- param da action "detalhe" (anexos de UM registro) ---
+    registroOrigemId: z.string().trim().min(1).max(200).optional(),
     status: z
       .enum(STATUS_CONSOLIDADO, {
         errorMap: () => ({ message: `status invalido (use: ${STATUS_CONSOLIDADO.join(", ")})` }),
@@ -206,6 +208,36 @@ interface ContagemRow {
   recurso: string | null;
   status: string | null;
   qtd: number | null;
+}
+
+// Linha crua de documento_vinculos (anexo) + status do documento extraido.
+interface VinculoRow {
+  id: string;
+  nome_anexo: string | null;
+  status_extracao: string | null;
+  documento_id: string | null;
+}
+
+// Mapeia (extracao do anexo, indexacao do documento) para o MESMO vocabulario
+// consolidado da listagem (vw_indexacao_registros), para o front reusar o
+// indexacaoConsolidadoDescriptor sem traducao extra.
+//   - anexo ainda nao virou texto (pendente/precisa_ocr) -> aguardando_extracao
+//   - anexo descartado na extracao (ignorado/inobtenivel) -> sem_conteudo
+//   - anexo extraido: o status vem da indexacao do documento
+function statusAnexo(statusExtracao: string | null, statusIndexacao: string | null): string {
+  if (statusExtracao === "pendente" || statusExtracao === "precisa_ocr") return "aguardando_extracao";
+  if (statusExtracao === "ignorado" || statusExtracao === "inobtenivel") return "sem_conteudo";
+  // extraido / herdado: olha a indexacao.
+  switch (statusIndexacao) {
+    case "concluida":
+      return "indexado";
+    case "em_andamento":
+      return "indexando";
+    case "erro":
+      return "erro";
+    default:
+      return "pendente";
+  }
 }
 
 async function handlePost(req: Request): Promise<Response> {
@@ -286,6 +318,60 @@ async function handlePost(req: Request): Promise<Response> {
     }
 
     return jsonResponse({ itens, nextCursor, contagens: { porFonte, porRecurso, porStatus, total } }, 200);
+  }
+
+  if (input.action === "detalhe") {
+    // Anexos de UM registro com o status de indexacao individual (drill-down do
+    // X/Y da listagem). Read-only. Exige a identidade do registro.
+    if (!input.fonte || !input.registroOrigemId) {
+      throw new HttpError(400, "detalhe_identidade_faltando", "informe fonte e registroOrigemId");
+    }
+
+    // nomus/pessoas nao tem anexos proprios (a view os deixa zerados para evitar
+    // cross-attribution com processos do mesmo nomus_id): nada a abrir.
+    if (input.fonte === "nomus" && input.recurso === "pessoas") {
+      return jsonResponse({ anexos: [] }, 200);
+    }
+
+    const { data: vincRaw, error: vincErr } = await service
+      .from("documento_vinculos")
+      .select("id, nome_anexo, status_extracao, documento_id")
+      .eq("fonte", input.fonte)
+      .eq("registro_origem_id", input.registroOrigemId)
+      .order("nome_anexo", { ascending: true });
+    if (vincErr) {
+      throw new HttpError(500, "indexacao_detalhe_failed", "falha ao listar os anexos do registro");
+    }
+    const vinculos = (Array.isArray(vincRaw) ? vincRaw : []) as VinculoRow[];
+
+    // Status de indexacao dos documentos extraidos (1 fetch IN, sem N+1).
+    const docIds = Array.from(
+      new Set(vinculos.map((v) => v.documento_id).filter((id): id is string => !!id)),
+    );
+    const statusPorDoc = new Map<string, string | null>();
+    if (docIds.length > 0) {
+      const { data: docsRaw, error: docsErr } = await service
+        .from("documentos")
+        .select("id, status_indexacao")
+        .in("id", docIds);
+      if (docsErr) {
+        throw new HttpError(500, "indexacao_detalhe_docs_failed", "falha ao consultar os documentos do registro");
+      }
+      for (const d of (docsRaw ?? []) as { id: string; status_indexacao: string | null }[]) {
+        statusPorDoc.set(d.id, d.status_indexacao);
+      }
+    }
+
+    const anexos = vinculos.map((v) => ({
+      id: v.id,
+      nome: v.nome_anexo,
+      status: statusAnexo(
+        v.status_extracao,
+        v.documento_id ? statusPorDoc.get(v.documento_id) ?? null : null,
+      ),
+    }));
+
+    return jsonResponse({ anexos }, 200);
   }
 
   if (input.action === "reprocessar_erros") {

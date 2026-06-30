@@ -147,6 +147,69 @@ interface IndexacaoRegistrosRaw {
   contagens?: Partial<IndexacaoContagens>;
 }
 
+// =====================================================================
+// Detalhe (drill-down) de UM registro: a lista de anexos com o status de
+// indexacao individual. Alimenta a linha de expansao da guia Indexacao
+// (espelha o mestre-detalhe da guia Dados). POST { action:"detalhe" }.
+// =====================================================================
+
+/** Um anexo do registro com seu status consolidado de indexacao. */
+export interface IndexacaoAnexoDetalhe {
+  id: string;
+  nome: string | null;
+  status: IndexacaoStatusConsolidado;
+}
+
+export interface IndexacaoRegistroDetalhe {
+  anexos: IndexacaoAnexoDetalhe[];
+}
+
+interface IndexacaoRegistroDetalheRaw {
+  anexos?: { id: string; nome: string | null; status: string }[];
+}
+
+const STATUS_CONSOLIDADO_SET: ReadonlySet<string> = new Set<IndexacaoStatusConsolidado>([
+  "aguardando_extracao",
+  "erro",
+  "indexando",
+  "pendente",
+  "indexado",
+  "sem_conteudo",
+]);
+
+function normalizarStatusConsolidado(raw: string): IndexacaoStatusConsolidado {
+  return STATUS_CONSOLIDADO_SET.has(raw) ? (raw as IndexacaoStatusConsolidado) : "pendente";
+}
+
+/**
+ * POST /indexacao { action:"detalhe", fonte, recurso?, registroOrigemId } —
+ * os anexos de UM registro com o status de indexacao de cada um. Read-only.
+ * nomus/pessoas devolve lista vazia (nao tem anexos proprios na view).
+ */
+export function fetchIndexacaoRegistroDetalhe(params: {
+  fonte: FonteIndexacao;
+  recurso?: string | null;
+  registroOrigemId: string;
+}): Promise<IndexacaoRegistroDetalhe> {
+  const body: Record<string, unknown> = {
+    action: "detalhe",
+    fonte: params.fonte,
+    registroOrigemId: params.registroOrigemId,
+  };
+  if (params.recurso) body.recurso = params.recurso;
+
+  return apiFetch<IndexacaoRegistroDetalheRaw>("indexacao", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }).then((raw) => ({
+    anexos: (raw.anexos ?? []).map((a) => ({
+      id: a.id,
+      nome: a.nome,
+      status: normalizarStatusConsolidado(a.status),
+    })),
+  }));
+}
+
 /**
  * POST /indexacao { action:"registros" } — uma pagina (keyset) da lista mestra
  * de indexacao mais as contagens (chips/pilulas/cards). Read-only.

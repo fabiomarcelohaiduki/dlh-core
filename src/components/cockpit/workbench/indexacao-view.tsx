@@ -24,9 +24,11 @@
 // (indexacaoRegistrosKeys.all) pelos próprios hooks, refletindo na hora.
 // =====================================================================
 
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { type CSSProperties, Fragment, useEffect, useRef, useState } from "react";
 import {
   Check,
+  ChevronDown,
+  ChevronRight,
   Clock,
   EyeOff,
   Loader2,
@@ -47,6 +49,7 @@ import {
 import { useIndexacaoRegistros } from "@/hooks/use-indexacao-registros";
 import type {
   IndexacaoRegistroCursor,
+  IndexacaoRegistroItem,
   IndexacaoStatusConsolidado,
 } from "@/lib/api/indexacao";
 import type { ConfigIndexacaoState, FonteIndexacao } from "@/lib/api/types";
@@ -58,6 +61,12 @@ import { WorkbenchTemplate } from "./workbench-template";
 import { TOOLBAR_SEARCH_CLASS } from "./table-toolbar-menus";
 import { CursorPager } from "./table-pagination";
 import { CockpitToast } from "./cockpit-toast";
+import { IndexacaoRegistroDetalhe } from "./indexacao-registro-detalhe";
+
+/** id do painel de detalhe (alvo do aria-controls do expansor). */
+function panelIdFor(idComposto: string): string {
+  return `indexacao-detalhe-${idComposto.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+}
 
 type FonteTab = "todas" | FonteIndexacao;
 
@@ -115,6 +124,10 @@ export function IndexacaoView({
   // Confirmação inline (2 cliques, modelo SOM) do disparo global de indexação.
   const [confirmIndexar, setConfirmIndexar] = useState(false);
 
+  // Linhas expandidas (mestre-detalhe): drill-down do X/Y de anexos. Vários
+  // registros podem estar abertos ao mesmo tempo (igual à guia Dados).
+  const [expandido, setExpandido] = useState<ReadonlySet<string>>(new Set());
+
   // Drawer de parâmetros (Config da camada de embeddings).
   const [paramsAberto, setParamsAberto] = useState(false);
   const paramsTriggerRef = useRef<HTMLButtonElement>(null);
@@ -139,12 +152,23 @@ export function IndexacaoView({
   const contagens = registros.data?.contagens;
   const pageNumber = cursors.length + 1;
 
-  // Trocar fonte/status/busca zera o cursor e a confirmação.
+  // Trocar fonte/status/busca zera o cursor, a confirmação e as expansões.
   useEffect(() => {
     setCursors([]);
     setCurrentCursor(null);
     setConfirmIndexar(false);
+    setExpandido(new Set());
   }, [fonte, status, busca]);
+
+  // Abre/fecha o detalhe de um registro (toggle no conjunto expandido).
+  function toggleExpandido(idComposto: string) {
+    setExpandido((prev) => {
+      const next = new Set(prev);
+      if (next.has(idComposto)) next.delete(idComposto);
+      else next.add(idComposto);
+      return next;
+    });
+  }
 
   // Toast auto-dismiss.
   useEffect(() => {
@@ -504,26 +528,7 @@ export function IndexacaoView({
                   </td>
                 </tr>
               ) : (
-                itens.map((item) => {
-                  const descriptor = indexacaoConsolidadoDescriptor(item.status);
-                  const temAnexo = item.anexosIndexavel > 0;
-                  return (
-                    <tr key={item.idComposto}>
-                      <td className="cell-arquivo" title={item.tituloCurto}>
-                        <span className="trunc">{item.tituloCurto}</span>
-                      </td>
-                      <td>{FONTE_LABEL[item.fonte] ?? item.fonte}</td>
-                      <td className="sub">{item.corpoStatus ?? "—"}</td>
-                      <td className="sub tnum">
-                        {temAnexo ? `${formatNumber(item.anexosIndexados)}/${formatNumber(item.anexosIndexavel)}` : "—"}
-                      </td>
-                      <td>
-                        <StatusPill state={descriptor.state} label={descriptor.label} />
-                      </td>
-                      <td className="sub tnum">{item.captadoEm ? formatDateTime(item.captadoEm) : "—"}</td>
-                    </tr>
-                  );
-                })
+                itens.map((item) => renderLinha(item))
               )}
             </tbody>
           </table>
@@ -539,6 +544,60 @@ export function IndexacaoView({
           totalPages={ixTotalPages}
         />
       </>
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // Linha mestra (registro) + linha-irmã de detalhe quando expandida. A célula
+  // "Registro" ganha o expansor (chevron) e, abaixo do título, o ID de origem
+  // quando ele difere do título (ex.: Effecti -> objeto + effecti_id).
+  // ------------------------------------------------------------------
+  function renderLinha(item: IndexacaoRegistroItem) {
+    const descriptor = indexacaoConsolidadoDescriptor(item.status);
+    const temAnexo = item.anexosIndexavel > 0;
+    const aberto = expandido.has(item.idComposto);
+    const panelId = panelIdFor(item.idComposto);
+    const mostrarId = item.registroOrigemId !== item.tituloCurto;
+
+    return (
+      <Fragment key={item.idComposto}>
+        <tr>
+          <td className="cell-arquivo">
+            <span className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn btn-sm btn-icon"
+                aria-expanded={aberto}
+                aria-controls={panelId}
+                aria-label={aberto ? `Recolher ${item.tituloCurto}` : `Expandir ${item.tituloCurto}`}
+                onClick={() => toggleExpandido(item.idComposto)}
+              >
+                {aberto ? (
+                  <ChevronDown aria-hidden="true" />
+                ) : (
+                  <ChevronRight aria-hidden="true" />
+                )}
+              </button>
+              <span className="flex min-w-0 flex-col">
+                <span className="trunc" title={item.tituloCurto}>{item.tituloCurto}</span>
+                {mostrarId ? (
+                  <span className="sub trunc" title={item.registroOrigemId}>{item.registroOrigemId}</span>
+                ) : null}
+              </span>
+            </span>
+          </td>
+          <td>{FONTE_LABEL[item.fonte] ?? item.fonte}</td>
+          <td className="sub">{item.corpoStatus ?? "—"}</td>
+          <td className="sub tnum">
+            {temAnexo ? `${formatNumber(item.anexosIndexados)}/${formatNumber(item.anexosIndexavel)}` : "—"}
+          </td>
+          <td>
+            <StatusPill state={descriptor.state} label={descriptor.label} />
+          </td>
+          <td className="sub tnum">{item.captadoEm ? formatDateTime(item.captadoEm) : "—"}</td>
+        </tr>
+        {aberto ? <IndexacaoRegistroDetalhe item={item} panelId={panelId} /> : null}
+      </Fragment>
     );
   }
 }
