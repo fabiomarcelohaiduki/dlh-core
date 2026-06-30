@@ -46,6 +46,10 @@ export interface WorkbenchSlots {
   tempoReal?: ReactNode;
   /** Barra de selecao em lote (bloco `lote`, banda tabela). */
   lote?: ReactNode;
+  /** Regiao de master-detail: renderizada dentro da banda tabela, ABAIXO da
+   * tabela, quando fornecida (ex.: drill-down de produtos ao selecionar uma
+   * linha). NAO passa pelo bloco_config — e um slot opcional por view. */
+  detalhe?: ReactNode;
 }
 
 export interface WorkbenchTemplateProps {
@@ -334,10 +338,15 @@ export function WorkbenchTemplate({
           );
         })}
 
-        {/* Banda da tabela: lote (selecao) + tabela */}
+        {/* Banda da tabela: lote (selecao) + tabela + (opcional) detalhe.
+         * O detalhe e o master-detail por linha (produtos de uma linha
+         * selecionada, por exemplo): so aparece quando o caller fornece o slot. */}
         <div data-band="tabela">
           {loteVisible ? <div data-block="lote">{slots.lote}</div> : null}
           {children}
+          {slots.detalhe ? (
+            <div className="border-t border-border px-[18px] py-4">{slots.detalhe}</div>
+          ) : null}
         </div>
       </section>
 

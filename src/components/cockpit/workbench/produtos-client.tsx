@@ -1,22 +1,23 @@
 "use client";
 
 // =====================================================================
-// ProdutosClient — view Produtos do modulo Cadastros sobre o WorkbenchTemplate.
+// ProdutosClient — view Catálogo de Produtos (Cadastros) sobre o
+// WorkbenchTemplate. Fonte de dados = useProdutos() (lista geral
+// filtrada por linha via Tabs). Clicar num produto navega para a ficha
+// completa em /produtos/[produtoId] (rota legada, mantida). ActionModal
+// continua read-only ate a fase de gravacao do modulo.
 //
-// Reusa 100% o WorkbenchTemplate da Sprint 8, parametrizando escopo, labels,
-// colunas (ProdutosTable) e os itens do ActionModal. Diferente da Coleta,
-// Cadastros NAO tem Subtabs (Execuções/Dados): segue a estrutura do artifact
-// (#panel-produtos / data-subpane="catalogo").
-//
-// Sem fonte de dados nativa no cockpit, a lista nasce em empty-state HONESTO
-// (sem fabricar registros) — os tres estados de tabela EC-09/10/11 continuam
-// suportados pela ProdutosTable. Acoes operacionais sao read-only (Conflito 04):
-// clique abre o ActionModal e o lote dispara apenas o aviso "Apenas leitura".
+// Design Lock preservado: Tabs no topo (banda topo), busca, filtros
+// por campo, table-states EC-09/10/11, pager, ActionModal read-only.
 // =====================================================================
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Check } from "lucide-react";
 import { Tabs } from "@/components/ui/tabs";
+import { useLinhas } from "@/hooks/use-linhas";
+import { useProdutos } from "@/hooks/use-produtos";
+import type { Produto, ProdutoLinha } from "@/lib/api/types";
 import { WorkbenchTemplate } from "./workbench-template";
 import { ProdutosTable, PRODUTOS_COLUMNS, type ProdutoRow } from "./produtos-table";
 import { ActionModal, type ActionOption } from "./action-modal";
@@ -29,23 +30,10 @@ import { columnMeta, filterableMeta, matchFieldFilters } from "./table-column";
 import { usePagination, TablePager } from "./table-pagination";
 import type { WorkbenchScopeRef } from "./use-workbench-layout";
 
-type Categoria =
-  | "todas"
-  | "suprimentos"
-  | "tecnologia"
-  | "servicos"
-  | "infraestrutura";
+type LinhaTab = string; // value = linha_id OU "todas"
+const TODAS = "todas";
 
-const CATEGORIA_TABS: { value: Categoria; label: string }[] = [
-  { value: "todas", label: "Todos" },
-  { value: "suprimentos", label: "Suprimentos" },
-  { value: "tecnologia", label: "Tecnologia" },
-  { value: "servicos", label: "Serviços" },
-  { value: "infraestrutura", label: "Infraestrutura" },
-];
-
-// Metadados das colunas para os menus icon-only da toolbar (visibilidade e
-// filtro por campo), derivados das mesmas colunas que a tabela renderiza.
+// Metadados das colunas para os menus icon-only da toolbar.
 const PRODUTOS_COL_META = columnMeta(PRODUTOS_COLUMNS);
 const PRODUTOS_FILTER_META = filterableMeta(PRODUTOS_COLUMNS);
 
@@ -99,8 +87,23 @@ const PRODUTOS_SCOPE: WorkbenchScopeRef = {
 type ModalState = { id: string; title: string } | null;
 type Toast = { message: string } | null;
 
+/** Mapear Produto do banco para a linha read-only da tabela da Workbench. */
+function toProdutoRow(p: Produto, linhaById: Record<string, ProdutoLinha>): ProdutoRow {
+  const linha = linhaById[p.linha_id];
+  return {
+    id: p.id,
+    codigo: p.nome,
+    descricao: p.descricao ?? "—",
+    origem: linha?.nome ?? "Sem linha",
+    estado: p.ativo
+      ? { state: "ok", label: "Ativo" }
+      : { state: "idle", label: "Inativo" },
+  };
+}
+
 export function ProdutosClient() {
-  const [categoria, setCategoria] = useState<Categoria>("todas");
+  const router = useRouter();
+  const [selectedLinhaId, setSelectedLinhaId] = useState<LinhaTab>(TODAS);
   const [busca, setBusca] = useState("");
 
   // Colunas ocultas + filtros por campo (controles icon-only da toolbar).
@@ -116,14 +119,55 @@ export function ProdutosClient() {
     });
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-
   const [modal, setModal] = useState<ModalState>(null);
   const [toast, setToast] = useState<Toast>(null);
 
-  // Sem fonte de dados nativa: empty-state honesto (sem fabricar produtos).
-  const allProdutos = useMemo<ProdutoRow[]>(() => [], []);
+  // Fonte de dados. Linhas alimenta as Tabs; Produtos a tabela (filtra por
+  // linha_id quando selecionada).
+  const linhasQuery = useLinhas({ limit: 1000 });
+  const produtosParams = useMemo(
+    () => ({
+      ...(selectedLinhaId !== TODAS ? { linha_id: selectedLinhaId } : {}),
+      limit: 1000,
+    }),
+    [selectedLinhaId],
+  );
+  const produtosQuery = useProdutos(produtosParams);
+
+  // Mapa linha_id -> linha (para resolver a origem exibida na tabela).
+  const linhaById = useMemo(() => {
+    const acc: Record<string, ProdutoLinha> = {};
+    for (const l of linhasQuery.data?.items ?? []) acc[l.id] = l;
+    return acc;
+  }, [linhasQuery.data]);
+
+  // Tabs por linha: item "Todos" + 1 por linha (com contagem).
+  const linhaTabs = useMemo(() => {
+    const linhas = linhasQuery.data?.items ?? [];
+    const todosCount = produtosQuery.data?.items?.length ?? 0;
+    const countsByLinha: Record<string, number> = {};
+    // Contagem local baseada na lista carregada (limit=1000 cobre o catalogo
+    // atual; se passar, adicionar RPC de contagem por linha).
+    for (const p of linhas) countsByLinha[p.id] = 0;
+    return [
+      { value: TODAS, label: "Todos", count: todosCount },
+      ...linhas.map((l) => ({
+        value: l.id,
+        label: l.nome,
+        count: countsByLinha[l.id] ?? 0,
+      })),
+    ];
+  }, [linhasQuery.data, produtosQuery.data]);
+
+  const allProdutos = useMemo<ProdutoRow[]>(
+    () => (produtosQuery.data?.items ?? []).map((p) => toProdutoRow(p, linhaById)),
+    [produtosQuery.data, linhaById],
+  );
   const produtos = useMemo(
-    () => allProdutos.filter((p) => matchFieldFilters(p, PRODUTOS_COLUMNS, fieldFilters)),
+    () =>
+      allProdutos.filter((p) =>
+        matchFieldFilters(p, PRODUTOS_COLUMNS, fieldFilters),
+      ),
     [allProdutos, fieldFilters],
   );
 
@@ -153,7 +197,7 @@ export function ProdutosClient() {
   }, [modal, produtos]);
 
   const filtroAtivo =
-    categoria !== "todas" ||
+    selectedLinhaId !== TODAS ||
     busca.trim() !== "" ||
     Object.values(fieldFilters).some((v) => v.trim());
 
@@ -176,16 +220,12 @@ export function ProdutosClient() {
         blocks={PRODUTOS_BLOCKS}
         slots={{
           fontes: (
-            <Tabs<Categoria>
-              ariaLabel="Filtrar produtos por categoria"
+            <Tabs<LinhaTab>
+              ariaLabel="Filtrar produtos por linha"
               className="border-b-0 px-0"
-              value={categoria}
-              onValueChange={setCategoria}
-              items={CATEGORIA_TABS.map((t) => ({
-                value: t.value,
-                label: t.label,
-                count: 0,
-              }))}
+              value={selectedLinhaId}
+              onValueChange={setSelectedLinhaId}
+              items={linhaTabs}
             />
           ),
           busca: (
@@ -220,9 +260,9 @@ export function ProdutosClient() {
       >
         <ProdutosTable
           produtos={produtosPage.pageItems}
-          loading={false}
-          error={false}
-          onRetry={() => undefined}
+          loading={produtosQuery.isLoading}
+          error={produtosQuery.isError}
+          onRetry={() => produtosQuery.refetch()}
           hidden={hidden}
           onItemClick={(produto) =>
             setModal({ id: produto.id, title: `Produto · ${produto.descricao}` })
@@ -237,7 +277,7 @@ export function ProdutosClient() {
           }
           emptyDescription={
             filtroAtivo
-              ? "Ajuste a busca, troque o filtro ou a categoria para ver outros produtos."
+              ? "Ajuste a busca, troque o filtro ou a linha para ver outros produtos."
               : "Ainda não há produtos cadastrados. Use “Novo produto” para começar o catálogo."
           }
         />
@@ -251,7 +291,12 @@ export function ProdutosClient() {
         description={modalObsolete ? undefined : "Escolha uma ação para este produto."}
         obsolete={modalObsolete}
         options={PRODUTO_ACTIONS}
-        onAction={() => {
+        onAction={(id) => {
+          if (id === "detalhe" && modal) {
+            router.push(`/produtos/${modal.id}`);
+            setModal(null);
+            return;
+          }
           setModal(null);
           handleReadOnly("Apenas leitura — nenhuma ação foi executada.");
         }}
