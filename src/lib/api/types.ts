@@ -494,25 +494,34 @@ export interface DispararGmailResponse {
 }
 
 /**
- * POST extracao-disparar -> aciona o workflow extrair-anexos.yml no GitHub
- * Actions (202). Descobre os anexos das pastas Drive ativas e drena a fila de
- * documentos (Tika), assincrono no runner. `requestId` e o id da requisicao
- * pg_net (telemetria).
+ * Comando enfileirado na fila comando_local devolvido pelos disparos manuais de
+ * extracao (formato cru do banco, snake_case — apiFetch nao remapeia).
  */
-export interface DispararExtracaoResponse {
-  ok: boolean;
-  requestId: number | null;
+export interface ComandoEnfileirado {
+  id: string;
+  comando: string;
+  status: string;
+  solicitado_em: string;
 }
 
 /**
- * POST ocr-disparar -> aciona o workflow extrair-ocr.yml no GitHub Actions
- * (202). Drena a fila de documentos com status precisa_ocr (escaneados/imagem)
- * com OCR ligado, assincrono no runner. `requestId` e o id da requisicao
- * pg_net (telemetria).
+ * POST extracao-disparar -> enfileira o comando 'tika-ocr' na fila comando_local
+ * (202). O PC pega no proximo poll e roda extrair-tika.ps1 (Tika + OCR). 409 se
+ * ja ha um 'tika-ocr' pendente/executando.
+ */
+export interface DispararExtracaoResponse {
+  ok: boolean;
+  comando: ComandoEnfileirado;
+}
+
+/**
+ * POST ocr-disparar -> converge para o mesmo comando 'tika-ocr' (no PC o OCR
+ * roda junto da extracao, comando unico). Enfileira na fila comando_local (202);
+ * 409 se ja ha um 'tika-ocr' pendente/executando.
  */
 export interface DispararOcrResponse {
   ok: boolean;
-  requestId: number | null;
+  comando: ComandoEnfileirado;
 }
 
 /**

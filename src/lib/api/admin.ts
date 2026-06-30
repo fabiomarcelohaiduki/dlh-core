@@ -177,11 +177,10 @@ export function dispararGmail(): Promise<DispararGmailResponse> {
 }
 
 /**
- * POST /extracao-disparar — aciona MANUALMENTE a EXTRACAO/Drive pelo painel de
- * Extracao. O Drive so e descoberto dentro do workflow extrair-anexos.yml (a
- * lista vive na API do Google), que tambem drena a fila inteira via Tika; por
- * isso "descobrir Drive" = disparar a extracao. Sem corpo. Responde 202
- * (aceito); roda assincrona no runner do GitHub Actions.
+ * POST /extracao-disparar — aciona MANUALMENTE a extracao ("Extrair pendentes
+ * agora"). Enfileira o comando 'tika-ocr' na fila comando_local; o PC pega no
+ * proximo poll e roda extrair-tika.ps1 (Tika + OCR na mesma execucao). Sem
+ * corpo. Responde 202 (aceito); 409 se ja ha uma extracao em andamento.
  */
 export function dispararExtracao(): Promise<DispararExtracaoResponse> {
   return apiFetch<DispararExtracaoResponse>("extracao-disparar", {
@@ -190,10 +189,10 @@ export function dispararExtracao(): Promise<DispararExtracaoResponse> {
 }
 
 /**
- * POST /ocr-disparar — aciona MANUALMENTE o EXTRATOR OCR pelo painel de
- * Extracao. Drena a fila de documentos com status precisa_ocr (escaneados) com
- * OCR ligado no workflow dedicado extrair-ocr.yml, separado do pipeline rapido.
- * Sem corpo. Responde 202 (aceito); roda assincrona no runner do GitHub Actions.
+ * POST /ocr-disparar — aciona MANUALMENTE o OCR ("Extrair OCR agora"). No PC o
+ * OCR roda junto da extracao, entao converge para o mesmo comando 'tika-ocr' na
+ * fila comando_local. Sem corpo. Responde 202 (aceito); 409 se ja ha uma
+ * extracao em andamento.
  */
 export function dispararOcr(): Promise<DispararOcrResponse> {
   return apiFetch<DispararOcrResponse>("ocr-disparar", {

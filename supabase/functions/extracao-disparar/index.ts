@@ -1,22 +1,21 @@
 // =====================================================================
 // Edge Function: extracao-disparar  ->  POST /extracao-disparar
-// Dispara MANUALMENTE a EXTRACAO/Drive pelo painel de Extracao (cockpit).
+// Dispara MANUALMENTE a EXTRACAO (Tika) pelo cockpit ("Extrair pendentes agora").
 //
-// O Drive nao tem coleta propria: a descoberta dele acontece DENTRO do workflow
-// extrair-anexos.yml (a lista de arquivos vive na API do Google e a credencial
-// so existe no runner). Esse workflow tambem DRENA a fila inteira via Tika. Por
-// isso o botao "Drive" do painel aciona este endpoint -> RPC
-// disparar_workflow_extracao (le o GITHUB_DISPATCH_TOKEN do Vault server-side).
+// MIGRACAO LOCAL (decisao Fabio 2026-06-29): pos-bloqueio do GitHub Actions, a
+// extracao Tika/OCR roda no PC do Fabio. Este endpoint deixou de disparar o
+// workflow extrair-anexos.yml e passa a ENFILEIRAR o comando 'tika-ocr' na fila
+// comando_local (o servico de poll do PC pega e roda extrair-tika.ps1: extracao
+// rapida + OCR na MESMA execucao). Mesma cadeia do disparo agendado pelo pg_cron
+// (aplicar_agendamento_extracao). O OCR nao tem disparo separado no PC: o mesmo
+// comando 'tika-ocr' cobre as duas camadas (ver ocr-disparar, que converge aqui).
 //
-// Sem corpo (as pastas Drive ativas e a fila vem do runner). Exige sessao
-// autorizada (requireAuthorizedUser) + audit. Responde 202 (aceito; o workflow
-// roda async).
+// Sem corpo (a fila inteira de documento_vinculos pendentes vem do PC). Exige
+// sessao autorizada (requireAuthorizedUser) + audit. Responde 202 (aceito; o PC
+// pega o comando no proximo poll).
 //
-// ANTI-DUPLO-DISPARO: a extracao NAO grava linha em execucoes (drena a fila, nao
-// coleta de origem), entao nao ha camada de banco. O concurrency group do
-// proprio workflow ja serializa, e checamos a GitHub API por runs ativos do
-// extrair-anexos.yml para devolver um 409 limpo no clique rapido. Best-effort:
-// qualquer falha (token/API) degrada para so o concurrency group do GitHub.
+// ANTI-DUPLO-DISPARO: 409 limpo se ja ha um 'tika-ocr' pendente ou executando na
+// fila (fecha o clique rapido antes de empilhar uma extracao redundante).
 // =====================================================================
 
 import { handleCorsPreflight } from "../_shared/cors.ts";
@@ -25,35 +24,6 @@ import { getEnv } from "../_shared/env.ts";
 import { requireAuthorizedUser } from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
-import { workflowRunsUrl } from "../_shared/github.ts";
-
-const EXTRACAO_RUNS_URL = workflowRunsUrl("extrair-anexos.yml");
-
-/**
- * True quando ha um run do extrair-anexos.yml ainda ATIVO (status != completed:
- * queued|in_progress|waiting|...). Best-effort: qualquer falha (token ausente,
- * GitHub fora, parse) retorna false -> nao bloqueia (cai no concurrency group).
- */
-async function extracaoRunAtivo(service: ReturnType<typeof createServiceClient>): Promise<boolean> {
-  try {
-    const { data: token, error } = await service.rpc("github_dispatch_token");
-    if (error || typeof token !== "string" || !token) return false;
-    const res = await fetch(EXTRACAO_RUNS_URL, {
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "dlh-core",
-      },
-    });
-    if (!res.ok) return false;
-    const json = await res.json();
-    const runs = Array.isArray(json?.workflow_runs) ? json.workflow_runs : [];
-    return runs.some((r: { status?: string }) => typeof r?.status === "string" && r.status !== "completed");
-  } catch (_) {
-    return false;
-  }
-}
 
 async function handler(req: Request): Promise<Response> {
   const preflight = handleCorsPreflight(req);
@@ -62,34 +32,46 @@ async function handler(req: Request): Promise<Response> {
   try {
     assertMethod(req, "POST");
 
-    // Autorizacao primeiro (SEC-02). Sem corpo: pastas Drive + fila vem do runner.
+    // Autorizacao primeiro (SEC-02). Sem corpo: a fila vem do PC.
     const { email } = await requireAuthorizedUser(req);
 
     const service = createServiceClient();
 
-    // Run do Actions ainda ativo -> 409 limpo (fecha o clique rapido antes de o
-    // concurrency group enfileirar um run redundante).
-    if (await extracaoRunAtivo(service)) {
+    // Anti-duplo-disparo: nao empilha outro 'tika-ocr' se um ja esta na fila ou
+    // rodando no PC (clique rapido -> 409 limpo).
+    const { data: ativos, error: ativosErr } = await service
+      .from("comando_local")
+      .select("id")
+      .eq("comando", "tika-ocr")
+      .in("status", ["pendente", "executando"])
+      .limit(1);
+    if (ativosErr) {
+      throw new HttpError(500, "fila_query_failed", "falha ao verificar a fila de extracao");
+    }
+    if (ativos && ativos.length > 0) {
       throw new HttpError(409, "extracao_em_andamento", "ja ha uma extracao em andamento");
     }
 
-    // Dispara o workflow via RPC (le GITHUB_DISPATCH_TOKEN do Vault server-side).
-    const { data: requestId, error } = await service.rpc("disparar_workflow_extracao");
-    if (error) {
-      throw new HttpError(502, "extracao_dispatch_failed", "falha ao acionar a extracao");
+    // Enfileira o comando para o PC executar (extrair-tika.ps1: Tika + OCR).
+    const { data: inserido, error } = await service
+      .from("comando_local")
+      .insert({ comando: "tika-ocr", solicitado_por: email })
+      .select("id, comando, status, solicitado_em")
+      .single();
+    if (error || !inserido) {
+      throw new HttpError(500, "extracao_enqueue_failed", "falha ao enfileirar a extracao");
     }
 
     await logSensitiveAction({
-      tabela: "config_extracao",
+      tabela: "comando_local",
       acao: "disparar_extracao",
-      registroId: null,
+      registroId: inserido.id,
       usuario: email,
-      dadosNovos: { fonte: "drive", requestId: requestId ?? null },
+      dadosNovos: { comando: "tika-ocr" },
     });
 
-    // 202 Accepted: o workflow_dispatch foi aceito; a extracao roda assincrona
-    // no runner do GitHub Actions.
-    return jsonResponse({ ok: true, requestId: requestId ?? null }, 202);
+    // 202 Accepted: comando aceito; o PC roda a extracao no proximo poll.
+    return jsonResponse({ ok: true, comando: inserido }, 202);
   } catch (err) {
     return await errorResponse(err, { fn: "extracao-disparar" });
   }

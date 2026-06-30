@@ -139,11 +139,11 @@ export function useDispararGmail() {
 }
 
 /**
- * useDispararExtracao — dispara MANUALMENTE a extracao/Drive (POST
- * extracao-disparar). Aciona o workflow extrair-anexos.yml: descobre as pastas
- * Drive ativas e drena a fila de documentos (Tika), assincrono no runner. Sem
- * invalidacao de execucoes (a extracao nao grava linha em execucoes); o resumo
- * de extracao reflete o progresso quando o runner avanca.
+ * useDispararExtracao — dispara MANUALMENTE a extracao (POST extracao-disparar).
+ * Enfileira o comando 'tika-ocr' na fila comando_local; o PC pega no proximo
+ * poll e roda extrair-tika.ps1 (Tika + OCR). Sem invalidacao de execucoes (a
+ * extracao nao grava linha em execucoes); o resumo de extracao reflete o
+ * progresso quando o PC avanca.
  */
 export function useDispararExtracao() {
   const queryClient = useQueryClient();
@@ -156,11 +156,10 @@ export function useDispararExtracao() {
 }
 
 /**
- * useDispararOcr — dispara MANUALMENTE o extrator OCR (POST ocr-disparar).
- * Aciona o workflow dedicado extrair-ocr.yml: drena a fila de documentos com
- * status precisa_ocr (escaneados/imagem) com OCR ligado, separado do pipeline
- * rapido, assincrono no runner. Sem invalidacao de execucoes (o OCR nao grava
- * linha em execucoes); o resumo de extracao reflete o progresso.
+ * useDispararOcr — dispara MANUALMENTE o OCR (POST ocr-disparar). No PC o OCR
+ * roda junto da extracao, entao converge para o mesmo comando 'tika-ocr' na fila
+ * comando_local. Sem invalidacao de execucoes (o OCR nao grava linha em
+ * execucoes); o resumo de extracao reflete o progresso.
  */
 export function useDispararOcr() {
   const queryClient = useQueryClient();
