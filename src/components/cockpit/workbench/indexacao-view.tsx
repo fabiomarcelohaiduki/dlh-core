@@ -55,10 +55,11 @@ import type {
 import type { ConfigIndexacaoState, FonteIndexacao } from "@/lib/api/types";
 import { ApiError } from "@/lib/api/client";
 import { indexacaoConsolidadoDescriptor } from "@/lib/status";
-import { formatDateTime, formatNumber } from "@/lib/format";
+import { formatNumber } from "@/lib/format";
 import type { WorkbenchScopeRef } from "./use-workbench-layout";
 import { WorkbenchTemplate } from "./workbench-template";
 import { TOOLBAR_SEARCH_CLASS } from "./table-toolbar-menus";
+import { splitDateTime } from "./table-states";
 import { CursorPager } from "./table-pagination";
 import { CockpitToast } from "./cockpit-toast";
 import { IndexacaoRegistroDetalhe } from "./indexacao-registro-detalhe";
@@ -558,6 +559,7 @@ export function IndexacaoView({
     const aberto = expandido.has(item.idComposto);
     const panelId = panelIdFor(item.idComposto);
     const mostrarId = item.registroOrigemId !== item.tituloCurto;
+    const { data: quandoData, hora: quandoHora } = splitDateTime(item.captadoEm);
 
     return (
       <Fragment key={item.idComposto}>
@@ -586,7 +588,9 @@ export function IndexacaoView({
               </span>
             </span>
           </td>
-          <td>{FONTE_LABEL[item.fonte] ?? item.fonte}</td>
+          <td>
+            <span className="pill src">{FONTE_LABEL[item.fonte] ?? item.fonte}</span>
+          </td>
           <td className="sub">{item.corpoStatus ?? "—"}</td>
           <td className="sub tnum">
             {temAnexo ? `${formatNumber(item.anexosIndexados)}/${formatNumber(item.anexosIndexavel)}` : "—"}
@@ -594,7 +598,12 @@ export function IndexacaoView({
           <td>
             <StatusPill state={descriptor.state} label={descriptor.label} />
           </td>
-          <td className="sub tnum">{item.captadoEm ? formatDateTime(item.captadoEm) : "—"}</td>
+          <td className="tnum">
+            <span className="flex flex-col leading-tight">
+              <strong>{quandoData}</strong>
+              {quandoHora ? <span className="sub">{quandoHora}</span> : null}
+            </span>
+          </td>
         </tr>
         {aberto ? <IndexacaoRegistroDetalhe item={item} panelId={panelId} /> : null}
       </Fragment>
