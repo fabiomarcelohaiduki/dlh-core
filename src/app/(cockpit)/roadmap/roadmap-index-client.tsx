@@ -74,6 +74,16 @@ export function RoadmapIndexClient({ items }: { items: RoadmapItem[] }) {
         </div>
       </div>
 
+      <aside
+        role="note"
+        className="mb-4 rounded-md border border-amber/30 bg-amber/5 px-4 py-3 text-sm leading-relaxed text-fg-muted"
+      >
+        <strong className="font-semibold text-amber">📝 Esboço inicial.</strong>{" "}
+        Este roadmap é o primeiro desenho do que cada feature vai virar —{" "}
+        <strong className="font-semibold text-fg">não é a fonte da verdade</strong>.
+        Quando a feature for criada via pipeline, o código e a SPEC passam a ser a fonte da verdade; este doc vira referência.
+      </aside>
+
       <div className="filter-bar">
         <input
           type="search"

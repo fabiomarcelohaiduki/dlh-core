@@ -97,9 +97,13 @@ function extractSummary(md: string): string {
   const summary: string[] = [];
   let pastMetadata = false;
   for (const line of lines) {
-    const trimmed = line.trim();
+    const trimmed = line.trim().replace(/^>\s*/, "");
     if (trimmed.startsWith("# ")) continue;
-    if (trimmed.startsWith("**Status:**") || trimmed.startsWith("**Última atualização:")) {
+    if (
+      trimmed.startsWith("**Status:**") ||
+      trimmed.startsWith("**Última atualização:**") ||
+      trimmed.startsWith("**Natureza:**")
+    ) {
       pastMetadata = true;
       continue;
     }
