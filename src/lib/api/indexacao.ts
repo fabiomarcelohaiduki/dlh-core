@@ -108,8 +108,8 @@ export interface IndexacaoRegistroItem {
   anexosErro: number;
   /** Anexos ainda nao extraidos (aguardam a etapa anterior). */
   anexosAguardando: number;
-  /** Nome do anexo representativo (rotulo da linha quando nao ha titulo). */
-  nomeAnexo: string | null;
+  /** Titulo do registro: objeto do aviso, nomus_id, nome da pessoa; ou nome do anexo (gmail/drive). */
+  tituloCurto: string;
 }
 
 /** Cursor keyset opaco (captado_em, id_composto). */

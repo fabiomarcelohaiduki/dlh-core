@@ -198,7 +198,7 @@ interface RegistroRow {
   anexos_andamento: number | null;
   anexos_erro: number | null;
   anexos_aguardando: number | null;
-  rep_nome_anexo: string | null;
+  titulo_curto: string;
 }
 
 interface ContagemRow {
@@ -251,7 +251,7 @@ async function handlePost(req: Request): Promise<Response> {
       anexosAndamento: r.anexos_andamento ?? 0,
       anexosErro: r.anexos_erro ?? 0,
       anexosAguardando: r.anexos_aguardando ?? 0,
-      nomeAnexo: r.rep_nome_anexo,
+      tituloCurto: r.titulo_curto,
     }));
 
     const ultima = pagina[pagina.length - 1];

@@ -509,8 +509,8 @@ export function IndexacaoView({
                   const temAnexo = item.anexosIndexavel > 0;
                   return (
                     <tr key={item.idComposto}>
-                      <td className="cell-arquivo" title={item.nomeAnexo ?? item.registroOrigemId}>
-                        <span className="trunc">{item.nomeAnexo ?? item.registroOrigemId}</span>
+                      <td className="cell-arquivo" title={item.tituloCurto}>
+                        <span className="trunc">{item.tituloCurto}</span>
                       </td>
                       <td>{FONTE_LABEL[item.fonte] ?? item.fonte}</td>
                       <td className="sub">{item.corpoStatus ?? "—"}</td>
