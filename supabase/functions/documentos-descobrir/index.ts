@@ -20,10 +20,6 @@
 //
 //   ACOES (campo 'action' no body):
 //     (default)  DESCOBRE e enfileira (escrita). Params abaixo.
-//     'resumo'   LEITURA: contagens por status + lista dos anexos que
-//                FALHARAM na extracao (nome, extensao, motivo, processo).
-//                Contagens via service_role (regra do projeto: contagem
-//                NUNCA por leitura direta do browser — RLS/grant fragil).
 //
 //   PARAMETROS de descoberta (body, todos opcionais):
 //     fonte           'nomus' | 'effecti'; default 'nomus'. Cada fonte tem
@@ -49,15 +45,9 @@ import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 
 const MAX_LIMITE_PROCESSOS = 100_000;
-const MAX_ITENS_RESUMO = 200;
 const MAX_ARQUIVOS_DRIVE = 50_000;
 const STATUS_VINCULO = ["pendente", "extraido", "herdado", "erro", "precisa_ocr", "inobtenivel", "ignorado"] as const;
 type StatusVinculo = typeof STATUS_VINCULO[number];
-
-// Todos os status sao listaveis na tabela do cockpit (cada card e clicavel e
-// filtra a lista por status). Cada status vem capado em MAX_ITENS_RESUMO p/ um
-// volumoso (ex.: extraido) nao faminhar os demais — o card mostra o total real.
-const STATUS_LISTAVEIS: StatusVinculo[] = [...STATUS_VINCULO];
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
@@ -239,8 +229,8 @@ function parseItensGmail(o: Record<string, unknown>): ItemGmail[] {
 }
 
 // ---------------------------------------------------------------------
-// action='resumo': contagens por status + anexos que falharam na extracao.
-// Tudo via service_role (contagem confiavel; regra do projeto).
+// Helpers de apresentacao do anexo (extensao + link de origem), usados ao
+// montar a fila paginada.
 // ---------------------------------------------------------------------
 
 function extensaoDoNome(nome: string | null): string | null {
@@ -270,94 +260,12 @@ function linkDoVinculo(fonte: string, ref: unknown): string | null {
   return null;
 }
 
-async function contarPorStatus(
-  service: ServiceClient,
-  status: StatusVinculo,
-): Promise<number> {
-  const { count, error } = await service
-    .from("documento_vinculos")
-    .select("id", { count: "exact", head: true })
-    .eq("status_extracao", status);
-  if (error) {
-    throw new HttpError(500, "resumo_count_failed", "falha ao contar vinculos por status");
-  }
-  return count ?? 0;
-}
-
-/** Lista ate MAX_ITENS_RESUMO vinculos de um status, mais recentes primeiro. */
-async function listarPorStatus(
-  service: ServiceClient,
-  status: StatusVinculo,
-): Promise<Array<Record<string, unknown>>> {
-  const { data, error } = await service
-    .from("documento_vinculos")
-    .select("id, fonte, registro_origem_id, nome_anexo, ref_obtencao, erro, updated_at")
-    .eq("status_extracao", status)
-    .order("updated_at", { ascending: false })
-    .limit(MAX_ITENS_RESUMO);
-  if (error) {
-    throw new HttpError(500, "resumo_itens_failed", "falha ao listar anexos por status");
-  }
-  return (data ?? []) as Array<Record<string, unknown>>;
-}
-
-async function montarResumo(service: ServiceClient): Promise<unknown> {
-  const contagensArr = await Promise.all(
-    STATUS_VINCULO.map((s) => contarPorStatus(service, s)),
-  );
-  const contagens: Record<string, number> = {};
-  STATUS_VINCULO.forEach((s, i) => (contagens[s] = contagensArr[i]));
-  contagens.total = contagensArr.reduce((a, b) => a + b, 0);
-
-  // Lista todos os status, cada um capado em MAX_ITENS_RESUMO p/ um nao faminhar
-  // o outro. O cockpit filtra por status via card clicavel; o item carrega seu
-  // proprio 'status'.
-  const listas = await Promise.all(
-    STATUS_LISTAVEIS.map((s) => listarPorStatus(service, s)),
-  );
-  const itens = listas.flatMap((linhas, i) => {
-    const status = STATUS_LISTAVEIS[i];
-    return linhas.map((r) => {
-      const nome = typeof r.nome_anexo === "string" ? r.nome_anexo : null;
-      const fonte = typeof r.fonte === "string" ? r.fonte : null;
-      return {
-        id: String(r.id),
-        status,
-        fonte,
-        processoId: r.registro_origem_id ?? null,
-        nomeAnexo: nome,
-        extensao: extensaoDoNome(nome),
-        // Link do ANEXO (arquivo na origem), derivado de ref_obtencao.
-        url: fonte ? linkDoVinculo(fonte, r.ref_obtencao) : null,
-        // Link do AVISO (pagina do processo no portal) — preenchido abaixo so
-        // para Effecti, vindo de avisos.payload_bruto.url.
-        avisoUrl: null as string | null,
-        erro: typeof r.erro === "string" ? r.erro : null,
-        quando: r.updated_at ?? null,
-      };
-    });
-  });
-
-  // Enriquece os itens Effecti com o link do AVISO na plataforma Effecti
-  // (minha.effecti.com.br), distinto do link do ANEXO acima. O id do aviso na
-  // Effecti = idLicitacao = registro_origem_id do vinculo, entao o link sai
-  // direto do proprio item, sem consultar a tabela de avisos.
-  for (const e of itens) {
-    if (e.fonte === "effecti" && e.processoId != null) {
-      e.avisoUrl = `https://minha.effecti.com.br/#/aviso-edital-minhas/${e.processoId}`;
-    }
-  }
-
-  return { contagens, itens };
-}
-
 // ---------------------------------------------------------------------
 // action='fila-paginada': LEITURA paginada (keyset) da fila de extracao,
-// para a guia "Fila de extracao". Diferente de 'resumo' (que capa cada
-// status em 200 e le tudo no Deno), aqui a pagina vem do Postgres via RPC
+// para a guia "Fila de extracao". A pagina vem do Postgres via RPC
 // extracao_fila_listar -> recall total, sem cap. As contagens (chips de
 // fonte + cards de status + total) vem de extracao_fila_contagens(). O item
-// usa o MESMO formato do resumo (linkDoVinculo/extensaoDoNome/avisoUrl).
+// carrega linkDoVinculo/extensaoDoNome/avisoUrl.
 // ---------------------------------------------------------------------
 const FILA_PAGE_DEFAULT = 50;
 const FILA_PAGE_MAX = 200;
@@ -756,11 +664,6 @@ async function handler(req: Request): Promise<Response> {
     const caller = await resolveCaller(req);
     const body = await readBody(req);
     const service = createServiceClient();
-
-    // LEITURA: resumo de status + erros (cockpit). Nao audita (sem efeito).
-    if (body.action === "resumo") {
-      return jsonResponse(await montarResumo(service), 200);
-    }
 
     // LEITURA paginada (keyset) da fila de extracao p/ a guia "Fila de
     // extracao": pagina + contagens (chips/cards/total). Nao audita.
