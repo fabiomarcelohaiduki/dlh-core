@@ -117,6 +117,7 @@ export const SCREEN_TITLES: Record<string, string> = {
   "/automacao/avisos": "Triagem",
   "/automacao": "Automação",
   "/edital": "Detalhe do edital",
+  "/roadmap": "Roadmap",
 };
 
 /** Subtitulo opcional por rota (contexto na topbar). */

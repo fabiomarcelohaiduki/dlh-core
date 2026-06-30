@@ -5502,3 +5502,261 @@ body.reduce-motion *::after {
   transition-duration: 0.001ms !important;
   scroll-behavior: auto !important;
 }
+
+/* ===== Roadmap (módulo provisório, lê MDs de docs/roadmap/) ===== */
+
+/* Divider no menu lateral, separando os accordions do link Roadmap. */
+.side-divider {
+  margin: 12px 12px 6px;
+  height: 1px;
+  background: var(--border);
+  opacity: 0.6;
+}
+
+/* Variação da sidebar-cta: link "roadmap" no fim do menu (mesmo DNA visual). */
+.sidebar-cta.is-bottom {
+  margin-top: auto;
+}
+
+/* Page head: agrupa ações à direita (ex: "Copiar caminho", "Índice"). */
+.page-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Empty state pra quando o filtro zera a lista. */
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-md);
+  color: var(--muted);
+  font-size: 14px;
+  padding: 24px;
+}
+
+/* Lista de itens do roadmap (cards). */
+.roadmap-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+.roadmap-item {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.roadmap-item:hover {
+  border-color: var(--border-strong);
+}
+.roadmap-item-link {
+  display: block;
+  padding: 14px 16px;
+  color: inherit;
+  text-decoration: none;
+}
+.roadmap-item-link:hover {
+  text-decoration: none;
+}
+.roadmap-item-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.roadmap-item-emoji {
+  font-size: 16px;
+  line-height: 1;
+}
+.roadmap-item-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.roadmap-item-meta {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+.roadmap-item-summary {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.roadmap-item-foot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+.roadmap-item-foot code {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--muted);
+}
+
+/* Crumb no detalhe (Roadmap › slug). */
+.roadmap-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 4px;
+}
+.roadmap-crumb a {
+  color: var(--muted);
+  text-decoration: none;
+}
+.roadmap-crumb a:hover {
+  color: var(--fg);
+}
+.roadmap-crumb code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.roadmap-status-line {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.roadmap-status-mtime {
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+/* Wrapper do conteúdo markdown renderizado. */
+.roadmap-content {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  padding: 24px 28px;
+}
+
+/* Prose: estilos do markdown renderizado (h1..h6, p, ul, ol, code, table, blockquote). */
+.prose {
+  color: var(--fg);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  color: var(--fg);
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 1.4em 0 0.5em;
+}
+.prose h1 { font-size: 22px; margin-top: 0; }
+.prose h2 { font-size: 18px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+.prose h3 { font-size: 16px; }
+.prose h4 { font-size: 15px; }
+.prose h5,
+.prose h6 { font-size: 14px; }
+.prose p {
+  margin: 0.6em 0;
+}
+.prose strong {
+  font-weight: 700;
+  color: var(--fg);
+}
+.prose em {
+  font-style: italic;
+}
+.prose ul,
+.prose ol {
+  margin: 0.6em 0;
+  padding-left: 1.5em;
+}
+.prose li {
+  margin: 0.2em 0;
+}
+.prose li > p {
+  margin: 0.2em 0;
+}
+.prose code {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  color: var(--fg);
+}
+.prose pre {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-size: 12px;
+}
+.prose pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: 12px;
+}
+.prose blockquote {
+  margin: 0.8em 0;
+  padding: 6px 14px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+}
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.8em 0;
+  font-size: 13px;
+}
+.prose th,
+.prose td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.prose th {
+  background: var(--surface-2);
+  font-weight: 600;
+  color: var(--fg);
+}
+.prose hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1.5em 0;
+}
+.prose a {
+  color: #e27300;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose a:hover {
+  color: #ff8a1e;
+}

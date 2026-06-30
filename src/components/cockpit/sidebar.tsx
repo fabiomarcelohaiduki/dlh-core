@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { RefreshCw } from "lucide-react";
+import { Map, RefreshCw } from "lucide-react";
 import { NAV_MODULES, type NavModule } from "@/lib/nav";
 import { DlhLogo } from "@/components/cockpit/dlh-logo";
 import { cn } from "@/lib/utils";
@@ -124,6 +124,22 @@ export function Sidebar({
           );
         })}
       </nav>
+
+      {/*
+        Roadmap provisório: link flat no fim do menu (fora dos 3 accordions).
+        Lê docs/roadmap/*.md a cada request (sem DB, sem cache). Some quando
+        a Lia ganhar módulo próprio no banco.
+      */}
+      <div className="side-divider" aria-hidden="true" />
+      <Link
+        href="/roadmap"
+        className={cn("sidebar-cta", "is-bottom", pathname?.startsWith("/roadmap") && "active")}
+        onClick={onNavigate}
+        aria-current={pathname?.startsWith("/roadmap") ? "page" : undefined}
+      >
+        <Map aria-hidden="true" />
+        <span className="nav-text">Roadmap</span>
+      </Link>
     </aside>
   );
 }
