@@ -86,6 +86,19 @@ verify_jwt = false
 [functions.v1-acervo-busca-processos]
 verify_jwt = false
 
+# Tools de Relacionamentos /v1 (relacionamentos_no, relacionamentos_vizinhos
+# e relacionamentos_buscar da Lia): autenticam via authenticateV1 com API key
+# read-only da Lia. A API key NAO e JWT, entao o gateway precisa deixar a
+# borda da funcao autenticar.
+[functions.v1-relacionamentos-no]
+verify_jwt = false
+
+[functions.v1-relacionamentos-vizinhos]
+verify_jwt = false
+
+[functions.v1-relacionamentos-buscar]
+verify_jwt = false
+
 # Fila de triagem da esteira /v1 (modo lion): a Lia puxa o trabalho pendente
 # via authenticateV1 (API key lia_sk_ no Vault, escopo read-only:busca-semantica
 # OU sessao do cockpit). A API key NAO e JWT -> sem este pin o gateway barra o

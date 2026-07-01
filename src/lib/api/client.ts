@@ -61,10 +61,14 @@ export async function apiFetch<T>(
     } catch {
       // resposta sem corpo JSON; mantem fallback abaixo.
     }
+    const errorCode =
+      typeof body?.error === "string" ? body.error : body?.error?.code;
+    const errorMessage =
+      typeof body?.error === "string" ? body.message : body?.error?.message ?? body?.message;
     throw new ApiError(
       res.status,
-      body?.error ?? "request_failed",
-      body?.message ?? res.statusText ?? "falha na requisicao",
+      errorCode ?? "request_failed",
+      errorMessage ?? res.statusText ?? "falha na requisicao",
     );
   }
 

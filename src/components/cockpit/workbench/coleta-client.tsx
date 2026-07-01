@@ -46,6 +46,7 @@ import { EscopoColeta } from "./escopo-coleta";
 import { ExtracaoFilaView } from "./extracao-fila-view";
 import { IndexacaoView } from "./indexacao-view";
 import { LogsConsole } from "./logs-console";
+import { RelacionamentosPainel } from "./relacionamentos/RelacionamentosPainel";
 import {
   RunsTable,
   RUNS_COLUMNS,
@@ -71,7 +72,7 @@ import type { WorkbenchScopeRef } from "./use-workbench-layout";
 const RUNNING_POLL_MS = 3000;
 const FALLBACK_POLL_MS = 5000;
 
-type Subtab = "execucoes" | "dados" | "extracao" | "indexacao" | "escopo" | "agendamento" | "logs";
+type Subtab = "execucoes" | "dados" | "extracao" | "indexacao" | "relacionamentos" | "escopo" | "agendamento" | "logs";
 type FonteTab = "todas" | OrigemKey;
 
 const FONTE_TABS: { value: FonteTab; label: string }[] = [
@@ -564,6 +565,7 @@ export function ColetaClient({
           { value: "dados", label: "Dados", count: registrosTotal },
           { value: "extracao", label: "Fila de extração" },
           { value: "indexacao", label: "Indexação" },
+          { value: "relacionamentos", label: "Relacionamentos" },
           { value: "escopo", label: "Escopo" },
           { value: "agendamento", label: "Agendamento", count: agendamentosAtivos },
           { value: "logs", label: "Logs" },
@@ -818,6 +820,12 @@ export function ColetaClient({
       {subtab === "indexacao" && (
         <div data-subpane="coleta-indexacao" data-scope="ingestao/coleta/indexacao">
           <IndexacaoView configIndexacao={configIndexacao} />
+        </div>
+      )}
+
+      {subtab === "relacionamentos" && (
+        <div data-subpane="coleta-relacionamentos" data-scope="ingestao/coleta/relacionamentos">
+          <RelacionamentosPainel />
         </div>
       )}
 

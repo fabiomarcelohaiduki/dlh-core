@@ -1,6 +1,6 @@
 // =====================================================================
 // Tipos do contrato publico das Edge Functions de monitoramento (camelCase).
-// Espelham supabase/functions/_shared/types.ts — fonte de verdade do backend
+// Espelham supabase/functions/_shared/types.ts - fonte de verdade do backend
 // (sprint-002/004). Mantidos aqui para uso tipado no front sem importar Deno.
 // =====================================================================
 
@@ -127,7 +127,7 @@ export interface AvisoIndice {
   arquivos: ArquivoMetadata[];
 }
 
-/** GET /substrato/avisos/:id — detalhe completo do aviso (api-detalhe-edital). */
+/** GET /substrato/avisos/:id - detalhe completo do aviso (api-detalhe-edital). */
 export interface AvisoDetalhe {
   id: string;
   conteudoVerbatim: string;
@@ -148,12 +148,17 @@ export interface ColetaResponse {
 
 /** Corpo de erro padrao das Edge Functions (_shared/http.ts). */
 export interface ApiErrorBody {
-  error?: string;
+  error?:
+    | string
+    | {
+        code?: string;
+        message?: string;
+      };
   message?: string;
 }
 
 // =====================================================================
-// Administracao — Fontes/credenciais e Configuracao da ingestao.
+// Administracao - Fontes/credenciais e Configuracao da ingestao.
 // Espelham os contratos das Edge Functions da sprint-003 (camelCase) e os
 // snapshots lidos server-side (RLS) para hidratar os formularios.
 // =====================================================================
@@ -260,7 +265,7 @@ export interface AgendamentoExtracaoState {
 export type FonteIndexacao = FonteExtracao;
 
 /**
- * Snapshot da config da INDEXACAO (embeddings) — singleton config_indexacao,
+ * Snapshot da config da INDEXACAO (embeddings) - singleton config_indexacao,
  * lido server-side para hidratar o cmp-indexacao-config-form. `ativo` = master
  * switch (gasta na OpenAI quando ON); `fontesHabilitadas` null = todas as
  * fontes; `loteChunks` = orcamento de chunks por invocacao do backfill;
@@ -306,7 +311,7 @@ export interface DrivePastaState {
 
 /**
  * Conta Google conectada ao Drive (singleton drive_conta), lida server-side
- * para o cmp-drive-card. O refresh_token vive cifrado no Vault — aqui so o
+ * para o cmp-drive-card. O refresh_token vive cifrado no Vault - aqui so o
  * e-mail e quando conectou. `conectado` deriva da presenca do e-mail.
  */
 export interface DriveContaState {
@@ -409,7 +414,7 @@ export interface BuscaSemanticaResponse {
 }
 
 // =====================================================================
-// Fontes parametrizadas por tipo (Effecti | Nomus) — bloco Nomus na tela
+// Fontes parametrizadas por tipo (Effecti | Nomus) - bloco Nomus na tela
 // de Fontes. Espelham os contratos das Edge Functions (sprint-003/004):
 // fontes-credencial, fontes-testar, ingestao-config e ingestao-coletar.
 // Payloads viajam em snake_case; aqui o front trabalha em camelCase.
@@ -419,7 +424,7 @@ export interface BuscaSemanticaResponse {
  * Tipo de fonte suportado. Credencial/teste/config (cmp-cred-form/cmp-cfg-form)
  * valem para effecti|nomus; o Gmail e o Drive entram como fontes AGENDAVEIS
  * (relogio proprio no card, coleta no GitHub Actions via coletar-gmail.yml /
- * coletar-drive.yml) — autenticam por OAuth e configuram via gmail-config /
+ * coletar-drive.yml) - autenticam por OAuth e configuram via gmail-config /
  * drive-pastas, nao pelos forms de credencial.
  */
 export type FonteTipo = "effecti" | "nomus" | "gmail" | "drive";
@@ -486,7 +491,7 @@ export interface DispararGmailResponse {
 
 /**
  * Comando enfileirado na fila comando_local devolvido pelos disparos manuais de
- * extracao (formato cru do banco, snake_case — apiFetch nao remapeia).
+ * extracao (formato cru do banco, snake_case - apiFetch nao remapeia).
  */
 export interface ComandoEnfileirado {
   id: string;
@@ -527,7 +532,7 @@ export interface DispararDriveResponse {
 }
 
 // =====================================================================
-// Modulo Produtos — tipos do contrato das Edge Functions produtos-* (secao
+// Modulo Produtos - tipos do contrato das Edge Functions produtos-* (secao
 // 4.5 da SPEC). Nomes em PascalCase; campos em snake_case espelhando o JSON
 // cru do backend (a UI NAO faz snake->camel neste dominio: o banco e a fonte
 // de verdade e os formularios/telas consomem os mesmos nomes das colunas).
@@ -551,9 +556,9 @@ export type ParametroNivel = "global" | "linha" | "produto";
 export type Regiao = "S" | "SE" | "CO" | "NE" | "N";
 /**
  * Patamar de preco (metodo IFP / markup por dentro):
- *   FOB        — IFP sem frete (independe de regiao)
- *   CIF_MINIMO — IFP com frete + lucro minimo (piso de negociacao)
- *   CIF_ALVO   — IFP com frete + lucro alvo
+ *   FOB        - IFP sem frete (independe de regiao)
+ *   CIF_MINIMO - IFP com frete + lucro minimo (piso de negociacao)
+ *   CIF_ALVO   - IFP com frete + lucro alvo
  */
 export type Patamar = "FOB" | "CIF_MINIMO" | "CIF_ALVO";
 /** Nivel das diretrizes/regras/politica de cotacao (linha, produto ou sku). */
@@ -572,7 +577,7 @@ export interface Paginated<T> {
 }
 
 // ---------------------------------------------------------------------
-// Dominio A — Linhas, Atributos, Produtos, SKUs e Imagens
+// Dominio A - Linhas, Atributos, Produtos, SKUs e Imagens
 // ---------------------------------------------------------------------
 
 /** Linha/segmento de produto (produto_linhas). nome e a chave natural. */
@@ -691,7 +696,7 @@ export interface ProdutoImagem {
   updated_at?: string;
 }
 
-/** GET /produtos-catalogo/produtos/:id — detalhe agregado do produto. */
+/** GET /produtos-catalogo/produtos/:id - detalhe agregado do produto. */
 export interface ProdutoDetalhe {
   produto: Produto;
   atributos_schema: AtributoSchema[];
@@ -701,7 +706,7 @@ export interface ProdutoDetalhe {
 
 /**
  * Atributo (Linha ou Produto) como vem nos dados de documentos: chave/tipo +
- * flags de visibilidade. Sem ids — so o necessario para montar o documento.
+ * flags de visibilidade. Sem ids - so o necessario para montar o documento.
  */
 export interface DocAtributo {
   chave: string;
@@ -742,7 +747,7 @@ export interface DocumentoProduto {
   skus: DocumentoSku[];
 }
 
-/** GET /produtos-catalogo/documentos-dados?linha_id= — dados p/ Catalogo e Ficha. */
+/** GET /produtos-catalogo/documentos-dados?linha_id= - dados p/ Catalogo e Ficha. */
 export interface DocumentoLinhaDados {
   linha: { id: string; nome: string };
   /** Schema de atributos da Linha (com flags de visibilidade). */
@@ -751,7 +756,7 @@ export interface DocumentoLinhaDados {
 }
 
 // ---------------------------------------------------------------------
-// Dominio B — Insumos, precos de fornecedor, composicao (BOM) e custo
+// Dominio B - Insumos, precos de fornecedor, composicao (BOM) e custo
 // de aquisicao. As escritas disparam o recalculo SINCRONO dos SKUs no
 // backend (triggers); a UI apenas invalida os caches de precos.
 // ---------------------------------------------------------------------
@@ -814,7 +819,7 @@ export interface InsumoPrecoBatchResponse {
 }
 
 // ---------------------------------------------------------------------
-// Dominio C — Parametros de calculo e precos calculados
+// Dominio C - Parametros de calculo e precos calculados
 // ---------------------------------------------------------------------
 
 /** Parametros escalares por nivel/escopo (parametros_calculo). */
@@ -867,7 +872,7 @@ export interface ParametroResolvidoRegiao {
 }
 
 /**
- * GET /parametros-resolvidos?produto_id= — valor EFETIVO de cada parametro
+ * GET /parametros-resolvidos?produto_id= - valor EFETIVO de cada parametro
  * escalar e de cada regiao para um Produto, indicando a origem (PRODUTO ->
  * LINHA -> GLOBAL).
  */
@@ -877,7 +882,7 @@ export interface ParametrosResolvidos {
 }
 
 /**
- * Uma celula do grid de precos (regiao x patamar) — campos de exibicao.
+ * Uma celula do grid de precos (regiao x patamar) - campos de exibicao.
  * `ifp` e o indice (1 - somatorio de percentuais) usado no calculo daquela
  * celula; e exclusivo do motor (varia por patamar/regiao) e somente leitura.
  */
@@ -899,7 +904,7 @@ export interface PrecoApoio {
   custo_ideal: number | null;
 }
 
-/** GET /skus/:skuId/precos — grid (regiao x patamar) + estado + apoio. */
+/** GET /skus/:skuId/precos - grid (regiao x patamar) + estado + apoio. */
 export interface PrecoCalculadoGrid {
   estado_calculo: EstadoCalculo;
   precos: PrecoCalculadoLinha[];
@@ -907,7 +912,7 @@ export interface PrecoCalculadoGrid {
   custo_base: number | null;
 }
 
-/** Item de GET /precos/pendentes — SKU pendente/erro de recalculo. */
+/** Item de GET /precos/pendentes - SKU pendente/erro de recalculo. */
 export interface PrecoPendente {
   sku_id: string;
   codigo_sku: string;
@@ -947,7 +952,7 @@ export interface TabelaPrecoProduto {
 }
 
 /**
- * GET /precos/consolidado?linha_id= — Tabela de Preços de uma Linha inteira:
+ * GET /precos/consolidado?linha_id= - Tabela de Preços de uma Linha inteira:
  * todos os Produtos -> SKUs -> celulas (regiao x patamar) num so payload.
  * Leitura em lote no edge; somente leitura.
  */
@@ -957,7 +962,7 @@ export interface TabelaPrecoConsolidada {
 }
 
 /**
- * config_empresa — dados institucionais da DLH (singleton) usados no
+ * config_empresa - dados institucionais da DLH (singleton) usados no
  * cabecalho/rodape da Tabela de Precos em PDF. Contrato camelCase. A logo e
  * uma data URL base64 de imagem (sem bucket de Storage).
  */
@@ -976,7 +981,7 @@ export interface ConfigEmpresa {
 }
 
 /**
- * contas_autorizadas — allowlist de acesso do cockpit (US-21). Cada entrada
+ * contas_autorizadas - allowlist de acesso do cockpit (US-21). Cada entrada
  * autoriza por e-mail exato ou por dominio inteiro; `ativo` liga/desliga sem
  * remover. O gate de login (is_conta_autorizada) so deixa entrar quem casa
  * com uma entrada ativa.
@@ -996,7 +1001,7 @@ export interface ContaAutorizadaInput {
 }
 
 /**
- * config_llm — configuracao da IA (LLM) das geracoes assistidas do cockpit
+ * config_llm - configuracao da IA (LLM) das geracoes assistidas do cockpit
  * (singleton). A chave da API NUNCA trafega no contrato; key_configurada
  * apenas sinaliza se ha segredo gravado no Vault.
  */
@@ -1018,7 +1023,7 @@ export interface ConfigLlmInput {
 }
 
 /**
- * config_busca — configuracao do RERANKING da busca semantica do acervo
+ * config_busca - configuracao do RERANKING da busca semantica do acervo
  * (singleton). A chave da Cohere NUNCA trafega no contrato; key_configurada
  * apenas sinaliza se ha segredo gravado no Vault.
  */
@@ -1042,7 +1047,7 @@ export interface ConfigBuscaInput {
 }
 
 // ---------------------------------------------------------------------
-// Dominio E — Diretrizes/regras de cotacao e politica de participacao
+// Dominio E - Diretrizes/regras de cotacao e politica de participacao
 // ---------------------------------------------------------------------
 
 /** Diretriz textual de cotacao por LINHA/PRODUTO (cotacao_diretrizes). */
@@ -1083,7 +1088,7 @@ export interface PoliticaParticipacao {
 }
 
 // ---------------------------------------------------------------------
-// Dominio D — Revenda (canal SEPARADO do de licitacao)
+// Dominio D - Revenda (canal SEPARADO do de licitacao)
 // ---------------------------------------------------------------------
 
 /** Cliente do canal de revenda (clientes_revenda). */
@@ -1108,7 +1113,7 @@ export interface RevendaPreco {
 }
 
 // =====================================================================
-// Modulo Automacao (triagem) — contrato 4.3. camelCase no client, mapeado
+// Modulo Automacao (triagem) - contrato 4.3. camelCase no client, mapeado
 // do snake_case dos endpoints automacao-* (ver src/lib/api/automacao.ts).
 // SSE/realtime NAO usado no V1 (FE-3): atualizacao por refetchInterval +
 // botao manual. O frontend NUNCA manipula credenciais write:triagem/lia_sk_.
@@ -1184,7 +1189,7 @@ export interface AvisoDocumento {
 
 /** Item literal extraido de um documento de edital (descricao integral). */
 export interface AvisoItem {
-  /** id do documento_itens — chave para correlacionar com o match. */
+  /** id do documento_itens - chave para correlacionar com o match. */
   id: string;
   documentoId: string;
   /** Rotulo da lista de origem (ex.: 'principal', 'anexo TR'); listas convivem. */
@@ -1269,7 +1274,7 @@ export interface RegraDura {
   criadoEm: string;
 }
 
-/** Exemplo rotulado do acervo few-shot (E14 — curadoria do aprendizado). */
+/** Exemplo rotulado do acervo few-shot (E14 - curadoria do aprendizado). */
 export interface ExemploFewShot {
   id: string;
   texto: string;
@@ -1341,9 +1346,9 @@ export interface ExtracaoSuspeitaFilaItem {
   curadoPor: string | null;
   curadoEm: string | null;
   criadoEm: string;
-  /** Objeto do aviso (recall_effecti) — resolvido para exibir sem join. */
+  /** Objeto do aviso (recall_effecti) - resolvido para exibir sem join. */
   avisoObjeto: string | null;
-  /** Nome do arquivo do documento (fidelidade) — resolvido para exibir sem join. */
+  /** Nome do arquivo do documento (fidelidade) - resolvido para exibir sem join. */
   documentoNome: string | null;
 }
 
