@@ -42,7 +42,7 @@ import {
 
 const FUNCTION_SEGMENT = "relacionamentos-config";
 const CONFIG_COLUMNS =
-  "id, org_id, uso_minimo_promocao_alternativa, dois_caminhos_minimo, uso_minimo_promocao, cap_panorama, cap_vizinhanca, profundidade_max_lia, profundidade_default_panorama, versao, created_at, updated_at";
+  "id, org_id, uso_minimo_promocao_alternativa, dois_caminhos_minimo, uso_minimo_promocao, cap_vizinhanca, profundidade_max_lia, profundidade_default_panorama, versao, created_at, updated_at";
 const TIPO_COLUMNS =
   "id, org_id, tipo, label, icone, cor, ordem, ativo, versao, created_at, updated_at";
 
@@ -55,7 +55,6 @@ const DEFAULTS_CONFIG = {
   uso_minimo_promocao_alternativa: 10,
   dois_caminhos_minimo: 5,
   uso_minimo_promocao: 5,
-  cap_panorama: null,
   cap_vizinhanca: 5,
   profundidade_max_lia: 5,
   profundidade_default_panorama: 2,
@@ -159,7 +158,6 @@ async function applyConfigUpdate(
     "uso_minimo_promocao_alternativa",
     "dois_caminhos_minimo",
     "uso_minimo_promocao",
-    "cap_panorama",
     "cap_vizinhanca",
     "profundidade_max_lia",
     "profundidade_default_panorama",

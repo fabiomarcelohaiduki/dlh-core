@@ -1,8 +1,8 @@
 // =====================================================================
 // _shared/relacionamentos-backfill.ts
-// Logica compartilhada entre as Edges `relacionamentos-backfill`
-// (disparo via cron X-Cron-Secret ou sessao humana) e
-// `relacionamentos-reprocessar` (disparo manual via humano autorizado).
+// Logica compartilhada entre a Edge `relacionamentos-backfill`
+// (disparo via cron X-Cron-Secret ou sessao humana) e a guarda de
+// ativacao `relacionamentos-ativar` (disparo manual via humano autorizado).
 //
 // Executa as 3 fases do backfill deterministico da feature Relacionamentos
 // (Fase 1 do SPEC `feature-relacionamentos` / SPEC secao 3.2.1):
@@ -76,7 +76,6 @@ interface InsercaoRelacao {
   metodo: "deterministico" | "sugerido";
   chave: string;
   confianca: number;
-  status: "confirmado" | "sugerido" | "rejeitado";
 }
 
 interface ResultadoInsercao {
@@ -84,12 +83,23 @@ interface ResultadoInsercao {
   duplicadas: number;
 }
 
+const RELACOES_ON_CONFLICT = "origem_tipo,origem_id,destino_tipo,destino_id,relacao";
+const RELACOES_INSERT_BATCH_SIZE = 500;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(items.slice(i, i + size));
+  }
+  return out;
+}
+
 /**
  * Insere um lote de relacoes com idempotencia via ON CONFLICT DO NOTHING
  * (constraint unique (origem_tipo, origem_id, destino_tipo, destino_id, relacao)).
  *
- * Implementacao: faz 1 INSERT por aresta e conta via `data?.length` vs zero.
- * Nao depende de RPC; e seguro via service_role (BYPASSRLS).
+ * Implementacao: usa UPSERT em lotes com ignoreDuplicates. Isso preserva a
+ * idempotencia e evita 1 roundtrip por aresta quando o backfill crescer.
  *
  * Retorna { criadas, duplicadas } agregado do lote. Erros sao logados e
  * NAO derrubam o job (RNF-11).
@@ -100,39 +110,38 @@ async function inserirRelacoesIdempotente(
 ): Promise<ResultadoInsercao> {
   let criadas = 0;
   let duplicadas = 0;
-  for (const aresta of arestas) {
+  for (const lote of chunk(arestas, RELACOES_INSERT_BATCH_SIZE)) {
     try {
+      const rows = lote.map((aresta) => ({
+        origem_tipo: aresta.origem_tipo,
+        origem_id: aresta.origem_id,
+        destino_tipo: aresta.destino_tipo,
+        destino_id: aresta.destino_id,
+        relacao: aresta.relacao,
+        metodo: aresta.metodo,
+        chave: aresta.chave,
+        confianca: aresta.confianca,
+      }));
       const { data, error } = await db
         .from("relacoes")
-        .insert({
-          origem_tipo: aresta.origem_tipo,
-          origem_id: aresta.origem_id,
-          destino_tipo: aresta.destino_tipo,
-          destino_id: aresta.destino_id,
-          relacao: aresta.relacao,
-          metodo: aresta.metodo,
-          chave: aresta.chave,
-          confianca: aresta.confianca,
-          status: aresta.status,
+        .upsert(rows, {
+          onConflict: RELACOES_ON_CONFLICT,
+          ignoreDuplicates: true,
         })
         .select("id");
       if (error) {
-        // 23505 = unique_violation: idempotente (considerada duplicada).
-        if (error.code === "23505") {
-          duplicadas += 1;
-          continue;
-        }
-        throw error;
+        // 23505 = unique_violation: idempotente. Se aparecer mesmo com
+        // upsert, tratamos o lote como duplicado para manter o job andando.
+        if (error.code === "23505") duplicadas += lote.length;
+        else throw error;
+        continue;
       }
-      // Supabase JS retorna [] em ON CONFLICT DO NOTHING silencioso.
-      if (Array.isArray(data) && data.length > 0) {
-        criadas += 1;
-      } else {
-        duplicadas += 1;
-      }
+      const inseridas = Array.isArray(data) ? data.length : 0;
+      criadas += inseridas;
+      duplicadas += lote.length - inseridas;
     } catch (err) {
       if (err instanceof Error && (err as { code?: string }).code === "23505") {
-        duplicadas += 1;
+        duplicadas += lote.length;
         continue;
       }
       throw err;
@@ -198,7 +207,6 @@ async function fase1AvisoDocumento(
       metodo: "deterministico",
       chave: `fk:documento_vinculos:${v.id}`,
       confianca: 1.0,
-      status: "confirmado",
     });
   }
   if (arestas.length === 0) return { criadas: 0, duplicadas: 0 };
@@ -226,7 +234,6 @@ async function fase1SkuProduto(db: ServiceClient): Promise<ResultadoInsercao> {
       metodo: "deterministico",
       chave: `fk:produto_skus:${s.id}`,
       confianca: 1.0,
-      status: "confirmado",
     });
   }
   if (arestas.length === 0) return { criadas: 0, duplicadas: 0 };
@@ -262,7 +269,6 @@ async function fase1SkuPreco(db: ServiceClient): Promise<ResultadoInsercao> {
       metodo: "deterministico",
       chave: `fk:sku_precos_calculados:${p.id}`,
       confianca: 1.0,
-      status: "confirmado",
     });
   }
   if (arestas.length === 0) return { criadas: 0, duplicadas: 0 };
@@ -292,7 +298,6 @@ async function fase1ProdutoPolitica(db: ServiceClient): Promise<ResultadoInserca
       metodo: "deterministico",
       chave: `fk:politica_participacao:${p.id}`,
       confianca: 1.0,
-      status: "confirmado",
     });
   }
   if (arestas.length === 0) return { criadas: 0, duplicadas: 0 };
@@ -322,7 +327,6 @@ async function fase1ProdutoDiretriz(db: ServiceClient): Promise<ResultadoInserca
       metodo: "deterministico",
       chave: `fk:cotacao_diretrizes:${d.id}`,
       confianca: 1.0,
-      status: "confirmado",
     });
   }
   if (arestas.length === 0) return { criadas: 0, duplicadas: 0 };
@@ -350,7 +354,6 @@ async function fase1LinhaProduto(db: ServiceClient): Promise<ResultadoInsercao> 
       metodo: "deterministico",
       chave: `fk:produtos:${p.id}`,
       confianca: 1.0,
-      status: "confirmado",
     });
   }
   if (arestas.length === 0) return { criadas: 0, duplicadas: 0 };
@@ -497,7 +500,6 @@ async function aplicarRegra(
           metodo: "deterministico",
           chave: `regra_macro:${regra.id}`,
           confianca: 1.0,
-          status: "confirmado",
         });
         arestas.push({
           origem_tipo: regra.destino_tipo,
@@ -508,7 +510,6 @@ async function aplicarRegra(
           metodo: "deterministico",
           chave: `regra_macro:${regra.id}`,
           confianca: 1.0,
-          status: "confirmado",
         });
       }
     }
@@ -642,7 +643,6 @@ async function executarFase3(
           metodo: "deterministico",
           chave: `triagem_item_matches:${matchId}`,
           confianca: 1.0,
-          status: "confirmado",
         });
       }
       if (arestas.length > 0) {
@@ -692,7 +692,6 @@ async function executarFase3(
           metodo: "deterministico",
           chave: `triagem_decisoes:${decisaoId}`,
           confianca: 1.0,
-          status: "confirmado",
         });
       }
       if (arestas.length > 0) {

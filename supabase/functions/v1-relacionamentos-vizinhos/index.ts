@@ -10,9 +10,9 @@
 //   * Recebe { tipo, id, profundidade? }. profundidade clampada em [1,5]
 //     pelo zod, default 5. Diff da edge interna (default 2, [0,5]) -
 //     reflete o caso de uso "travessia ampla para o consumidor MCP".
-//   * Caminho do dado: a RPC caminha relacoes filtrando status='confirmado'
-//     (autoritativo), deduplica por (tipo, id) preservando o caminho de
-//     menor profundidade, e clampa em [0, 5] no plano SQL.
+//   * Caminho do dado: a RPC caminha relacoes SEM filtro de status (F1) e
+//     exclui apenas arestas incorreta=true, deduplica por (tipo, id)
+//     preservando o caminho de menor profundidade, e clampa em [0, 5].
 //   * Metadata visual (label/icone/cor) vem do mapa canonico fixo (DLH4
 //     seed) e e igual para qualquer chamador - o endpoint V1 e orgao-
 //     agnostico (a API key da Lia nao carrega org_id). Orgaos com
@@ -25,9 +25,9 @@
 //     observabilidade da metrica `cache_hit_ratio`.
 //   * Incremento de contador_uso/2caminhos em vinculos_inferidos_lia
 //     SOMENTE quando a chamada TOCAR uma regra inferida existente
-//     (origem='lia', status IN proposta|ativa) que tenha descricao
+//     (origem='lia', status IN rascunho|ativo) que tenha descricao
 //     referenciando o (tipo, id) do par (ancora, vizinho). Quando a
-//     consulta apenas retorna nos confirmados a partir de relacoes
+//     consulta apenas retorna nos deterministicos a partir de relacoes
 //     estruturais/deterministicas, NAO incrementa - evita inflar
 //     contadores por uso casual.
 //     Limitacao conhecida: o contador_2caminhos so e incrementado
@@ -60,6 +60,7 @@ import { authenticateV1, LIA_SERVICE_SCOPE, principalLabel } from "../_shared/se
 import { logSensitiveAction } from "../_shared/audit.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { cacheGetOrSet } from "../_shared/cache.ts";
+import { resolverNosVisual } from "../_shared/relacionamentos-nos.ts";
 import {
   parseJsonBody,
   type V1RelacionamentosVizinhosPayload,
@@ -74,23 +75,6 @@ const VIZINHANCA_CACHE_TTL_SECONDS = 600;
 /** Profundidade default quando ausente no payload. Default 5 para V1 (travessia ampla). */
 const DEFAULT_PROFUNDIDADE = 5;
 
-// ---------------------------------------------------------------------
-// Metadata visual canonica (mesma paleta DLH4 do seed e da edge no).
-// V1 e orgao-agnostica: NAO consulta config_tipos_no.
-// ---------------------------------------------------------------------
-const DEFAULT_NO_VISUAL = {
-  aviso: { label: "Aviso", icone: "file-text", cor: "#e27300" },
-  processo: { label: "Processo", icone: "gavel", cor: "#f59e0b" },
-  documento: { label: "Documento", icone: "file", cor: "#a1a1aa" },
-  pessoa: { label: "Pessoa", icone: "user", cor: "#3b82f6" },
-  produto: { label: "Produto", icone: "package", cor: "#10b981" },
-  linha: { label: "Linha", icone: "layers", cor: "#8b5cf6" },
-  sku: { label: "SKU", icone: "barcode", cor: "#ec4899" },
-  preco: { label: "Preço", icone: "badge-dollar-sign", cor: "#22d3ee" },
-  politica: { label: "Política", icone: "shield-check", cor: "#84cc16" },
-  cotacao_diretriz: { label: "Diretriz", icone: "scroll-text", cor: "#f97316" },
-} as const;
-
 /** No visual serializado para o contrato V1. */
 interface NoVisualV1 {
   tipo: string;
@@ -98,6 +82,7 @@ interface NoVisualV1 {
   label: string;
   icone: string;
   cor: string;
+  estado: string;
 }
 
 /** Vizinho visual com profundidade e caminho. */
@@ -126,22 +111,6 @@ interface VinculoInferidoRow {
   contador_uso: number;
   contador_2caminhos: number;
   descricao: string;
-}
-
-type Tipo = keyof typeof DEFAULT_NO_VISUAL;
-
-/**
- * Guarda de tipo: TYPE-NARROWING para DefaultNoVisual. Em runtime, `tipo`
- * ja foi validado pelo zod contra `relacionamentoTipoNoEnum`, entao o
- * cast e seguro (defesa em profundidade: se algo passar, DEFAULT_NO_VISUAL
- * nao tem a chave e lanca erro explicito).
- */
-function visualDefault(tipo: string): { label: string; icone: string; cor: string } {
-  if (tipo in DEFAULT_NO_VISUAL) {
-    return DEFAULT_NO_VISUAL[tipo as Tipo];
-  }
-  // Fallback estavel: nunca chega aqui (zod enu), mas defendemos a UI.
-  return { label: tipo, icone: "circle", cor: "#a1a1aa" };
 }
 
 /** Chave de cache estavel. Inclui principal_label para que contadores de
@@ -198,17 +167,11 @@ async function buscarVizinhancaCrua(
   return { ancora, vizinhos };
 }
 
-/** Resolve a metadata visual (label/icone/cor) a partir do mapa canonico. */
-function resolverVisual(tipo: string, id: string): NoVisualV1 {
-  const visual = visualDefault(tipo);
-  return { tipo, id, label: visual.label, icone: visual.icone, cor: visual.cor };
-}
-
 // ---------------------------------------------------------------------
 // Incremento dos contadores de vinculos_inferidos_lia.
 //
 // Politica: incrementa SOMENTE quando o par (ancora, vizinho) referenciar
-// uma regra inferida EXISTENTE (status IN proposta|ativa). A heuristica
+// uma regra inferida EXISTENTE (status IN rascunho|ativo). A heuristica
 // atual usa LIKE na coluna `descricao` para detectar a referencia; o
 // match exato por chave estrutural pode evoluir em sprints seguintes
 // (a coluna `chave` em relacoes pode ganhar vinculo direto ao id da
@@ -255,13 +218,13 @@ async function incrementarContadores(
     return { contador_uso_incrementos: 0, contador_2caminhos_incrementos: 0 };
   }
 
-  // 2) SELECT das regras inferidas ativas/propostas cuja descricao
+  // 2) SELECT das regras inferidas em rascunho/ativo cuja descricao
   //    casa com algum dos padroes acumulados. Restringe a contador
   //    de retorno (nao traz colunas desnecessarias).
   const { data: candidatos, error: candErr } = await db
     .from("vinculos_inferidos_lia")
     .select("id, contador_uso, contador_2caminhos, descricao")
-    .in("status", ["proposta", "ativa"]);
+    .in("status", ["rascunho", "ativo"]);
   if (candErr || !Array.isArray(candidatos)) {
     return { contador_uso_incrementos: 0, contador_2caminhos_incrementos: 0 };
   }
@@ -389,9 +352,28 @@ async function handler(req: Request): Promise<Response> {
         // derruba a resposta se o update falhar.
         await incrementarContadores(db, crua.ancora, crua.vizinhos);
 
-        const no_ancora = resolverVisual(crua.ancora.tipo, crua.ancora.id);
+        const referencias = [crua.ancora, ...crua.vizinhos].map((no) => ({
+          tipo: no.tipo,
+          id: no.id,
+        }));
+        const visuais = await resolverNosVisual(db, referencias);
+        const no_ancora = visuais.get(`${crua.ancora.tipo}:${crua.ancora.id}`) ?? {
+          tipo: crua.ancora.tipo,
+          id: crua.ancora.id,
+          label: `${crua.ancora.tipo}:${crua.ancora.id}`,
+          icone: "circle",
+          cor: "#a1a1aa",
+          estado: "desconhecido",
+        };
         const nos: VizinhoV1[] = crua.vizinhos.map((v) => ({
-          ...resolverVisual(v.tipo, v.id),
+          ...(visuais.get(`${v.tipo}:${v.id}`) ?? {
+            tipo: v.tipo,
+            id: v.id,
+            label: `${v.tipo}:${v.id}`,
+            icone: "circle",
+            cor: "#a1a1aa",
+            estado: "desconhecido",
+          }),
           profundidade: v.profundidade,
           caminho: v.caminho ?? [],
         }));

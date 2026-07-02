@@ -13,7 +13,7 @@
 //
 // Escopo deliberado da Fase 1:
 //   - Vetorial em documentos: usa busca_semantica_documentos, igual ao acervo.
-//   - Grafo: usa documentos como nos ancora e retorna vizinhos confirmados.
+//   - Grafo: usa documentos como nos ancora e retorna vizinhos visiveis.
 //   - Sem criar nova RPC: reusa relacoes_vizinhanca e a infraestrutura atual.
 // =====================================================================
 
@@ -25,6 +25,7 @@ import { logSensitiveAction } from "../_shared/audit.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { resolveEmbeddingProvider } from "../_shared/indexacao.ts";
 import { EmbeddingError } from "../_shared/embeddings.ts";
+import { resolverNosVisual } from "../_shared/relacionamentos-nos.ts";
 import {
   normalizeLimite,
   parseJsonBody,
@@ -67,6 +68,9 @@ interface NoGrafo {
   tipo: string;
   id: string;
   label: string;
+  icone: string;
+  cor: string;
+  estado: string;
   profundidade: number;
   caminho: string[];
   origem: "vetorial" | "grafo";
@@ -135,8 +139,12 @@ async function expandirDocumento(
   return (data ?? []) as VizinhoRpcRow[];
 }
 
-function montarNosGrafo(chunks: ChunkVetorial[], vizinhancas: VizinhoRpcRow[][]): NoGrafo[] {
-  const porChave = new Map<string, NoGrafo>();
+async function montarNosGrafo(
+  db: ServiceClient,
+  chunks: ChunkVetorial[],
+  vizinhancas: VizinhoRpcRow[][],
+): Promise<NoGrafo[]> {
+  const porChave = new Map<string, Omit<NoGrafo, "label" | "icone" | "cor" | "estado">>();
 
   for (const chunk of chunks) {
     if (!chunk.documento_id) continue;
@@ -145,7 +153,6 @@ function montarNosGrafo(chunks: ChunkVetorial[], vizinhancas: VizinhoRpcRow[][])
       porChave.set(chave, {
         tipo: "documento",
         id: chunk.documento_id,
-        label: chunk.nome_arquivo ?? chunk.documento_id,
         profundidade: 0,
         caminho: [],
         origem: "vetorial",
@@ -160,7 +167,6 @@ function montarNosGrafo(chunks: ChunkVetorial[], vizinhancas: VizinhoRpcRow[][])
       porChave.set(chave, {
         tipo: row.tipo,
         id: row.id,
-        label: `${row.tipo}:${row.id}`,
         profundidade: row.profundidade,
         caminho: row.caminho ?? [],
         origem: "grafo",
@@ -168,7 +174,18 @@ function montarNosGrafo(chunks: ChunkVetorial[], vizinhancas: VizinhoRpcRow[][])
     }
   }
 
-  return [...porChave.values()].sort((a, b) => {
+  const visuais = await resolverNosVisual(db, [...porChave.values()]);
+
+  return [...porChave.values()].map((no) => {
+    const visual = visuais.get(`${no.tipo}:${no.id}`);
+    return {
+      ...no,
+      label: visual?.label ?? `${no.tipo}:${no.id}`,
+      icone: visual?.icone ?? "circle",
+      cor: visual?.cor ?? "#a1a1aa",
+      estado: visual?.estado ?? "desconhecido",
+    };
+  }).sort((a, b) => {
     if (a.profundidade !== b.profundidade) return a.profundidade - b.profundidade;
     return `${a.tipo}:${a.id}`.localeCompare(`${b.tipo}:${b.id}`);
   });
@@ -221,7 +238,7 @@ async function handler(req: Request): Promise<Response> {
     const vizinhancas = await Promise.all(
       documentoIds.map((documentoId) => expandirDocumento(db, documentoId, profundidade)),
     );
-    const nos_grafo = montarNosGrafo(chunks_vetoriais, vizinhancas);
+    const nos_grafo = await montarNosGrafo(db, chunks_vetoriais, vizinhancas);
     const rota_sugerida = montarRotaSugerida(nos_grafo, chunks_vetoriais);
     const score_dual = calcularScoreDual(chunks_vetoriais, nos_grafo);
 

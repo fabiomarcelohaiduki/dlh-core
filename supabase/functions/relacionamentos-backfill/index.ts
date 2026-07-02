@@ -22,7 +22,7 @@
 //
 // Logica do backfill propriamente dito (3 fases: estrutural, regras ativas,
 // Triagem) vive em `_shared/relacionamentos-backfill.ts` e e compartilhada
-// com `relacionamentos-reprocessar`.
+// com a guarda de ativacao `relacionamentos-ativar`.
 //
 // Resposta JSON: { arestas_criadas, arestas_duplicadas, erros_por_macro,
 // duracao_ms, execucao_id }. Backfill automatico NAO grava em `audit_log`

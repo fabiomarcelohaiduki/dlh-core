@@ -6,9 +6,9 @@
 // Retorna a vizinhanca (bidirecional) de um no do grafo de
 // Relacionamentos ate uma profundidade configurada. A consulta e
 // feita pela RPC SECURITY DEFINER `public.relacoes_vizinhanca`, que
-// caminha em recursao CTE sobre `public.relacoes` filtrando
-// status='confirmado' e deduplica por (tipo, id) preservando o
-// caminho de menor profundidade.
+// caminha em recursao CTE sobre `public.relacoes` SEM filtro de
+// status (F1; exclui apenas incorreta=true) e deduplica por (tipo, id)
+// preservando o caminho de menor profundidade.
 //
 // Comportamento (sprint "Edge Functions de Leitura (panorama e
 // vizinhanca) com cache"):

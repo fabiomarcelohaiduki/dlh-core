@@ -99,6 +99,15 @@ verify_jwt = false
 [functions.v1-relacionamentos-buscar]
 verify_jwt = false
 
+# MCP dos DOIS GRAFOS da Lia (tool relacionamentos_buscar_split): retorna os
+# subgrafos hierarquico e semantico em paralelo para uma consulta. Autentica
+# via authenticateV1 com API key read-only da Lia (X-Service-Token / Bearer
+# lia_sk_). A API key NAO e JWT, entao sem este pin o gateway barra o Bearer
+# com {UNAUTHORIZED_INVALID_JWT_FORMAT} antes do codigo. Rota de LEITURA (nao
+# audita). Sem o pin, deploy sem --no-verify-jwt reabre o bug.
+[functions.relacionamentos-buscar-split]
+verify_jwt = false
+
 # Fila de triagem da esteira /v1 (modo lion): a Lia puxa o trabalho pendente
 # via authenticateV1 (API key lia_sk_ no Vault, escopo read-only:busca-semantica
 # OU sessao do cockpit). A API key NAO e JWT -> sem este pin o gateway barra o

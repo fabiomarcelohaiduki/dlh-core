@@ -17,9 +17,9 @@
 //
 // /decidir:
 //   acao='aprovar'  - cria catalogo_regras_vinculo (validacao zod anti
-//                     numero_pregao), seta vinculo.status='ativa' e
+//                     numero_pregao), seta vinculo.status='ativo' e
 //                     regra_macro_id=<novo id>.
-//   acao='rejeitar' - seta vinculo.status='rejeitada'; motivo obrigatorio.
+//   acao='rejeitar' - seta vinculo.status='descartado'; motivo obrigatorio.
 //   acao='editar'   - corrige descricao/sequencia; motivo obrigatorio.
 //
 // Validacao anti numero_pregao replica o trigger do banco para devolver 422
@@ -311,9 +311,9 @@ async function deleteVinculo(
 //       aprovar: derivar payload de regra humana (origem/destino/combinacao/sequencia
 //                de `dados` do body + campo_destino/campo_origem default `id`),
 //                inserir em catalogo_regras_vinculo (zod + assertNumeroPregao
-//                re-aplicado para 422), setar vinculo.status='ativa' e
+//                re-aplicado para 422), setar vinculo.status='ativo' e
 //                regra_macro_id=<novo id>.
-//       rejeitar: setar vinculo.status='rejeitada' + motivo
+//       rejeitar: setar vinculo.status='descartado' + motivo
 //       editar:   setar descricao (do body ou do input) + motivo
 //   - audit_log com acao especifica por decisao
 // ---------------------------------------------------------------------
@@ -382,11 +382,11 @@ async function decidirVinculo(
       throw new HttpError(500, "catalogo_regras_insert_failed", "falha ao criar a regra humana ao aprovar o vinculo");
     }
 
-    // Atualiza vinculo: status='ativa' + regra_macro_id.
+    // Atualiza vinculo: status='ativo' + regra_macro_id.
     const { data: updated, error: updateErr } = await db
       .from("vinculos_inferidos_lia")
       .update({
-        status: "ativa",
+        status: "ativo",
         regra_macro_id: regra.id,
         motivo: input.motivo ?? vinculo.motivo ?? null,
       })
@@ -446,7 +446,7 @@ async function decidirVinculo(
     const { data, error } = await db
       .from("vinculos_inferidos_lia")
       .update({
-        status: "rejeitada",
+        status: "descartado",
         motivo: input.motivo,
       })
       .eq("id", input.vinculo_id)

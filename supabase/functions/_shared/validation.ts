@@ -1665,7 +1665,10 @@ export const configLlmSchema = z
       errorMap: () => ({ message: "provider invalido (use 'openai')" }),
     }),
     modelo: z
-      .string({ required_error: "modelo e obrigatorio", invalid_type_error: "modelo deve ser string" })
+      .string({
+        required_error: "modelo e obrigatorio",
+        invalid_type_error: "modelo deve ser string",
+      })
       .trim()
       .min(1, "modelo nao pode ser vazio")
       .max(80, "modelo muito longo"),
@@ -2145,17 +2148,26 @@ export const MAX_CONHECIMENTO_SETOR_CHARS = 80;
 export const conhecimentoCreateSchema = z
   .object({
     setor: z
-      .string({ required_error: "setor e obrigatorio", invalid_type_error: "setor deve ser string" })
+      .string({
+        required_error: "setor e obrigatorio",
+        invalid_type_error: "setor deve ser string",
+      })
       .trim()
       .min(1, "setor nao pode ser vazio")
       .max(MAX_CONHECIMENTO_SETOR_CHARS, "setor muito longo"),
     titulo: z
-      .string({ required_error: "titulo e obrigatorio", invalid_type_error: "titulo deve ser string" })
+      .string({
+        required_error: "titulo e obrigatorio",
+        invalid_type_error: "titulo deve ser string",
+      })
       .trim()
       .min(1, "titulo nao pode ser vazio")
       .max(MAX_CONHECIMENTO_TITULO_CHARS, "titulo muito longo"),
     conteudo: z
-      .string({ required_error: "conteudo e obrigatorio", invalid_type_error: "conteudo deve ser string" })
+      .string({
+        required_error: "conteudo e obrigatorio",
+        invalid_type_error: "conteudo deve ser string",
+      })
       .trim()
       .min(1, "conteudo nao pode ser vazio")
       .max(MAX_CONHECIMENTO_CONTEUDO_CHARS, "conteudo muito longo"),
@@ -2212,7 +2224,10 @@ export const contaAutorizadaCreateSchema = z
       errorMap: () => ({ message: "tipo invalido (use: email, dominio)" }),
     }),
     valor: z
-      .string({ required_error: "valor e obrigatorio", invalid_type_error: "valor deve ser string" })
+      .string({
+        required_error: "valor e obrigatorio",
+        invalid_type_error: "valor deve ser string",
+      })
       .trim()
       .min(1, "valor nao pode ser vazio")
       .max(254, "valor muito longo"),
@@ -2248,7 +2263,7 @@ export const contaAutorizadaToggleSchema = z
 export type ContaAutorizadaToggleInput = z.infer<typeof contaAutorizadaToggleSchema>;
 
 // =====================================================================
-// Relacionamentos GraphRAG
+// Relacionamentos GraphLink
 // =====================================================================
 
 export const RELACIONAMENTOS_TIPOS_NO = [
@@ -2266,7 +2281,7 @@ export const RELACIONAMENTOS_TIPOS_NO = [
 
 export const RELACIONAMENTOS_COMBINACOES = ["simples", "composta"] as const;
 export const RELACIONAMENTOS_VINCULO_ORIGENS = ["lia", "humano"] as const;
-export const RELACIONAMENTOS_VINCULO_STATUS = ["proposta", "ativa", "rejeitada"] as const;
+export const RELACIONAMENTOS_VINCULO_STATUS = ["rascunho", "ativo", "descartado"] as const;
 export const RELACIONAMENTOS_VINCULO_DECISOES = ["aprovar", "rejeitar", "editar"] as const;
 
 export const REL_NUMERO_PREGAO_REFINADO_MSG =
@@ -2433,8 +2448,7 @@ export const vinculoLiaUpdateSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["(corpo)"],
-        message:
-          "informe ao menos um campo editavel (descricao, contador_uso, contador_2caminhos)",
+        message: "informe ao menos um campo editavel (descricao, contador_uso, contador_2caminhos)",
       });
     }
   });
@@ -2506,12 +2520,6 @@ export const configRelacionamentosUpdateSchema = z
       .number({ invalid_type_error: "uso_minimo_promocao deve ser numero" })
       .int("uso_minimo_promocao deve ser inteiro")
       .min(0, "uso_minimo_promocao nao pode ser negativo")
-      .optional(),
-    cap_panorama: z
-      .number({ invalid_type_error: "cap_panorama deve ser numero" })
-      .int("cap_panorama deve ser inteiro")
-      .min(1, "cap_panorama deve ser >= 1")
-      .nullable()
       .optional(),
     cap_vizinhanca: z
       .number({ invalid_type_error: "cap_vizinhanca deve ser numero" })
@@ -2696,4 +2704,335 @@ export const v1RelacionamentosBuscarPayloadSchema = z
 
 export type V1RelacionamentosBuscarPayload = z.infer<
   typeof v1RelacionamentosBuscarPayloadSchema
+>;
+
+// ---------------------------------------------------------------------
+// Relacionamentos V2 (dois grafos): tipo de relacionamento da aresta.
+//   'hierarquico' -> aresta estrutural (campo-a-campo);
+//   'semantico'   -> aresta por conteudo/embedding.
+// Espelha o CHECK de public.relacoes.tipo_relacionamento e
+// config_relacionamentos.tipo_default_panorama.
+// ---------------------------------------------------------------------
+export const RELACIONAMENTOS_TIPOS_GRAFO = ["hierarquico", "semantico"] as const;
+export type RelacionamentoTipoGrafo = (typeof RELACIONAMENTOS_TIPOS_GRAFO)[number];
+
+export const relacionamentoTipoGrafoEnum = z.enum(RELACIONAMENTOS_TIPOS_GRAFO, {
+  errorMap: () => ({ message: "tipo invalido (use: hierarquico, semantico)" }),
+});
+
+// ---------------------------------------------------------------------
+// Schema: MCP relacionamentos-buscar-split (POST, autenticada por
+// authenticateV1 / X-Service-Token).
+//
+// { consulta, profundidade?, filtros?, limites? }
+//   - consulta: linguagem natural (1..MAX_QUERY_CHARS).
+//   - profundidade: OPCIONAL. Aqui apenas garantimos que e inteiro; o
+//     CLAMP para o teto duro [1, 5] (default 2) e feito SERVER-SIDE no
+//     handler ANTES da query (evita explosao de subgrafo), por isso o
+//     schema nao rejeita valores fora do intervalo.
+//   - filtros.tipos_no: OPCIONAL. Restringe os tipos de no considerados
+//     ao subconjunto informado (allowlist do enum de tipos de no).
+//   - limites.max_nos_por_grafo / max_ancoras: OPCIONAIS. Override fino
+//     dos limites; o cap efetivo por grafo tem como fonte primaria
+//     config_relacionamentos.cap_por_grafo (o override, quando presente,
+//     e clampado no handler e nunca AUMENTA o cap da org).
+// ---------------------------------------------------------------------
+export const relacionamentosBuscarSplitPayloadSchema = z
+  .object({
+    consulta: z
+      .string({
+        required_error: "consulta e obrigatoria",
+        invalid_type_error: "consulta deve ser string",
+      })
+      .trim()
+      .min(1, "consulta nao pode ser vazia")
+      .max(MAX_QUERY_CHARS, `consulta nao pode exceder ${MAX_QUERY_CHARS} caracteres`),
+    profundidade: z
+      .number({ invalid_type_error: "profundidade deve ser numero" })
+      .int("profundidade deve ser inteiro")
+      .optional(),
+    filtros: z
+      .object({
+        tipos_no: z.array(relacionamentoTipoNoEnum).min(1, "tipos_no nao pode ser vazio")
+          .optional(),
+      })
+      .strict()
+      .optional(),
+    limites: z
+      .object({
+        max_nos_por_grafo: z
+          .number({ invalid_type_error: "max_nos_por_grafo deve ser numero" })
+          .int("max_nos_por_grafo deve ser inteiro")
+          .positive("max_nos_por_grafo deve ser positivo")
+          .optional(),
+        max_ancoras: z
+          .number({ invalid_type_error: "max_ancoras deve ser numero" })
+          .int("max_ancoras deve ser inteiro")
+          .positive("max_ancoras deve ser positivo")
+          .optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+export type RelacionamentosBuscarSplitPayload = z.infer<
+  typeof relacionamentosBuscarSplitPayloadSchema
+>;
+
+// ---------------------------------------------------------------------
+// Schema: feedback inline de aresta (POST /relacionamentos-feedback).
+//
+// { aresta_id, acao: 'visto'|'incorreta', motivo? }
+//   - aresta_id: UUID da aresta em public.relacoes.
+//   - acao: 'visto' (toggle) ou 'incorreta' (toggle reversivel).
+//   - motivo: exigido APENAS no caminho de MARCACAO de incorreta
+//     (incorreta false -> true). A validacao de "motivo obrigatorio na
+//     marcacao" e feita na Edge, pois depende do estado atual da aresta
+//     (toggle): a desmarcacao e o 'visto' nunca exigem motivo. Aqui apenas
+//     garantimos o formato (nao-vazio quando presente).
+//
+// SEC-D2: visto_por/incorreta_por NUNCA vem do body; o autor e sempre
+// derivado do JWT via requireAuthorizedUser. Por isso `.strict()` rejeita
+// qualquer campo extra (inclusive tentativa de passar visto_por).
+// ---------------------------------------------------------------------
+export const RELACIONAMENTOS_FEEDBACK_ACOES = ["visto", "incorreta"] as const;
+export type RelacionamentosFeedbackAcao = (typeof RELACIONAMENTOS_FEEDBACK_ACOES)[number];
+
+export const relacionamentosFeedbackSchema = z
+  .object({
+    aresta_id: z
+      .string({
+        required_error: "aresta_id e obrigatorio",
+        invalid_type_error: "aresta_id deve ser string",
+      })
+      .uuid("aresta_id invalido"),
+    acao: z.enum(RELACIONAMENTOS_FEEDBACK_ACOES, {
+      required_error: "acao e obrigatoria",
+      invalid_type_error: "acao invalida (use 'visto' ou 'incorreta')",
+    }),
+    motivo: z
+      .string()
+      .trim()
+      .min(1, "motivo nao pode ser vazio")
+      .max(2000, "motivo muito longo")
+      .optional(),
+  })
+  .strict();
+
+export type RelacionamentosFeedbackInput = z.infer<typeof relacionamentosFeedbackSchema>;
+
+// ---------------------------------------------------------------------
+// Schema: dry-run de regra (POST /relacionamentos-dry-run).
+// Corpo minimo: apenas o id da regra a simular. A Edge carrega a regra
+// ATUAL do catalogo (escopada por org), computa o hash dos campos de
+// matching e simula o impacto SEM persistir (invariante read-only F3).
+// ---------------------------------------------------------------------
+export const relacionamentosDryRunSchema = z
+  .object({
+    regra_id: z
+      .string({
+        required_error: "regra_id e obrigatorio",
+        invalid_type_error: "regra_id deve ser string",
+      })
+      .uuid("regra_id invalido"),
+  })
+  .strict();
+
+export type RelacionamentosDryRunInput = z.infer<typeof relacionamentosDryRunSchema>;
+
+// ---------------------------------------------------------------------
+// Schema: guarda de ativacao (POST /relacionamentos-ativar).
+// Exige o hash obtido do dry-run (gate de frescor STATELESS - E9) e a
+// confirmacao DUPLA (confirmar + confirmar_efeito_permanente). Faltando
+// qualquer confirmacao, a Edge retorna 422 (efeito permanente exige
+// consentimento explicito). `regra_hash` e comparado com o hash
+// RECOMPUTADO da regra atual: se divergir, 409 (regra mudou, refaca).
+// ---------------------------------------------------------------------
+export const relacionamentosAtivarGuardSchema = z
+  .object({
+    regra_id: z
+      .string({
+        required_error: "regra_id e obrigatorio",
+        invalid_type_error: "regra_id deve ser string",
+      })
+      .uuid("regra_id invalido"),
+    regra_hash: z
+      .string({
+        required_error: "regra_hash e obrigatorio",
+        invalid_type_error: "regra_hash deve ser string",
+      })
+      .trim()
+      .min(1, "regra_hash nao pode ser vazio")
+      .max(128, "regra_hash muito longo"),
+    // Confirmacoes OPCIONAIS no schema (booleano quando presente): a ausencia
+    // e tratada como "nao confirmado" pelo gate de confirmacao dupla da Edge,
+    // que retorna 422 (e nao 400) - alinhado ao criterio de aceite.
+    confirmar: z
+      .boolean({ invalid_type_error: "confirmar deve ser booleano" })
+      .optional(),
+    confirmar_efeito_permanente: z
+      .boolean({ invalid_type_error: "confirmar_efeito_permanente deve ser booleano" })
+      .optional(),
+    motivo: z
+      .string()
+      .trim()
+      .min(1, "motivo nao pode ser vazio")
+      .max(2000, "motivo muito longo")
+      .optional(),
+  })
+  .strict();
+
+export type RelacionamentosAtivarGuardInput = z.infer<
+  typeof relacionamentosAtivarGuardSchema
+>;
+
+// ---------------------------------------------------------------------
+// F4 - Regras semanticas (Edge relacionamentos-regras-semanticas).
+//
+// GET retorna 2 blocos: `candidatos` (vinculos_inferidos_lia auditaveis,
+// paginados por keyset) e `ajustes_tecnicos_lia` (config_relacionamentos,
+// render-only). O corpo de POST/PATCH governa a acao sobre um bloco:
+//   { bloco, operacao, item_id?, motivo?, configuracao? }
+//
+//   - bloco 'candidatos': ativar/desativar 1 candidato (item_id obrigatorio).
+//     desativar exige motivo (revisao humana leve). ativar reabilita.
+//   - bloco 'ajustes_tecnicos': render-only (RNF-15). A Edge NUNCA persiste
+//     este bloco: PATCH/DELETE retornam 403. O schema aceita o valor no enum
+//     apenas para roteamento; a rejeicao 403 acontece na Edge.
+// ---------------------------------------------------------------------
+export const RELACIONAMENTOS_SEMANTICAS_BLOCOS = ["candidatos", "ajustes_tecnicos"] as const;
+export type RelacionamentosSemanticaBloco = (typeof RELACIONAMENTOS_SEMANTICAS_BLOCOS)[number];
+
+export const RELACIONAMENTOS_SEMANTICAS_OPERACOES = ["ativar", "desativar"] as const;
+export type RelacionamentosSemanticaOperacao =
+  (typeof RELACIONAMENTOS_SEMANTICAS_OPERACOES)[number];
+
+const relacionamentosSemanticaBlocoEnum = z.enum(RELACIONAMENTOS_SEMANTICAS_BLOCOS, {
+  errorMap: () => ({ message: "bloco invalido (use: candidatos, ajustes_tecnicos)" }),
+});
+
+const relacionamentosSemanticaOperacaoEnum = z.enum(RELACIONAMENTOS_SEMANTICAS_OPERACOES, {
+  errorMap: () => ({ message: "operacao invalida (use: ativar, desativar)" }),
+});
+
+export const relacionamentosRegraSemanticaAcaoSchema = z
+  .object({
+    bloco: relacionamentosSemanticaBlocoEnum,
+    operacao: relacionamentosSemanticaOperacaoEnum,
+    item_id: z.string().uuid("item_id invalido").optional(),
+    motivo: z
+      .string()
+      .trim()
+      .min(1, "motivo nao pode ser vazio")
+      .max(2000, "motivo muito longo")
+      .optional(),
+    configuracao: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict()
+  .superRefine((val, ctx) => {
+    // Candidatos exigem item_id para localizar a linha a mutar.
+    if (val.bloco === "candidatos" && val.item_id === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["item_id"],
+        message: "item_id e obrigatorio para operar sobre um candidato",
+      });
+    }
+    // Desativar candidato exige motivo (revisao humana leve).
+    if (
+      val.bloco === "candidatos" &&
+      val.operacao === "desativar" &&
+      (val.motivo === undefined || val.motivo.trim() === "")
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["motivo"],
+        message: "motivo e obrigatorio para desativar um candidato",
+      });
+    }
+  });
+
+export type RelacionamentosRegraSemanticaAcaoInput = z.infer<
+  typeof relacionamentosRegraSemanticaAcaoSchema
+>;
+
+// ---------------------------------------------------------------------
+// F4 - Abreviacoes (Edge relacionamentos-abreviacoes, PATCH em lote).
+//
+// { itens: [{ tipo, abreviacao_padrao?, cor_semantica? }] }
+//   - tipo: string nao-vazia (existencia em config_tipos_no da org validada
+//     na Edge -> 404); NAO restrita ao enum canonico para tolerar tipos
+//     custom ja cadastrados.
+//   - abreviacao_padrao: rotulo curto, no maximo 8 caracteres (E10).
+//   - cor_semantica: hex #RRGGBB (6 digitos, sem alpha).
+//   - cada item precisa informar ao menos um campo editavel.
+//   - org_id NUNCA vem do body (resolvido pelo JWT) -> `.strict()`.
+// ---------------------------------------------------------------------
+export const REL_ABREVIACAO_MAX_CHARS = 8;
+
+const relacionamentosAbreviacaoItemSchema = z
+  .object({
+    tipo: z
+      .string({
+        required_error: "tipo e obrigatorio",
+        invalid_type_error: "tipo deve ser string",
+      })
+      .trim()
+      .min(1, "tipo nao pode ser vazio")
+      .max(80, "tipo muito longo"),
+    abreviacao_padrao: z
+      .string({ invalid_type_error: "abreviacao_padrao deve ser string" })
+      .trim()
+      .min(1, "abreviacao_padrao nao pode ser vazia")
+      .max(
+        REL_ABREVIACAO_MAX_CHARS,
+        `abreviacao_padrao deve ter no maximo ${REL_ABREVIACAO_MAX_CHARS} caracteres`,
+      )
+      .optional(),
+    cor_semantica: z
+      .string({ invalid_type_error: "cor_semantica deve ser string" })
+      .trim()
+      .regex(/^#[0-9a-fA-F]{6}$/, "cor_semantica deve ser um hex #RRGGBB")
+      .optional(),
+  })
+  .strict()
+  .superRefine((val, ctx) => {
+    if (val.abreviacao_padrao === undefined && val.cor_semantica === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["(item)"],
+        message: "informe ao menos abreviacao_padrao ou cor_semantica",
+      });
+    }
+  });
+
+export const relacionamentosAbreviacoesPatchSchema = z
+  .object({
+    itens: z
+      .array(relacionamentosAbreviacaoItemSchema, {
+        required_error: "itens e obrigatorio",
+        invalid_type_error: "itens deve ser uma lista",
+      })
+      .min(1, "itens deve ter ao menos um item")
+      .max(100, "itens nao pode exceder 100 entradas")
+      .superRefine((itens, ctx) => {
+        const vistos = new Set<string>();
+        for (let i = 0; i < itens.length; i++) {
+          const tipo = itens[i].tipo;
+          if (vistos.has(tipo)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [i, "tipo"],
+              message: `tipo duplicado no lote: ${tipo}`,
+            });
+          }
+          vistos.add(tipo);
+        }
+      }),
+  })
+  .strict();
+
+export type RelacionamentosAbreviacoesPatchInput = z.infer<
+  typeof relacionamentosAbreviacoesPatchSchema
 >;

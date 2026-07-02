@@ -15,6 +15,7 @@ export class HttpError extends Error {
     public readonly status: number,
     public readonly code: string,
     message: string,
+    public readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "HttpError";
@@ -25,6 +26,7 @@ export interface ErrorBody {
   error: {
     code: string;
     message: string;
+    details?: Record<string, unknown>;
   };
 }
 
@@ -54,7 +56,13 @@ export async function errorResponse(
   context: Record<string, unknown> = {},
 ): Promise<Response> {
   if (error instanceof HttpError) {
-    const body: ErrorBody = { error: { code: error.code, message: error.message } };
+    const body: ErrorBody = {
+      error: {
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+    };
     return jsonResponse(body, error.status);
   }
 
