@@ -57,26 +57,30 @@ select
 from public.org o
 cross join (
   values
-    -- #1 aviso<->aviso por uasg (simples)
+    -- #1 aviso<->aviso por uasg (simples). Chave vive no jsonb payload_bruto.
     ('Aviso <-> Aviso por UASG',
-     'aviso', 'uasg', 'aviso', 'uasg',
-     'simples', array['uasg']::text[], false),
-    -- #2 pessoa<->pessoa por cnpj (simples)
+     'aviso', 'payload_bruto.uasg', 'aviso', 'payload_bruto.uasg',
+     'simples', array['payload_bruto.uasg']::text[], false),
+    -- #2 pessoa<->pessoa por cnpj (simples; coluna fisica real).
     ('Pessoa <-> Pessoa por CNPJ',
      'pessoa', 'cnpj', 'pessoa', 'cnpj',
      'simples', array['cnpj']::text[], false),
-    -- #3 pessoa<->pessoa por razao_social (simples)
+    -- #3 pessoa<->pessoa por razao social (simples; coluna fisica nome_razao_social).
     ('Pessoa <-> Pessoa por Razao Social',
-     'pessoa', 'razao_social', 'pessoa', 'razao_social',
-     'simples', array['razao_social']::text[], false),
-    -- #4 processo<->processo por serie_m (simples)
+     'pessoa', 'nome_razao_social', 'pessoa', 'nome_razao_social',
+     'simples', array['nome_razao_social']::text[], false),
+    -- #4 processo<->processo por serie_m (simples). SEM fonte valida hoje
+    --    (nem coluna fisica nem chave jsonb em nomus_processos); fica inerte
+    --    (ativa=false) ate o dono definir a chave real.
     ('Processo <-> Processo por Serie M',
      'processo', 'serie_m', 'processo', 'serie_m',
      'simples', array['serie_m']::text[], false),
-    -- #5 aviso<->aviso por (numero_pregao, uasg) (composta)
+    -- #5 aviso<->aviso por (numero do pregao, uasg) (composta). Ambas as
+    --    chaves vivem no jsonb payload_bruto (o numero do pregao e a chave
+    --    `processo`). O pregao sozinho repete entre UASGs -> so composto.
     ('Aviso <-> Aviso por Numero do pregao + UASG',
-     'aviso', 'numero_pregao', 'aviso', 'numero_pregao',
-     'composta', array['numero_pregao','uasg']::text[], false)
+     'aviso', 'payload_bruto.processo', 'aviso', 'payload_bruto.processo',
+     'composta', array['payload_bruto.processo','payload_bruto.uasg']::text[], false)
 ) as v (nome, origem_tipo, campo_origem, destino_tipo, campo_destino,
         combinacao, sequencia, ativa)
 on conflict (org_id, origem_tipo, campo_origem, destino_tipo, campo_destino)
