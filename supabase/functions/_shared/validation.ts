@@ -2266,19 +2266,6 @@ export type ContaAutorizadaToggleInput = z.infer<typeof contaAutorizadaToggleSch
 // Relacionamentos GraphLink
 // =====================================================================
 
-export const RELACIONAMENTOS_TIPOS_NO = [
-  "aviso",
-  "processo",
-  "documento",
-  "pessoa",
-  "produto",
-  "linha",
-  "sku",
-  "preco",
-  "politica",
-  "cotacao_diretriz",
-] as const;
-
 export const RELACIONAMENTOS_COMBINACOES = ["simples", "composta"] as const;
 export const RELACIONAMENTOS_MODOS_DISPARO = ["imediato", "agendado", "on-demand"] as const;
 export const RELACIONAMENTOS_VINCULO_ORIGENS = ["lia", "humano"] as const;
@@ -2288,12 +2275,22 @@ export const RELACIONAMENTOS_VINCULO_DECISOES = ["aprovar", "rejeitar", "editar"
 export const REL_NUMERO_PREGAO_REFINADO_MSG =
   "Numero do pregao sozinho gera falsos positivos. Use regra composta com UASG.";
 
-const relacionamentoTipoNoEnum = z.enum(RELACIONAMENTOS_TIPOS_NO, {
-  errorMap: () => ({
-    message:
-      "tipo invalido (use: aviso, processo, documento, pessoa, produto, linha, sku, preco, politica, cotacao_diretriz)",
-  }),
-});
+// Tipo de no deixou de ser enum fechado: os tipos vivem em config_tipos_no
+// (administraveis pelo cockpit). Aqui valida-se apenas o FORMATO do
+// identificador; a existencia do tipo na org e conferida na borda/banco de
+// cada rota que precisa dela.
+const relacionamentoTipoNoEnum = z
+  .string({
+    required_error: "tipo e obrigatorio",
+    invalid_type_error: "tipo deve ser string",
+  })
+  .trim()
+  .min(1, "tipo nao pode ser vazio")
+  .max(60, "tipo muito longo")
+  .regex(
+    /^[a-z][a-z0-9_]*$/,
+    "tipo invalido (use minusculas, digitos e underscore, comecando por letra)",
+  );
 
 const relacionamentoCombinacaoEnum = z.enum(RELACIONAMENTOS_COMBINACOES, {
   errorMap: () => ({ message: "combinacao invalida (use: simples, composta)" }),
@@ -2557,81 +2554,6 @@ export const configRelacionamentosUpdateSchema = z
   });
 
 export type ConfigRelacionamentosUpdateInput = z.infer<typeof configRelacionamentosUpdateSchema>;
-
-export const configTipoNoCreateSchema = z
-  .object({
-    tipo: relacionamentoTipoNoEnum,
-    label: z
-      .string({
-        required_error: "label e obrigatorio",
-        invalid_type_error: "label deve ser string",
-      })
-      .trim()
-      .min(1, "label nao pode ser vazio")
-      .max(80, "label muito longo"),
-    icone: z
-      .string({
-        required_error: "icone e obrigatorio",
-        invalid_type_error: "icone deve ser string",
-      })
-      .trim()
-      .min(1, "icone nao pode ser vazio")
-      .max(80, "icone muito longo"),
-    cor: z
-      .string({ required_error: "cor e obrigatoria", invalid_type_error: "cor deve ser string" })
-      .trim()
-      .regex(/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/, "cor deve ser um hex (#RRGGBB ou #RRGGBBAA)"),
-    ordem: z
-      .number({ invalid_type_error: "ordem deve ser numero" })
-      .int("ordem deve ser inteiro")
-      .min(0, "ordem nao pode ser negativa")
-      .optional(),
-    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
-  })
-  .strict();
-
-export type ConfigTipoNoCreateInput = z.infer<typeof configTipoNoCreateSchema>;
-
-export const configTipoNoUpdateSchema = z
-  .object({
-    id: z.string().uuid("id invalido").optional(),
-    tipo: relacionamentoTipoNoEnum.optional(),
-    label: z
-      .string()
-      .trim()
-      .min(1, "label nao pode ser vazio")
-      .max(80, "label muito longo")
-      .optional(),
-    icone: z
-      .string()
-      .trim()
-      .min(1, "icone nao pode ser vazio")
-      .max(80, "icone muito longo")
-      .optional(),
-    cor: z
-      .string()
-      .trim()
-      .regex(/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/, "cor deve ser um hex (#RRGGBB ou #RRGGBBAA)")
-      .optional(),
-    ordem: z
-      .number({ invalid_type_error: "ordem deve ser numero" })
-      .int("ordem deve ser inteiro")
-      .min(0, "ordem nao pode ser negativa")
-      .optional(),
-    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
-  })
-  .strict()
-  .superRefine((val, ctx) => {
-    if (val.id === undefined && val.tipo === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["(corpo)"],
-        message: "informe ao menos um identificador (id ou tipo)",
-      });
-    }
-  });
-
-export type ConfigTipoNoUpdateInput = z.infer<typeof configTipoNoUpdateSchema>;
 
 export const relacionamentosVizinhancaPayloadSchema = z
   .object({
@@ -3041,4 +2963,69 @@ export const relacionamentosAbreviacoesPatchSchema = z
 
 export type RelacionamentosAbreviacoesPatchInput = z.infer<
   typeof relacionamentosAbreviacoesPatchSchema
+>;
+
+// ---------------------------------------------------------------------
+// Tipos de no administraveis (Edge relacionamentos-tipos-no).
+// tabela_fonte espelha o CHECK config_tipos_no_tabela_fonte_formato.
+// ---------------------------------------------------------------------
+
+const relacionamentoTabelaFonteSchema = z
+  .string({
+    required_error: "tabela_fonte e obrigatoria",
+    invalid_type_error: "tabela_fonte deve ser string",
+  })
+  .trim()
+  .regex(
+    /^[a-z][a-z0-9_]{0,62}$/,
+    "tabela_fonte invalida (nome de tabela em minusculas/underscore)",
+  );
+
+const relacionamentoTipoLabelSchema = z
+  .string({ invalid_type_error: "label deve ser string" })
+  .trim()
+  .min(1, "label nao pode ser vazio")
+  .max(80, "label muito longo");
+
+export const relacionamentosTipoNoCreateSchema = z
+  .object({
+    tipo: relacionamentoTipoNoEnum,
+    label: relacionamentoTipoLabelSchema,
+    tabela_fonte: relacionamentoTabelaFonteSchema,
+    icone: z
+      .string({ invalid_type_error: "icone deve ser string" })
+      .trim()
+      .min(1, "icone nao pode ser vazio")
+      .max(60, "icone muito longo")
+      .optional(),
+    cor: z
+      .string({ invalid_type_error: "cor deve ser string" })
+      .trim()
+      .regex(/^#[0-9a-fA-F]{6}$/, "cor invalida (use hex #rrggbb)")
+      .optional(),
+  })
+  .strict();
+
+export type RelacionamentosTipoNoCreateInput = z.infer<
+  typeof relacionamentosTipoNoCreateSchema
+>;
+
+export const relacionamentosTipoNoUpdateSchema = z
+  .object({
+    label: relacionamentoTipoLabelSchema.optional(),
+    tabela_fonte: relacionamentoTabelaFonteSchema.optional(),
+    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
+  })
+  .strict()
+  .superRefine((val, ctx) => {
+    if (val.label === undefined && val.tabela_fonte === undefined && val.ativo === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "informe ao menos label, tabela_fonte ou ativo",
+      });
+    }
+  });
+
+export type RelacionamentosTipoNoUpdateInput = z.infer<
+  typeof relacionamentosTipoNoUpdateSchema
 >;

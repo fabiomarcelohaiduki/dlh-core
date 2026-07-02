@@ -41,23 +41,51 @@ export interface BackfillResult {
 }
 
 /**
- * Tipos de no permitidos para a aresta de relacao. Usado como allowlist
- * deterministica em FASE 2 (match por regras ativas). Qualquer regra cuja
- * `origem_tipo`/`destino_tipo` esteja fora deste set e IGNORADA no backfill
- * (defesa em profundidade: a regra pode existir, mas nao gera arestas).
+ * Mapeamento canonico tipo de no -> tabela do substrato. Usado como
+ * FALLBACK para linhas de config_tipos_no anteriores a coluna
+ * `tabela_fonte` (bancos ainda nao migrados). A fonte da verdade e o
+ * dado em config_tipos_no.tabela_fonte, carregado por carregarTabelasFonte.
  */
-const TIPOS_NO_ALLOWLIST = new Set<string>([
-  "aviso",
-  "processo",
-  "documento",
-  "pessoa",
-  "produto",
-  "linha",
-  "sku",
-  "preco",
-  "politica",
-  "cotacao_diretriz",
-]);
+export const TABELA_FONTE_FALLBACK: Record<string, string> = {
+  aviso: "avisos",
+  processo: "nomus_processos",
+  documento: "documentos",
+  pessoa: "nomus_pessoas",
+  produto: "produtos",
+  linha: "produto_linhas",
+  sku: "produto_skus",
+  preco: "sku_precos_calculados",
+  politica: "politica_participacao",
+  cotacao_diretriz: "cotacao_diretrizes",
+};
+
+/**
+ * Carrega o mapa tipo -> tabela_fonte dos tipos ATIVOS da org
+ * (config_tipos_no). E a allowlist da FASE 2 e do dry-run: regra cujo
+ * origem_tipo/destino_tipo nao esta no mapa e IGNORADA (defesa em
+ * profundidade - a regra pode existir, mas nao gera arestas). Tipos sem
+ * tabela_fonte gravada caem no TABELA_FONTE_FALLBACK; sem fallback,
+ * ficam fora do mapa.
+ */
+export async function carregarTabelasFonte(
+  db: ServiceClient,
+  orgId: string,
+): Promise<Map<string, string>> {
+  const { data, error } = await db
+    .from("config_tipos_no")
+    .select("tipo, tabela_fonte")
+    .eq("org_id", orgId)
+    .eq("ativo", true);
+  if (error) {
+    throw new Error(`carregar tabelas-fonte (config_tipos_no): ${error.message}`);
+  }
+  const mapa = new Map<string, string>();
+  for (const row of (data ?? []) as Array<{ tipo: string; tabela_fonte: string | null }>) {
+    const tabela = row.tabela_fonte ?? TABELA_FONTE_FALLBACK[row.tipo] ?? null;
+    if (tabela) mapa.set(row.tipo, tabela);
+  }
+  return mapa;
+}
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -436,6 +464,7 @@ function derivarRelacao(regra: RegraAtiva): string {
 async function aplicarRegra(
   db: ServiceClient,
   regra: RegraAtiva,
+  tabelasFonte: Map<string, string>,
 ): Promise<ResultadoInsercao> {
   const tipo = regra.origem_tipo;
   const relacao = derivarRelacao(regra);
@@ -456,8 +485,8 @@ async function aplicarRegra(
     return { criadas: 0, duplicadas: 0 };
   }
 
-  // Resolve a tabela-fonte por tipo.
-  const tabelaOrigem = resolverTabelaFonte(tipo);
+  // Resolve a tabela-fonte pelo mapa da config (dado, nao hardcode).
+  const tabelaOrigem = tabelasFonte.get(tipo) ?? null;
   if (!tabelaOrigem) return { criadas: 0, duplicadas: 0 };
 
   // Valida que TODOS os campos existem nas colunas da tabela (defesa).
@@ -530,37 +559,6 @@ async function aplicarRegra(
 }
 
 /**
- * Mapeia o tipo de no (origem_tipo/destino_tipo) para a tabela-fonte
- * correspondente. Retorna null se o tipo nao e suportado pela FASE 2.
- */
-function resolverTabelaFonte(tipo: string): string | null {
-  switch (tipo) {
-    case "aviso":
-      return "avisos";
-    case "processo":
-      return "nomus_processos";
-    case "pessoa":
-      return "nomus_pessoas";
-    case "produto":
-      return "produtos";
-    case "linha":
-      return "produto_linhas";
-    case "sku":
-      return "produto_skus";
-    case "preco":
-      return "sku_precos_calculados";
-    case "politica":
-      return "politica_participacao";
-    case "cotacao_diretriz":
-      return "cotacao_diretrizes";
-    case "documento":
-      return "documentos";
-    default:
-      return null;
-  }
-}
-
-/**
  * Escopo da FASE 2 - consumo do `modo_disparo` (esboco §4.5).
  *   - `regraId`: restringe a UMA regra (usado pelo relacionamentos-ativar).
  *     Ignora modo_disparo: o humano pediu explicitamente ESTA regra.
@@ -604,14 +602,24 @@ async function executarFase2(
     return { criadas: 0, duplicadas: 0 };
   }
   const ativas = (regras ?? []) as RegraAtiva[];
+
+  // Mapa tipo -> tabela_fonte da org (config_tipos_no): e a allowlist da fase.
+  let tabelasFonte: Map<string, string>;
+  try {
+    tabelasFonte = await carregarTabelasFonte(db, orgId);
+  } catch (err) {
+    erros["fase2_tabelas_fonte"] = errorMessage(err);
+    return { criadas: 0, duplicadas: 0 };
+  }
+
   let criadas = 0;
   let duplicadas = 0;
   for (const regra of ativas) {
-    // Allowlist deterministica: ignora regras com tipos fora do set canonico.
-    if (!TIPOS_NO_ALLOWLIST.has(regra.origem_tipo)) continue;
-    if (!TIPOS_NO_ALLOWLIST.has(regra.destino_tipo)) continue;
+    // Regra com tipo fora do mapa da config nao gera arestas (defesa).
+    if (!tabelasFonte.has(regra.origem_tipo)) continue;
+    if (!tabelasFonte.has(regra.destino_tipo)) continue;
     try {
-      const r = await aplicarRegra(db, regra);
+      const r = await aplicarRegra(db, regra, tabelasFonte);
       criadas += r.criadas;
       duplicadas += r.duplicadas;
     } catch (err) {

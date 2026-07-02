@@ -40,6 +40,7 @@ import { logSensitiveAction } from "../_shared/audit.ts";
 import { resolverOrgIdUsuario } from "../_shared/org.ts";
 import { coalesce } from "../_shared/single-flight.ts";
 import { hashRegraMatching } from "../_shared/relacionamentos-regra-hash.ts";
+import { carregarTabelasFonte } from "../_shared/relacionamentos-backfill.ts";
 import { parseJsonBody, relacionamentosDryRunSchema } from "../_shared/validation.ts";
 
 const FUNCTION_SEGMENT = "relacionamentos-dry-run";
@@ -62,23 +63,6 @@ const DEFAULT_LIMIARES: DryRunLimiares = {
 };
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
-
-/**
- * Tipos de no permitidos (allowlist deterministica, espelha o backfill).
- * Regras com tipo fora deste set nao geram arestas (simulacao devolve 0).
- */
-const TIPOS_NO_ALLOWLIST = new Set<string>([
-  "aviso",
-  "processo",
-  "documento",
-  "pessoa",
-  "produto",
-  "linha",
-  "sku",
-  "preco",
-  "politica",
-  "cotacao_diretriz",
-]);
 
 // ---------------------------------------------------------------------
 // Tipos
@@ -170,34 +154,6 @@ function derivarRelacao(regra: RegraRow): string {
   return `match_${regra.campo_destino}`;
 }
 
-/** Mapeia o tipo de no para a tabela-fonte. null = nao suportado. */
-function resolverTabelaFonte(tipo: string): string | null {
-  switch (tipo) {
-    case "aviso":
-      return "avisos";
-    case "processo":
-      return "nomus_processos";
-    case "pessoa":
-      return "nomus_pessoas";
-    case "produto":
-      return "produtos";
-    case "linha":
-      return "produto_linhas";
-    case "sku":
-      return "produto_skus";
-    case "preco":
-      return "sku_precos_calculados";
-    case "politica":
-      return "politica_participacao";
-    case "cotacao_diretriz":
-      return "cotacao_diretrizes";
-    case "documento":
-      return "documentos";
-    default:
-      return null;
-  }
-}
-
 /** Resultado vazio (regra que nao gera arestas). */
 function simulacaoVazia(): SimulacaoResultado {
   return {
@@ -219,16 +175,17 @@ function simulacaoVazia(): SimulacaoResultado {
 async function simularRegra(
   db: ServiceClient,
   regra: RegraRow,
+  tabelasFonte: Map<string, string>,
 ): Promise<SimulacaoResultado> {
-  // Allowlist deterministica (espelha o backfill).
-  if (!TIPOS_NO_ALLOWLIST.has(regra.origem_tipo)) return simulacaoVazia();
-  if (!TIPOS_NO_ALLOWLIST.has(regra.destino_tipo)) return simulacaoVazia();
+  // Allowlist da config (mesma fonte de verdade do backfill: config_tipos_no).
+  if (!tabelasFonte.has(regra.origem_tipo)) return simulacaoVazia();
+  if (!tabelasFonte.has(regra.destino_tipo)) return simulacaoVazia();
 
   // Escopo atual do backfill: apenas self-join (origem_tipo === destino_tipo).
   // Match entre tipos distintos ainda nao gera arestas -> simulacao 0.
   if (regra.origem_tipo !== regra.destino_tipo) return simulacaoVazia();
 
-  const tabela = resolverTabelaFonte(regra.origem_tipo);
+  const tabela = tabelasFonte.get(regra.origem_tipo) ?? null;
   if (!tabela) return simulacaoVazia();
 
   const relacao = derivarRelacao(regra);
@@ -515,12 +472,15 @@ async function handler(req: Request): Promise<Response> {
     // identicos reaproveitam a MESMA simulacao (E14).
     const chaveCoalesce = `${user.id}:${regra.id}:${regraHash}`;
     const resposta = await coalesce<DryRunResponse>(chaveCoalesce, async () => {
-      const limiares = await carregarLimiares(db, orgId);
+      const [limiares, tabelasFonte] = await Promise.all([
+        carregarLimiares(db, orgId),
+        carregarTabelasFonte(db, orgId),
+      ]);
 
       // Simulacao + duplicidade sob timeout DURO de 30s.
       const [sim, existentes] = await comTimeout(
         Promise.all([
-          simularRegra(db, regra),
+          simularRegra(db, regra, tabelasFonte),
           contarExistentesDaRegra(db, regra.id),
         ]),
         TIMEOUT_MS,
