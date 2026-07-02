@@ -600,6 +600,35 @@ export function RegraForm({
         </button>
       ) : null}
 
+      {/* Modo de disparo ---------------------------------------------------- */}
+      <div className="flex flex-col gap-1.5">
+        <label
+          htmlFor="regra-modo-disparo"
+          className="text-[12.5px] font-medium text-muted"
+        >
+          Modo de disparo
+        </label>
+        <Controller
+          control={control}
+          name="modo_disparo"
+          render={({ field }) => (
+            <Select
+              id="regra-modo-disparo"
+              value={field.value}
+              onChange={(e) => field.onChange(e.target.value)}
+            >
+              <option value="imediato">Imediato - aplica assim que chega dado novo</option>
+              <option value="agendado">Agendado - roda no backfill agendado</option>
+              <option value="on-demand">Sob demanda - so roda quando voce dispara</option>
+            </Select>
+          )}
+        />
+        <p className="text-[11.5px] text-faint">
+          Imediato e Agendado entram no backfill agendado; Sob demanda fica de
+          fora do agendado e so roda no dry-run/ativacao manual.
+        </p>
+      </div>
+
       {/* Ativa ------------------------------------------------------------- */}
       <label className="flex items-center gap-2 text-[13px] text-fg">
         <input

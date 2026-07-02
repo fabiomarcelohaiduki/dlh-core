@@ -21,6 +21,7 @@ import type {
   RegraCreateInput,
   RegraUpdateInput,
   RelacionamentoCombinacao,
+  RelacionamentoModoDisparo,
   RelacionamentoTipoNo,
 } from "@/lib/api/relacionamentos-types";
 
@@ -33,6 +34,7 @@ export interface RegraFormValues {
   combinacao: RelacionamentoCombinacao;
   /** Lista de campos para regras compostas; array vazio para regras simples. */
   sequencia: string[];
+  modo_disparo: RelacionamentoModoDisparo;
   ativa: boolean;
 }
 
@@ -52,6 +54,7 @@ export function regraCreateDefaults(): RegraFormValues {
     campo_destino: "sku",
     combinacao: "composta",
     sequencia: [],
+    modo_disparo: "agendado",
     ativa: true,
   };
 }
@@ -66,6 +69,7 @@ export function regraUpdateDefaults(regra: Regra): RegraFormValues {
     campo_destino: regra.campo_destino,
     combinacao: regra.combinacao,
     sequencia: Array.isArray(regra.sequencia) ? regra.sequencia : [],
+    modo_disparo: regra.modo_disparo ?? "agendado",
     ativa: Boolean(regra.ativa),
   };
 }
@@ -78,6 +82,7 @@ export function toRegraCreateInput(values: RegraFormValues): RegraCreateInput {
     destino_tipo: values.destino_tipo,
     campo_destino: values.campo_destino.trim(),
     combinacao: values.combinacao,
+    modo_disparo: values.modo_disparo,
     ativa: values.ativa,
   };
   if (values.combinacao === "composta" && values.sequencia.length > 0) {
@@ -96,6 +101,7 @@ export function toRegraUpdateInput(values: RegraFormValues): RegraUpdateInput {
     destino_tipo: values.destino_tipo,
     campo_destino: values.campo_destino.trim(),
     combinacao: values.combinacao,
+    modo_disparo: values.modo_disparo,
     ativa: values.ativa,
   };
   if (values.combinacao === "composta") {

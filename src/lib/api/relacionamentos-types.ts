@@ -54,6 +54,14 @@ export type RelacionamentoVinculoDecisao = "aprovar" | "rejeitar" | "editar";
 /** Acao de feedback inline sobre uma aresta (POST /relacionamentos-feedback). */
 export type RelacionamentoFeedbackAcao = "visto" | "incorreta";
 
+/**
+ * Modo de disparo de uma regra do catalogo (esboco §4.5):
+ *   - imediato:  dado novo aplica a regra na hora (hoje entra junto do agendado)
+ *   - agendado:  roda no backfill agendado (pg_cron)
+ *   - on-demand: NUNCA roda no cron; so em clique humano (dry-run/ativar)
+ */
+export type RelacionamentoModoDisparo = "imediato" | "agendado" | "on-demand";
+
 // ---------------------------------------------------------------------
 // Dominio: catalogo de regras humanas (catalogo_regras_vinculo).
 // ---------------------------------------------------------------------
@@ -70,6 +78,7 @@ export interface Regra {
   combinacao: RelacionamentoCombinacao;
   /** Ordem de composicao de campos (regra composta); null para regras simples. */
   sequencia: string[] | null;
+  modo_disparo: RelacionamentoModoDisparo;
   ativa: boolean;
   versao: number;
   created_at: string;
@@ -84,6 +93,7 @@ export interface RegraCreateInput {
   campo_destino: string;
   combinacao: RelacionacaoCombinacao;
   sequencia?: string[] | null;
+  modo_disparo?: RelacionamentoModoDisparo;
   ativa?: boolean;
   nome?: string | null;
 }
@@ -96,6 +106,7 @@ export interface RegraUpdateInput {
   campo_destino?: string;
   combinacao?: RelacionamentoCombinacao;
   sequencia?: string[] | null;
+  modo_disparo?: RelacionamentoModoDisparo;
   ativa?: boolean;
   nome?: string | null;
 }

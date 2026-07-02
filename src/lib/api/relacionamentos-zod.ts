@@ -32,6 +32,9 @@ export type RelacionamentoTipoNoZod = (typeof RELACIONAMENTOS_TIPOS_NO)[number];
 export const RELACIONAMENTOS_COMBINACOES = ["simples", "composta"] as const;
 export type RelacionamentoCombinacaoZod = (typeof RELACIONAMENTOS_COMBINACOES)[number];
 
+export const RELACIONAMENTOS_MODOS_DISPARO = ["imediato", "agendado", "on-demand"] as const;
+export type RelacionamentoModoDisparoZod = (typeof RELACIONAMENTOS_MODOS_DISPARO)[number];
+
 export const RELACIONAMENTOS_VINCULO_ORIGENS = ["lia", "humano"] as const;
 export const RELACIONAMENTOS_VINCULO_STATUS = ["rascunho", "ativo", "descartado"] as const;
 export const RELACIONAMENTOS_VINCULO_DECISOES = ["aprovar", "rejeitar", "editar"] as const;
@@ -54,6 +57,10 @@ const relacionamentoTipoNoEnum = z.enum(RELACIONAMENTOS_TIPOS_NO, {
 
 const relacionamentoCombinacaoEnum = z.enum(RELACIONAMENTOS_COMBINACOES, {
   errorMap: () => ({ message: "combinacao invalida (use: simples, composta)" }),
+});
+
+const relacionamentoModoDisparoEnum = z.enum(RELACIONAMENTOS_MODOS_DISPARO, {
+  errorMap: () => ({ message: "modo_disparo invalido (use: imediato, agendado, on-demand)" }),
 });
 
 const sequenciaSchema = z
@@ -89,6 +96,7 @@ const catalogoRegraBaseSchema = z.object({
     .max(120, "campo_destino muito longo"),
   combinacao: relacionamentoCombinacaoEnum,
   sequencia: sequenciaSchema,
+  modo_disparo: relacionamentoModoDisparoEnum.optional(),
   ativa: z.boolean({ invalid_type_error: "ativa deve ser booleano" }).optional(),
   nome: z
     .string()
