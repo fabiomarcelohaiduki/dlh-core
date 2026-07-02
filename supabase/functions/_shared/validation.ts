@@ -2275,6 +2275,12 @@ export const RELACIONAMENTOS_VINCULO_DECISOES = ["aprovar", "rejeitar", "editar"
 export const REL_NUMERO_PREGAO_REFINADO_MSG =
   "Numero do pregao sozinho gera falsos positivos. Use regra composta com UASG.";
 
+// Campos que representam o numero do pregao sozinho (falso-positivo em regra
+// simples). O numero real vive na chave jsonb `payload_bruto.processo`;
+// `numero_pregao` e o nome legado. Bloquear os dois cobre dado antigo e novo.
+// IDENTICO ao frontend (relacionamentos-zod.ts) e ao trigger SQL.
+export const REL_CAMPOS_NUMERO_PREGAO = ["numero_pregao", "payload_bruto.processo"] as const;
+
 // Tipo de no deixou de ser enum fechado: os tipos vivem em config_tipos_no
 // (administraveis pelo cockpit). Aqui valida-se apenas o FORMATO do
 // identificador; a existencia do tipo na org e conferida na borda/banco de
@@ -2353,7 +2359,11 @@ export const catalogoRegraIdSchema = z
 export const catalogoRegraCreateSchema = catalogoRegraBaseSchema
   .strict()
   .superRefine((val, ctx) => {
-    if (val.combinacao === "simples" && val.campo_destino === "numero_pregao") {
+    if (
+      val.combinacao === "simples" &&
+      val.campo_destino !== undefined &&
+      (REL_CAMPOS_NUMERO_PREGAO as readonly string[]).includes(val.campo_destino)
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["campo_destino"],
@@ -2368,7 +2378,11 @@ export const catalogoRegraUpdateSchema = catalogoRegraBaseSchema
   .partial()
   .strict()
   .superRefine((val, ctx) => {
-    if (val.combinacao === "simples" && val.campo_destino === "numero_pregao") {
+    if (
+      val.combinacao === "simples" &&
+      val.campo_destino !== undefined &&
+      (REL_CAMPOS_NUMERO_PREGAO as readonly string[]).includes(val.campo_destino)
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["campo_destino"],

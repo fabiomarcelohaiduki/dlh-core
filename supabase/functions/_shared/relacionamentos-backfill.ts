@@ -25,6 +25,12 @@
 // =====================================================================
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  colunasSelect,
+  ehJsonPath,
+  extrairTupla,
+  parseCampo,
+} from "./relacionamentos-campos.ts";
 
 // ---------------------------------------------------------------------
 // Tipos e constantes
@@ -489,20 +495,25 @@ async function aplicarRegra(
   const tabelaOrigem = tabelasFonte.get(tipo) ?? null;
   if (!tabelaOrigem) return { criadas: 0, duplicadas: 0 };
 
-  // Valida que TODOS os campos existem nas colunas da tabela (defesa).
-  // A RPC exec_sql nao esta disponivel; construimos a query via .from() +
-  // filtros .eq() encadeados. Em caso de campo inexistente o PostgREST
-  // retorna erro (registrado em erros_por_macro).
+  // Decompoe cada campo em coluna fisica + caminho jsonb (config-driven).
+  // Ex.: "payload_bruto.uasg" -> le a coluna fisica `payload_bruto` (jsonb) e
+  // extrai a chave `uasg` em memoria. Campos escalares seguem como coluna
+  // fisica direta. Sempre selecionamos SO colunas fisicas (sem SQL dinamico).
+  const camposParsed = campos.map(parseCampo);
+  const colunas = colunasSelect(camposParsed);
 
   // O nome da tabela e as colunas sao dinamicos (definidos pela regra ativa),
   // portanto o tipo do PostgREST nao consegue inferir o schema. Usamos cast
   // explicito atraves de `any` para o builder de query e mantemos o `data`
-  // como `unknown[]` (validado por campo na leitura).
+  // como `unknown[]` (validado por campo na leitura). Em caso de coluna
+  // inexistente o PostgREST retorna erro (registrado em erros_por_macro).
   // deno-lint-ignore no-explicit-any
-  let query: any = db.from(tabelaOrigem).select(`id, ${campos.join(", ")}`);
-  for (const campo of campos) {
-    // Filtra apenas registros com o campo NAO-NULO para evitar lixo.
-    query = query.not(campo, "is", null);
+  let query: any = db.from(tabelaOrigem).select(`id, ${colunas.join(", ")}`);
+  for (const campo of camposParsed) {
+    // Filtra registros com a coluna NAO-NULA. So aplica a colunas fisicas
+    // escalares - para caminho jsonb o valor pode estar aninhado e a
+    // ausencia da chave e tratada na extracao (tupla null = ignora).
+    if (!ehJsonPath(campo)) query = query.not(campo.coluna, "is", null);
   }
   const { data: registros, error: selErr } = await query;
   if (selErr) {
@@ -512,11 +523,13 @@ async function aplicarRegra(
   }
   const lista = (registros ?? []) as unknown as Array<Record<string, unknown>>;
 
-  // Agrupa por chave de match (tupla dos campos) e gera pares (a, b) com a.id < b.id.
+  // Agrupa por chave de match (tupla dos campos, ja resolvidos do jsonb) e
+  // gera pares (a, b) com a.id < b.id. Tupla null = campo vazio -> ignora.
   const grupos = new Map<string, Array<{ id: string }>>();
   for (const r of lista) {
-    const chave = campos.map((c) => String(r[c] ?? "")).join("|");
-    if (chave === "" || campos.some((c) => String(r[c] ?? "") === "")) continue;
+    const tupla = extrairTupla(r, camposParsed);
+    if (tupla === null) continue;
+    const chave = tupla.join("|");
     const arr = grupos.get(chave) ?? [];
     arr.push({ id: String(r.id) });
     grupos.set(chave, arr);

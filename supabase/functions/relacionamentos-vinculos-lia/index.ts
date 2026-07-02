@@ -43,6 +43,7 @@ import {
   catalogoRegraCreateSchema,
   parseJsonBody,
   parsePagination,
+  REL_CAMPOS_NUMERO_PREGAO,
   REL_NUMERO_PREGAO_REFINADO_MSG,
   RELACIONAMENTOS_VINCULO_STATUS,
   vinculoLiaCreateSchema,
@@ -61,12 +62,19 @@ const NUMERO_PREGAO_BLOCKER_STATUS = 422;
 const NUMERO_PREGAO_BLOCKER_CODE = "regra_proibida_numero_pregao";
 const NUMERO_PREGAO_BLOCKER_MESSAGE = REL_NUMERO_PREGAO_REFINADO_MSG;
 
-/** Defesa redundante contra combinacao='simples' + campo_destino='numero_pregao'. */
+/**
+ * Defesa redundante contra combinacao='simples' + campo_destino sendo o numero
+ * do pregao sozinho (`payload_bruto.processo` real ou `numero_pregao` legado).
+ */
 function assertNumeroPregaoValido(
   combinacao: string | undefined,
   campo_destino: string | undefined,
 ): void {
-  if (combinacao === "simples" && campo_destino === "numero_pregao") {
+  if (
+    combinacao === "simples" &&
+    campo_destino !== undefined &&
+    (REL_CAMPOS_NUMERO_PREGAO as readonly string[]).includes(campo_destino)
+  ) {
     throw new HttpError(
       NUMERO_PREGAO_BLOCKER_STATUS,
       NUMERO_PREGAO_BLOCKER_CODE,

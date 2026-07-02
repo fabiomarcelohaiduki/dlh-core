@@ -41,6 +41,12 @@ import { resolverOrgIdUsuario } from "../_shared/org.ts";
 import { coalesce } from "../_shared/single-flight.ts";
 import { hashRegraMatching } from "../_shared/relacionamentos-regra-hash.ts";
 import { carregarTabelasFonte } from "../_shared/relacionamentos-backfill.ts";
+import {
+  colunasSelect,
+  ehJsonPath,
+  extrairTupla,
+  parseCampo,
+} from "../_shared/relacionamentos-campos.ts";
 import { parseJsonBody, relacionamentosDryRunSchema } from "../_shared/validation.ts";
 
 const FUNCTION_SEGMENT = "relacionamentos-dry-run";
@@ -195,15 +201,34 @@ async function simularRegra(
       : [regra.campo_destino])
     : [regra.campo_destino];
 
+  // Decompoe cada campo em coluna fisica + caminho jsonb (mesma convencao do
+  // backfill): "payload_bruto.uasg" le a coluna jsonb `payload_bruto` e extrai
+  // a chave `uasg` em memoria. Sempre selecionamos SO colunas fisicas.
+  const camposParsed = campos.map(parseCampo);
+  const colunas = colunasSelect(camposParsed);
+
   // O nome da tabela e as colunas sao dinamicos (definidos pela regra); o
   // PostgREST nao infere o schema. Cast controlado via any apenas no builder.
   // deno-lint-ignore no-explicit-any
-  let query: any = db.from(tabela).select(`id, ${campos.join(", ")}`);
-  for (const campo of campos) {
-    query = query.not(campo, "is", null);
+  let query: any = db.from(tabela).select(`id, ${colunas.join(", ")}`);
+  for (const campo of camposParsed) {
+    // Filtro .not so em coluna fisica escalar; jsonb aninhado e tratado na
+    // extracao (tupla null = campo vazio -> registro ignorado).
+    if (!ehJsonPath(campo)) query = query.not(campo.coluna, "is", null);
   }
   const { data: registros, error: selErr } = await query;
   if (selErr) {
+    // Coluna fisica inexistente (Postgres 42703 / PostgREST 42703) e ERRO DE
+    // CONFIGURACAO da regra, nao falha de servidor: devolve 422 legivel em vez
+    // de 500 cru (o campo aponta pra coluna que nao existe na tabela-fonte).
+    const codigo = (selErr as { code?: string }).code ?? "";
+    if (codigo === "42703" || /does not exist/i.test(selErr.message)) {
+      throw new HttpError(
+        422,
+        "campo_inexistente",
+        `a regra referencia um campo que nao existe em ${tabela}: ${selErr.message}`,
+      );
+    }
     throw new HttpError(
       500,
       "dry_run_query_failed",
@@ -212,11 +237,13 @@ async function simularRegra(
   }
   const lista = (registros ?? []) as unknown as Array<Record<string, unknown>>;
 
-  // Agrupa por tupla dos campos (ignora registros com campo vazio).
+  // Agrupa por tupla dos campos (ja resolvidos do jsonb). Tupla null =
+  // algum campo vazio -> registro ignorado.
   const grupos = new Map<string, string[]>();
   for (const r of lista) {
-    if (campos.some((c) => String(r[c] ?? "") === "")) continue;
-    const chave = campos.map((c) => String(r[c] ?? "")).join("|");
+    const tupla = extrairTupla(r, camposParsed);
+    if (tupla === null) continue;
+    const chave = tupla.join("|");
     const arr = grupos.get(chave) ?? [];
     arr.push(String(r.id));
     grupos.set(chave, arr);

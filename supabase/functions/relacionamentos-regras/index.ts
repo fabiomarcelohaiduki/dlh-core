@@ -37,6 +37,7 @@ import {
   parseBooleanFilter,
   parseJsonBody,
   parsePagination,
+  REL_CAMPOS_NUMERO_PREGAO,
   REL_NUMERO_PREGAO_REFINADO_MSG,
 } from "../_shared/validation.ts";
 
@@ -52,15 +53,20 @@ const NUMERO_PREGAO_BLOCKER_CODE = "regra_proibida_numero_pregao";
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
 /**
- * Confere a regra numero_pregao sozinho combinacao=simples. Replica o trigger
- * do banco para devolver 422 (em vez de 500) ja na borda. `combinacao` ou
+ * Confere a regra do numero do pregao sozinho combinacao=simples. Replica o
+ * trigger do banco para devolver 422 (em vez de 500) ja na borda. Cobre o campo
+ * real `payload_bruto.processo` e o legado `numero_pregao`. `combinacao` ou
  * `campo_destino` ausentes sao ignorados (zod ja cuida).
  */
 function assertNumeroPregaoValido(
   combinacao: string | undefined,
   campo_destino: string | undefined,
 ): void {
-  if (combinacao === "simples" && campo_destino === "numero_pregao") {
+  if (
+    combinacao === "simples" &&
+    campo_destino !== undefined &&
+    (REL_CAMPOS_NUMERO_PREGAO as readonly string[]).includes(campo_destino)
+  ) {
     throw new HttpError(
       NUMERO_PREGAO_BLOCKER_STATUS,
       NUMERO_PREGAO_BLOCKER_CODE,
