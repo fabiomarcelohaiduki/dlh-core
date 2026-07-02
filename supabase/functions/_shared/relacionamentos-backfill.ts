@@ -41,6 +41,13 @@ type ServiceClient = SupabaseClient;
 export interface BackfillResult {
   arestas_criadas: number;
   arestas_duplicadas: number;
+  /**
+   * Arestas podadas ANTES da reaplicacao quando o run e restrito a uma regra
+   * (`regraId`): a poda torna o run daquela regra uma reconciliacao
+   * (delete-then-insert por proveniencia), nao um insert-only. 0 nos runs
+   * globais (cron / manual sem regraId), que continuam insert-only.
+   */
+  arestas_removidas: number;
   erros_por_macro: Record<string, string>;
   duracao_ms: number;
   execucao_id: string;
@@ -193,6 +200,44 @@ async function inserirRelacoesIdempotente(
     }
   }
   return { criadas, duplicadas };
+}
+
+/**
+ * Chave de proveniencia das arestas geradas por uma regra macro do catalogo.
+ * Ponto unico de verdade: o backfill grava as arestas de regra com esta
+ * chave (ver `aplicarRegra`) e a poda usa a MESMA chave para remove-las.
+ */
+export function chaveProvenienciaRegra(regraId: string): string {
+  return `regra_macro:${regraId}`;
+}
+
+/**
+ * Poda (remove) todas as arestas de `relacoes` atribuidas a UMA regra macro,
+ * identificadas pela chave de proveniencia `regra_macro:<id>`.
+ *
+ * Cirurgica: NAO toca arestas estruturais (Fase 1, chave 'fk:...') nem de
+ * triagem (Fase 3, chave 'triagem_...') - apenas as materializadas por esta
+ * regra. Usada quando a regra:
+ *   - e removida  -> arestas viram orfas, precisam sair;
+ *   - e desativada -> regra inativa nao deve ter arestas;
+ *   - tem os campos de match editados -> arestas da config antiga ficam stale;
+ *   - e reativada  -> reconciliacao (delete-then-insert) dentro do run.
+ *
+ * Retorna a quantidade de arestas removidas.
+ */
+export async function podarArestasDaRegra(
+  db: ServiceClient,
+  regraId: string,
+): Promise<number> {
+  const { data, error } = await db
+    .from("relacoes")
+    .delete()
+    .eq("chave", chaveProvenienciaRegra(regraId))
+    .select("id");
+  if (error) {
+    throw new Error(`podar arestas da regra ${regraId}: ${error.message}`);
+  }
+  return Array.isArray(data) ? data.length : 0;
 }
 
 // ---------------------------------------------------------------------
@@ -551,7 +596,7 @@ async function aplicarRegra(
           destino_id: b,
           relacao,
           metodo: "deterministico",
-          chave: `regra_macro:${regra.id}`,
+          chave: chaveProvenienciaRegra(regra.id),
           confianca: 1.0,
         });
         arestas.push({
@@ -561,7 +606,7 @@ async function aplicarRegra(
           destino_id: a,
           relacao,
           metodo: "deterministico",
-          chave: `regra_macro:${regra.id}`,
+          chave: chaveProvenienciaRegra(regra.id),
           confianca: 1.0,
         });
       }
@@ -832,7 +877,7 @@ async function finalizarExecucao(
   db: ServiceClient,
   execucaoId: string,
   status: "concluida" | "erro",
-  resultado: ResultadoInsercao,
+  resultado: ResultadoInsercao & { removidas: number },
   erros: Record<string, string>,
   duracaoMs: number,
 ): Promise<void> {
@@ -850,6 +895,7 @@ async function finalizarExecucao(
       checkpoint: {
         arestas_criadas: resultado.criadas,
         arestas_duplicadas: resultado.duplicadas,
+        arestas_removidas: resultado.removidas,
         erros_por_macro: erros,
         duracao_ms: Math.round(duracaoMs),
       },
@@ -886,6 +932,7 @@ export async function runRelacionamentosBackfill(
   const erros: Record<string, string> = {};
   let criadas = 0;
   let duplicadas = 0;
+  let removidas = 0;
 
   // Escopo da Fase 2 conforme a origem do disparo (ver doc acima).
   const escopoFase2: EscopoFase2 = regraId
@@ -895,6 +942,18 @@ export async function runRelacionamentosBackfill(
     : {};
 
   try {
+    // Run restrito a UMA regra (ativacao S7): reconcilia. Poda as arestas
+    // antigas dessa regra ANTES de reaplicar, para que uma config editada nao
+    // deixe arestas stale (o insert e idempotente, entao sem a poda as antigas
+    // sobreviveriam). Runs globais (cron/manual) seguem insert-only.
+    if (regraId) {
+      try {
+        removidas = await podarArestasDaRegra(db, regraId);
+      } catch (err) {
+        erros["poda_regra"] = errorMessage(err);
+      }
+    }
+
     if (!regraId) {
       const r1 = await executarFase1(db, erros);
       criadas += r1.criadas;
@@ -922,7 +981,7 @@ export async function runRelacionamentosBackfill(
     db,
     execucaoId,
     temErroFatal ? "erro" : "concluida",
-    { criadas, duplicadas },
+    { criadas, duplicadas, removidas },
     erros,
     duracaoMs,
   );
@@ -931,6 +990,7 @@ export async function runRelacionamentosBackfill(
     execucaoId,
     arestas_criadas: criadas,
     arestas_duplicadas: duplicadas,
+    arestas_removidas: removidas,
     erros: Object.keys(erros).length,
     duracao_ms: Math.round(duracaoMs),
   });
@@ -938,6 +998,7 @@ export async function runRelacionamentosBackfill(
   return {
     arestas_criadas: criadas,
     arestas_duplicadas: duplicadas,
+    arestas_removidas: removidas,
     erros_por_macro: erros,
     duracao_ms: Math.round(duracaoMs),
     execucao_id: execucaoId,

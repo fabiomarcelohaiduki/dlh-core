@@ -159,6 +159,7 @@ async function handler(req: Request): Promise<Response> {
         regra_id: regra.id,
         executado: true,
         arestas_afetadas: resultado.arestas_criadas,
+        arestas_removidas: resultado.arestas_removidas,
         gate: "S7",
       },
       200,

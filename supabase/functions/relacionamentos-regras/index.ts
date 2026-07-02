@@ -31,6 +31,7 @@ import { createServiceClient } from "../_shared/supabase.ts";
 import { logSensitiveAction } from "../_shared/audit.ts";
 import { assertUuid, isForeignKeyViolation, pickDefined, routeSegments } from "../_shared/rest.ts";
 import { resolverOrgIdUsuario } from "../_shared/org.ts";
+import { podarArestasDaRegra } from "../_shared/relacionamentos-backfill.ts";
 import {
   catalogoRegraCreateSchema,
   catalogoRegraUpdateSchema,
@@ -73,6 +74,39 @@ function assertNumeroPregaoValido(
       NUMERO_PREGAO_BLOCKER_MESSAGE,
     );
   }
+}
+
+/**
+ * Campos de matching que definem QUAIS arestas a regra gera. Se qualquer um
+ * muda no PUT, as arestas antigas (chave `regra_macro:<id>`) ficam obsoletas e
+ * precisam ser podadas antes do proximo backfill regravar as novas.
+ */
+const CAMPOS_MATCHING = [
+  "origem_tipo",
+  "campo_origem",
+  "destino_tipo",
+  "campo_destino",
+  "combinacao",
+  "sequencia",
+] as const;
+
+/**
+ * Detecta se o patch altera algum campo de matching em relacao a regra atual.
+ * `sequencia` (array|null) compara por JSON; os demais por igualdade direta.
+ * Campos ausentes no patch (undefined) nao mudam nada.
+ */
+function matchMudou(
+  previous: Record<string, unknown>,
+  input: Record<string, unknown>,
+): boolean {
+  return CAMPOS_MATCHING.some((campo) => {
+    const novo = input[campo];
+    if (novo === undefined) return false;
+    if (campo === "sequencia") {
+      return JSON.stringify(novo ?? null) !== JSON.stringify(previous[campo] ?? null);
+    }
+    return novo !== previous[campo];
+  });
 }
 
 function throwCatalogoRegraMutation(error: { code?: string }): never {
@@ -256,6 +290,9 @@ async function updateRegra(
     throw new HttpError(404, "nao_encontrado", "regra nao encontrada");
   }
 
+  const desativou = typeof input.ativa === "boolean" &&
+    input.ativa === false && previous.ativa === true;
+
   let acao: string;
   if (typeof input.ativa === "boolean" && input.ativa !== previous.ativa) {
     acao = input.ativa
@@ -263,6 +300,15 @@ async function updateRegra(
       : "relacionamentos_regra_desativar";
   } else {
     acao = "relacionamentos_regra_editar";
+  }
+
+  // Poda das arestas obsoletas: desativar ou mudar os campos de matching torna
+  // as arestas antigas (chave `regra_macro:<id>`) invalidas. Remove-as aqui;
+  // a regeneracao (quando a regra segue/volta ativa) acontece no gate S7 de
+  // ativacao, que recomputa o hash de frescor e roda a Fase 2 da regra.
+  let arestasRemovidas = 0;
+  if (desativou || matchMudou(previous, payload)) {
+    arestasRemovidas = await podarArestasDaRegra(db, id);
   }
 
   await logSensitiveAction({
@@ -281,10 +327,10 @@ async function updateRegra(
       modo_disparo: previous.modo_disparo,
       ativa: previous.ativa,
     },
-    dadosNovos: payload,
+    dadosNovos: { ...payload, arestas_removidas: arestasRemovidas },
   });
 
-  return jsonResponse(data, 200);
+  return jsonResponse({ ...data, arestas_removidas: arestasRemovidas }, 200);
 }
 
 // ---------------------------------------------------------------------
@@ -320,14 +366,19 @@ async function deleteRegra(
     throw new HttpError(404, "nao_encontrado", "regra nao encontrada");
   }
 
+  // Regra removida: as arestas que ela gerou (chave `regra_macro:<id>`) ficam
+  // orfas. Poda-as agora (sem regeneracao - a regra deixou de existir).
+  const arestasRemovidas = await podarArestasDaRegra(db, id);
+
   await logSensitiveAction({
     tabela: "catalogo_regras_vinculo",
     acao: "relacionamentos_regra_excluir",
     registroId: id,
     usuario: email,
+    dadosNovos: { arestas_removidas: arestasRemovidas },
   });
 
-  return jsonResponse({ ok: true, id }, 200);
+  return jsonResponse({ ok: true, id, arestas_removidas: arestasRemovidas }, 200);
 }
 
 // ---------------------------------------------------------------------
