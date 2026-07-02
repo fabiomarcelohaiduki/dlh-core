@@ -5,7 +5,7 @@
 // pela Lia (vinculos_inferidos_lia).
 //
 // Campos (controlados, mobile-first):
-//   - status             (select: todos / proposta / ativa / rejeitada)
+//   - status             (select: todos / rascunho / ativo / descartado)
 //   - origem             (select: todos / lia / humano)
 //   - contador_uso_min   (number input, >= 0)
 //   - contador_uso_max   (number input, >= 0)
@@ -28,7 +28,7 @@ import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 /** Status possiveis para o filtro de vinculos Lia (espelha o backend). */
-export type VinculoFiltroStatus = "todos" | "proposta" | "ativa" | "rejeitada";
+export type VinculoFiltroStatus = "todos" | "rascunho" | "ativo" | "descartado";
 
 /** Origem possivel para o filtro de vinculos Lia (espelha o backend). */
 export type VinculoFiltroOrigem = "todos" | "lia" | "humano";
@@ -52,9 +52,9 @@ export const VINCULO_FILTROS_INICIAL: VinculoFiltrosValue = {
 /** Opcoes dos selects - declaradas aqui para reuso e consistencia visual. */
 const STATUS_OPCOES: ReadonlyArray<{ value: VinculoFiltroStatus; label: string }> = [
   { value: "todos", label: "Todos os status" },
-  { value: "proposta", label: "Proposta" },
-  { value: "ativa", label: "Ativa" },
-  { value: "rejeitada", label: "Rejeitada" },
+  { value: "rascunho", label: "Rascunho" },
+  { value: "ativo", label: "Ativo" },
+  { value: "descartado", label: "Descartado" },
 ];
 
 const ORIGEM_OPCOES: ReadonlyArray<{ value: VinculoFiltroOrigem; label: string }> = [

@@ -10,7 +10,7 @@
 //   - loading inicial: skeleton com 3 retangulos arredondados
 //   - error: toast com mensagem + codigo do backend + botao "Tentar novamente"
 //   - empty (sem arestas confirmadas): "Nenhuma aresta confirmada ainda"
-//   - truncado (cap_panorama excedido): aviso explicito no canto
+//   - truncado (cap por grafo excedido): aviso explicito no canto
 //   - reprocessamento: spinner no botao + toast com resumo
 //
 // Dados:
@@ -20,8 +20,9 @@
 // =====================================================================
 
 import { useCallback, useMemo, useState } from "react";
-import { AlertCircle, Layers, RefreshCcw, Workflow } from "lucide-react";
+import { AlertCircle, ChevronsUpDown, Layers, RefreshCcw, Workflow } from "lucide-react";
 import {
+  useRelacionamentosConfig,
   useRelacionamentosPanorama,
   useRelacionamentosVizinhanca,
   useReprocessarRelacionamentos,
@@ -33,6 +34,7 @@ import { cn } from "@/lib/utils";
 import type {
   BackfillResultado,
   NoVisual,
+  RelacionamentoTipoGrafo,
   VizinhoVisual,
 } from "@/lib/api/relacionamentos-types";
 import { GrafoCanvas } from "./GrafoCanvas";
@@ -58,6 +60,13 @@ interface NoSelecionado {
  * (Recarregar/Reprocessar) e compartilhada entre as duas.
  */
 type SubabaInterna = "grafo" | "arestas";
+
+/** Grafo default quando a config ainda nao carregou ou nao define preferencia. */
+const TIPO_FALLBACK: RelacionamentoTipoGrafo = "hierarquico";
+/** Limiar de clusterizacao default quando a config nao o define (F2). */
+const CLUSTERING_THRESHOLD_FALLBACK = 80;
+/** Profundidade maxima de expansao da vizinhanca ancorada [0..5]. */
+const PROFUNDIDADE_MAX = 5;
 
 // ---------------------------------------------------------------------
 // Helpers.
@@ -141,11 +150,36 @@ export function RelacionamentosGrafoView() {
   const [ultimoResultado, setUltimoResultado] = useState<BackfillResultado | null>(null);
   /** Sub-aba interna (Grafo | Arestas). Default: Grafo. */
   const [subabaInterna, setSubabaInterna] = useState<SubabaInterna>("grafo");
+  /**
+   * Override manual do tipo de grafo. Enquanto null, seguimos o default da
+   * config (tipo_default_panorama); ao clicar no toggle, o usuario assume o
+   * controle e o override passa a valer.
+   */
+  const [tipoOverride, setTipoOverride] = useState<RelacionamentoTipoGrafo | null>(null);
+  /**
+   * Profundidade da vizinhanca ancorada. null => backend usa o default; a
+   * expansao explicita (nunca automatica) incrementa este valor ate o teto.
+   */
+  const [profundidade, setProfundidade] = useState<number | null>(null);
 
-  // Hooks de leitura.
-  const panorama = useRelacionamentosPanorama();
+  // Config singleton: defaults de tipo e limiar de clusterizacao (V2/F2).
+  const config = useRelacionamentosConfig();
+  const tipoDefault = config.data?.tipo_default_panorama ?? TIPO_FALLBACK;
+  const tipo = tipoOverride ?? tipoDefault;
+  const clusteringThreshold =
+    config.data?.clustering_threshold_nos ?? CLUSTERING_THRESHOLD_FALLBACK;
+
+  // Hooks de leitura. O panorama carrega SEMPRE um subgrafo por
+  // (tipo, ancora?, profundidade) - nunca o panorama completo.
+  const panorama = useRelacionamentosPanorama({
+    tipo,
+    no_id: noSelecionado?.id ?? null,
+    profundidade,
+  });
   const vizinhanca = useRelacionamentosVizinhanca(
-    noSelecionado ? { tipo: noSelecionado.tipo, id: noSelecionado.id } : null,
+    noSelecionado
+      ? { tipo: noSelecionado.tipo, id: noSelecionado.id, profundidade: profundidade ?? undefined }
+      : null,
   );
 
   // Hook de reprocessamento.
@@ -209,6 +243,48 @@ export function RelacionamentosGrafoView() {
     }
   }, [reprocessar, toast]);
 
+  /**
+   * Alterna o grafo carregado (Hierarquico <-> Semantico). Troca a fotografia
+   * inteira: limpamos a profundidade expandida para nao arrastar um zoom de
+   * vizinhanca de um grafo para o outro.
+   */
+  const handleTipoChange = useCallback((novoTipo: RelacionamentoTipoGrafo) => {
+    setTipoOverride(novoTipo);
+    setProfundidade(null);
+    setModoAgregacao(false);
+  }, []);
+
+  /**
+   * Expansao EXPLICITA da vizinhanca ancorada. Nunca automatica: so acontece
+   * quando o usuario clica em "Carregar mais" no aviso de truncado, e sempre
+   * com alerta de possivel queda de FPS. Incrementa a profundidade ate o teto.
+   */
+  const handleExpandir = useCallback(() => {
+    setProfundidade((prev) => {
+      const atual = prev ?? 2;
+      if (atual >= PROFUNDIDADE_MAX) {
+        toast({
+          title: "Profundidade máxima atingida",
+          description: `A vizinhança já está no limite (${PROFUNDIDADE_MAX}). Use "Agrupar por tipo" para reduzir o ruído.`,
+          variant: "warn",
+        });
+        return prev;
+      }
+      const proxima = atual + 1;
+      toast({
+        title: "Expandindo o grafo",
+        description: `Profundidade ${proxima}/${PROFUNDIDADE_MAX}. Mais nós podem reduzir o FPS da visualização 3D.`,
+        variant: "warn",
+      });
+      return proxima;
+    });
+  }, [toast]);
+
+  /** Fallback WebGL ausente: leva o usuario para a lista densa de arestas. */
+  const handleAbrirListaArestas = useCallback(() => {
+    setSubabaInterna("arestas");
+  }, []);
+
   // -----------------------------------------------------------------
   // Dados derivados
   // -----------------------------------------------------------------
@@ -218,6 +294,8 @@ export function RelacionamentosGrafoView() {
   const arestas = useMemo(() => panoramaData?.arestas ?? [], [panoramaData]);
   const truncado = panoramaData?.truncado ?? false;
   const cap = panoramaData?.cap ?? 0;
+  const profundidadeAtual = profundidade ?? 2;
+  const podeExpandir = profundidadeAtual < PROFUNDIDADE_MAX;
 
   const vizinhos: VizinhoVisual[] = useMemo(() => {
     if (!vizinhanca.data?.nos) return [];
@@ -298,6 +376,8 @@ export function RelacionamentosGrafoView() {
         isReprocessing={reprocessar.isPending}
         reprocessStartedAt={reprocessStartedAt}
         ultimoResultado={ultimoResultado}
+        tipo={tipo}
+        onTipoChange={handleTipoChange}
         onRefresh={handleRefresh}
         onReprocessar={handleReprocessar}
         onSimular10kChange={setSimular10k}
@@ -406,11 +486,30 @@ export function RelacionamentosGrafoView() {
                     "shadow-[var(--shadow-tooltip)]",
                   )}
                   role="status"
-                  title={`cap_panorama (${cap}) excedido; o grafo foi truncado`}
+                  title={`teto de nos por grafo (${cap}) excedido; o grafo foi truncado`}
                 >
                   <AlertCircle className="size-3.5" aria-hidden="true" />
                   <span>Truncado em {cap} nos</span>
-                  {/* Opcao de cluster/agregacao exigida quando cap_panorama excede.
+                  {/* Expansao EXPLICITA (nunca automatica): carrega mais niveis
+                      da vizinhanca ancorada, sempre com alerta de FPS. */}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="default"
+                    onClick={handleExpandir}
+                    disabled={!podeExpandir || panorama.isFetching}
+                    data-btn="grafo-truncado-expandir"
+                    title={
+                      podeExpandir
+                        ? "Carrega mais niveis da vizinhanca (pode reduzir o FPS)"
+                        : `Profundidade maxima (${PROFUNDIDADE_MAX}) ja atingida`
+                    }
+                    className="h-6 px-2 text-[10.5px]"
+                  >
+                    <ChevronsUpDown aria-hidden="true" className="size-3" />
+                    <span>Carregar mais</span>
+                  </Button>
+                  {/* Opcao de cluster/agregacao exigida quando o cap por grafo excede.
                       Agrupa nos por tipo para reduzir a complexidade visual
                       sem perder a informacao de cardinalidade. */}
                   <Button
@@ -444,6 +543,8 @@ export function RelacionamentosGrafoView() {
               onSelectNode={handleSelectNode}
               simular10k={simular10k}
               modoAgregacao={modoAgregacao}
+              clusteringThreshold={clusteringThreshold}
+              onAbrirListaArestas={handleAbrirListaArestas}
             />
 
             {/* Legenda fixa no rodape esquerdo */}

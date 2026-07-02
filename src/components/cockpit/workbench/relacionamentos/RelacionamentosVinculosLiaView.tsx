@@ -70,9 +70,9 @@ import {
 // ---------------------------------------------------------------------
 
 const STATUS_LABEL: Record<RelacionamentoVinculoStatus, string> = {
-  proposta: "Proposta",
-  ativa: "Ativa",
-  rejeitada: "Rejeitada",
+  rascunho: "Rascunho",
+  ativo: "Ativo",
+  descartado: "Descartado",
 };
 
 const ORIGEM_LABEL: Record<RelacionamentoVinculoOrigem, string> = {
@@ -223,7 +223,7 @@ export function RelacionamentosVinculosLiaView() {
         <p className="m-0 text-[13px] text-muted">
           <strong className="text-fg">Como funcionam.</strong> A Lia observa o
           grafo durante o trabalho diario e propoe vinculos entre nos. Cada
-          vinculo entra como <strong>proposta</strong>; ao atingir os limites
+          vinculo entra como <strong>rascunho</strong>; ao atingir os limites
           de uso (definidos na config da org) ele recebe a badge{" "}
           <strong>Pronta para promocao</strong> e pode virar uma regra humana
           permanente via o fluxo de <strong>Aprovacoes pendentes</strong>.
@@ -424,9 +424,9 @@ export function RelacionamentosVinculosLiaView() {
 function pillVariantStatus(
   status: RelacionamentoVinculoStatus,
 ): "ok" | "warn" | "danger" | "accent" | "neutral" {
-  if (status === "ativa") return "ok";
-  if (status === "rejeitada") return "danger";
-  if (status === "proposta") return "warn";
+  if (status === "ativo") return "ok";
+  if (status === "descartado") return "danger";
+  if (status === "rascunho") return "warn";
   return "neutral";
 }
 

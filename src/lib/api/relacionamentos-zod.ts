@@ -33,8 +33,9 @@ export const RELACIONAMENTOS_COMBINACOES = ["simples", "composta"] as const;
 export type RelacionamentoCombinacaoZod = (typeof RELACIONAMENTOS_COMBINACOES)[number];
 
 export const RELACIONAMENTOS_VINCULO_ORIGENS = ["lia", "humano"] as const;
-export const RELACIONAMENTOS_VINCULO_STATUS = ["proposta", "ativa", "rejeitada"] as const;
+export const RELACIONAMENTOS_VINCULO_STATUS = ["rascunho", "ativo", "descartado"] as const;
 export const RELACIONAMENTOS_VINCULO_DECISOES = ["aprovar", "rejeitar", "editar"] as const;
+export const RELACIONAMENTOS_FEEDBACK_ACOES = ["visto", "incorreta"] as const;
 
 /** Mensagem canonica anti numero_pregao. IDENTICA ao backend e ao trigger SQL. */
 export const REL_NUMERO_PREGAO_MSG =
@@ -270,6 +271,50 @@ export const vinculoLiaDecidirSchema = z
   });
 
 // ---------------------------------------------------------------------
+// Schema de feedback inline da aresta (POST /relacionamentos-feedback).
+// ---------------------------------------------------------------------
+
+const feedbackAcaoEnum = z.enum(RELACIONAMENTOS_FEEDBACK_ACOES, {
+  errorMap: () => ({ message: "acao invalida (use: visto, incorreta)" }),
+});
+
+/**
+ * Schema de POST /relacionamentos-feedback.
+ * `motivo` e opcional no geral, mas obrigatorio na MARCACAO de incorreta
+ * (a desmarcacao dispensa motivo — o backend faz o toggle reversivel).
+ */
+export const arestaFeedbackSchema = z
+  .object({
+    aresta_id: z
+      .string({
+        required_error: "aresta_id e obrigatorio",
+        invalid_type_error: "aresta_id deve ser string",
+      })
+      .trim()
+      .min(1, "aresta_id nao pode ser vazio"),
+    acao: feedbackAcaoEnum,
+    motivo: z
+      .string()
+      .trim()
+      .min(1, "motivo nao pode ser vazio")
+      .max(2000, "motivo muito longo")
+      .optional(),
+  })
+  .strict()
+  .superRefine((val, ctx) => {
+    if (
+      val.acao === "incorreta" &&
+      (val.motivo === undefined || val.motivo.trim() === "")
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["motivo"],
+        message: "motivo e obrigatorio ao sinalizar a aresta como incorreta",
+      });
+    }
+  });
+
+// ---------------------------------------------------------------------
 // Schemas para config (config_relacionamentos + config_tipos_no).
 // ---------------------------------------------------------------------
 
@@ -290,12 +335,6 @@ export const configUpdateSchema = z
       .number({ invalid_type_error: "uso_minimo_promocao deve ser numero" })
       .int("uso_minimo_promocao deve ser inteiro")
       .min(0, "uso_minimo_promocao nao pode ser negativo")
-      .optional(),
-    cap_panorama: z
-      .number({ invalid_type_error: "cap_panorama deve ser numero" })
-      .int("cap_panorama deve ser inteiro")
-      .min(1, "cap_panorama deve ser >= 1")
-      .nullable()
       .optional(),
     cap_vizinhanca: z
       .number({ invalid_type_error: "cap_vizinhanca deve ser numero" })
@@ -401,6 +440,116 @@ export const configTipoUpdateSchema = z
       });
     }
   });
+
+// ---------------------------------------------------------------------
+// Schemas do dry-run de regra (POST /relacionamentos-dry-run) e da
+// guarda de ativacao (POST /relacionamentos-ativar). Espelham o
+// backend em supabase/functions/_shared/validation.ts.
+// ---------------------------------------------------------------------
+
+/**
+ * Request do dry-run. A Edge e `strict` a `regra_id`; `amostra_max` fica
+ * reservado para evolucao do contrato e NAO e enviado enquanto a borda
+ * permanecer estrita (evita 400 por chave extra).
+ */
+export const dryRunRequestSchema = z
+  .object({
+    regra_id: z
+      .string({
+        required_error: "regra_id e obrigatorio",
+        invalid_type_error: "regra_id deve ser string",
+      })
+      .uuid("regra_id invalido"),
+    amostra_max: z
+      .number({ invalid_type_error: "amostra_max deve ser numero" })
+      .int("amostra_max deve ser inteiro")
+      .min(1, "amostra_max deve ser >= 1")
+      .max(100, "amostra_max deve ser <= 100")
+      .optional(),
+  })
+  .strict();
+
+const dryRunNivelEnum = z.enum(["ok", "aviso", "bloqueio"], {
+  errorMap: () => ({ message: "nivel invalido (use: ok, aviso, bloqueio)" }),
+});
+
+const dryRunAlertaSchema = z.object({
+  codigo: z.string(),
+  mensagem: z.string(),
+});
+
+const dryRunArestaSchema = z.object({
+  origem_tipo: z.string(),
+  origem_id: z.string(),
+  destino_tipo: z.string(),
+  destino_id: z.string(),
+  relacao: z.string(),
+  metodo: z.string(),
+  confianca: z.number(),
+});
+
+/** Response do dry-run (validacao defensiva do payload da Edge). */
+export const dryRunResponseSchema = z.object({
+  contagem_total: z.number().int().min(0),
+  amostra: z.array(dryRunArestaSchema),
+  distribuicao_por_tipo: z.record(z.string(), z.number()),
+  score_risco: z.object({
+    nivel: dryRunNivelEnum,
+    alertas: z.array(dryRunAlertaSchema),
+    limite_tecnico_atingido: z.boolean().optional(),
+    limite_tecnico_msg: z.string().optional(),
+  }),
+  regra_hash: z.string().min(1),
+  regra_testada: z.object({
+    id: z.string(),
+    nome: z.string().nullable(),
+    origem_tipo: z.string(),
+    campo_origem: z.string(),
+    destino_tipo: z.string(),
+    campo_destino: z.string(),
+    combinacao: relacionamentoCombinacaoEnum,
+    sequencia: z.array(z.string()).nullable(),
+  }),
+  config_aplicada: z.object({
+    confianca_baixa: z.number(),
+    cardinalidade_alta: z.number(),
+    duplicidade_pct: z.number(),
+    amostra_insuficiente: z.number(),
+  }),
+});
+
+/**
+ * Request da guarda de ativacao (gate S7). Exige `regra_hash` do dry-run
+ * fresco e a confirmacao DUPLA. `motivo` e opcional (auditado).
+ */
+export const ativarRegraRequestSchema = z
+  .object({
+    regra_id: z
+      .string({
+        required_error: "regra_id e obrigatorio",
+        invalid_type_error: "regra_id deve ser string",
+      })
+      .uuid("regra_id invalido"),
+    regra_hash: z
+      .string({
+        required_error: "regra_hash e obrigatorio",
+        invalid_type_error: "regra_hash deve ser string",
+      })
+      .trim()
+      .min(1, "regra_hash nao pode ser vazio")
+      .max(128, "regra_hash muito longo"),
+    confirmar: z.boolean({ invalid_type_error: "confirmar deve ser booleano" }),
+    confirmar_efeito_permanente: z.boolean({
+      invalid_type_error: "confirmar_efeito_permanente deve ser booleano",
+    }),
+    motivo: z
+      .string()
+      .trim()
+      .min(1, "motivo nao pode ser vazio")
+      .max(2000, "motivo muito longo")
+      .optional(),
+  })
+  .strict();
 
 // ---------------------------------------------------------------------
 // Schema da travessia (POST /relacionamentos-vizinhanca).

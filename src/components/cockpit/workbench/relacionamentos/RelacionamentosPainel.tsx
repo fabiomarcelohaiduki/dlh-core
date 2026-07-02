@@ -4,13 +4,17 @@
 // RelacionamentosPainel - container da Sub-tab "Relacionamentos" da
 // view de Coleta (Ingestao).
 //
-// Container com 5 sub-abas (A/B/C/D/E). As 5 sub-views estao entregues:
+// Container com 4 sub-abas. As sub-views entregues:
 //   - A. Grafo                          (panorama + vizinhanca)
 //   - B. Regras humanas                 (catalogo_regras_vinculo)
 //   - C. Regras inferidas pela Lia      (vinculos_inferidos_lia)
-//   - D. Aprovacoes pendentes           (acoes em vinculos Lia)
 //   - E. Parametros                     (config_relacionamentos +
 //                                        config_tipos_no)
+//
+// F1: a sub-aba "Aprovacoes pendentes" foi removida - o workflow de
+// aprovacao deu lugar ao feedback inline visto/incorreta nas arestas.
+// F5: a view correspondente foi esvaziada (tombstone), aguardando
+// remocao fisica do arquivo pelo revisor.
 //
 // Sub-aba default: "Grafo" (A), conforme SPEC.
 // =====================================================================
@@ -21,19 +25,17 @@ import { ToastProvider } from "@/components/ui/toast";
 import { RelacionamentosGrafoView } from "./RelacionamentosGrafoView";
 import { RelacionamentosRegrasView } from "./RelacionamentosRegrasView";
 import { RelacionamentosVinculosLiaView } from "./RelacionamentosVinculosLiaView";
-import { RelacionamentosAprovacoesPendentesView } from "./RelacionamentosAprovacoesPendentesView";
-import { RelacionamentosParametrosView } from "./RelacionamentosParametrosView";
+import { RelacionamentosRegrasSemanticasView } from "./RelacionamentosRegrasSemanticasView";
 
-/** Tipo das 5 sub-abas internas. Mantido estrito (string union). */
-type Subaba = "grafo" | "regras-humanas" | "regras-lia" | "aprovacoes" | "parametros";
+/** Tipo das sub-abas internas. Mantido estrito (string union). */
+type Subaba = "grafo" | "regras-humanas" | "regras-lia" | "regras-semanticas";
 
-/** Lista canonica das 5 sub-abas. */
+/** Lista canonica das sub-abas. */
 const SUBABAS: ReadonlyArray<{ value: Subaba; label: string }> = [
   { value: "grafo", label: "Grafo" },
   { value: "regras-humanas", label: "Regras humanas" },
   { value: "regras-lia", label: "Regras inferidas pela Lia" },
-  { value: "aprovacoes", label: "Aprovações pendentes" },
-  { value: "parametros", label: "Parâmetros" },
+  { value: "regras-semanticas", label: "Regras semânticas" },
 ];
 
 /** Container com 5 sub-abas e views proprias. */
@@ -65,8 +67,7 @@ export function RelacionamentosPainel() {
         {subaba === "grafo" ? <RelacionamentosGrafoView /> : null}
         {subaba === "regras-humanas" ? <RelacionamentosRegrasView /> : null}
         {subaba === "regras-lia" ? <RelacionamentosVinculosLiaView /> : null}
-        {subaba === "aprovacoes" ? <RelacionamentosAprovacoesPendentesView /> : null}
-        {subaba === "parametros" ? <RelacionamentosParametrosView /> : null}
+        {subaba === "regras-semanticas" ? <RelacionamentosRegrasSemanticasView /> : null}
       </section>
     </ToastProvider>
   );

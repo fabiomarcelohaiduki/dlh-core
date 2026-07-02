@@ -23,6 +23,7 @@
 import { useMemo, useState } from "react";
 import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Pill } from "@/components/ui/pill";
 import type {
   ArestaVisual,
   NoVisual,
@@ -59,6 +60,8 @@ interface FiltrosEstado {
   metodo: string | null;
   confiancaMin: number;
   busca: string;
+  /** Quando ligado, esconde as arestas sinalizadas como incorretas. */
+  ocultarIncorretas: boolean;
 }
 
 // ---------------------------------------------------------------------
@@ -102,6 +105,7 @@ function aplicarFiltros(
 ): ArestaVisual[] {
   const buscaNorm = filtros.busca.trim().toLowerCase();
   return arestas.filter((a) => {
+    if (filtros.ocultarIncorretas && a.incorreta === true) return false;
     if (filtros.origem_tipo && a.origem_tipo !== filtros.origem_tipo) return false;
     if (filtros.destino_tipo && a.destino_tipo !== filtros.destino_tipo) return false;
     if (filtros.relacao && a.relacao !== filtros.relacao) return false;
@@ -210,6 +214,8 @@ export function RelacionamentosArestasView({
   const [metodo, setMetodo] = useState<string | null>(null);
   const [confiancaMin, setConfiancaMin] = useState<number>(0);
   const [busca, setBusca] = useState<string>("");
+  // Filtro F1: por padrao esconde as arestas ja sinalizadas como incorretas.
+  const [ocultarIncorretas, setOcultarIncorretas] = useState<boolean>(true);
   const [pagina, setPagina] = useState<number>(1);
 
   // Dados derivados.
@@ -225,10 +231,24 @@ export function RelacionamentosArestasView({
     () =>
       aplicarFiltros(
         arestas,
-        { origem_tipo: origemTipo, destino_tipo: destinoTipo, relacao, metodo, confiancaMin, busca },
+        {
+          origem_tipo: origemTipo,
+          destino_tipo: destinoTipo,
+          relacao,
+          metodo,
+          confiancaMin,
+          busca,
+          ocultarIncorretas,
+        },
         nos,
       ),
-    [arestas, origemTipo, destinoTipo, relacao, metodo, confiancaMin, busca, nos],
+    [arestas, origemTipo, destinoTipo, relacao, metodo, confiancaMin, busca, ocultarIncorretas, nos],
+  );
+
+  /** Quantidade de arestas sinalizadas como incorretas (para o rotulo do toggle). */
+  const totalIncorretas = useMemo(
+    () => arestas.filter((a) => a.incorreta === true).length,
+    [arestas],
   );
 
   // Pager.
@@ -346,6 +366,29 @@ export function RelacionamentosArestasView({
           ) : null}
         </label>
 
+        {/* Toggle: ocultar arestas incorretas (ligado por padrao) */}
+        <button
+          type="button"
+          onClick={() => setOcultarIncorretas((v) => !v)}
+          aria-pressed={ocultarIncorretas}
+          data-toggle="ocultar-incorretas"
+          data-toggle-state={ocultarIncorretas ? "on" : "off"}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full px-3 py-1",
+            "border text-[11.5px] font-medium transition-colors",
+            ocultarIncorretas
+              ? "border-[color:var(--accent)] bg-[color-mix(in_oklch,var(--accent)_12%,transparent)] text-accent-strong"
+              : "border-[color-mix(in_oklch,var(--fg)_12%,transparent)] bg-[color-mix(in_oklch,var(--fg)_5%,transparent)] text-muted hover:text-fg",
+          )}
+        >
+          <span className="text-[10.5px] uppercase tracking-wider opacity-75">
+            Ocultar incorretas
+          </span>
+          {totalIncorretas > 0 ? (
+            <span className="tabular-nums">({totalIncorretas})</span>
+          ) : null}
+        </button>
+
         {/* Contador */}
         <span
           className="ml-auto text-[11.5px] text-muted"
@@ -422,7 +465,14 @@ export function RelacionamentosArestasView({
                     data-linha-aresta
                   >
                     <td className="px-3 py-2 align-middle">
-                      <ArestaOrigemDestino origem={origem} destino={destino} />
+                      <div className="flex items-center gap-2">
+                        <ArestaOrigemDestino origem={origem} destino={destino} />
+                        {a.incorreta === true ? (
+                          <Pill variant="danger" data-badge="incorreta">
+                            incorreta
+                          </Pill>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="px-3 py-2 align-middle">
                       <ArestaBadge variant="relacao">{a.relacao}</ArestaBadge>
@@ -443,6 +493,7 @@ export function RelacionamentosArestasView({
                     </td>
                     <td className="px-3 py-2 align-middle text-right">
                       <ArestaAcoes
+                        aresta={a}
                         onFocus={() => onFocusNo({ tipo: origem.tipo, id: origem.id })}
                       />
                     </td>

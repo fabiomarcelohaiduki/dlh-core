@@ -24,7 +24,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Check, Lightbulb, Loader2, TriangleAlert, X } from "lucide-react";
+import {
+  Check,
+  FlaskConical,
+  Lightbulb,
+  Loader2,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import {
   REL_NUMERO_PREGAO_MSG,
   RELACIONAMENTOS_TIPOS_NO,
@@ -40,15 +47,23 @@ import {
   toRegraCreateInput,
   toRegraUpdateInput,
 } from "./regras-form-helpers";
+import { DryRunResultPanel } from "./DryRunResultPanel";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Pill } from "@/components/ui/pill";
+import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 import { ApiError } from "@/lib/api/client";
 import { useCriarRelacionamentosRegra, useEditarRelacionamentosRegra } from "@/hooks/relacionamentos/use-relacionamentos-regras";
-import type { Regra, RegraCreateInput } from "@/lib/api/relacionamentos-types";
+import { useAtivarRegra, useDryRunRegra } from "@/hooks/relacionamentos/use-relacionamentos-dry-run";
+import { hashRegraMatching } from "@/lib/api/relacionamentos-regra-hash";
+import type {
+  DryRunResponse,
+  Regra,
+  RegraCreateInput,
+} from "@/lib/api/relacionamentos-types";
 
 // ---------------------------------------------------------------------
 // Helpers visuais (rotulos em PT-BR para tipos de no).
@@ -82,12 +97,22 @@ export function RegraForm({
 
   const createRegra = useCriarRelacionamentosRegra();
   const editRegra = useEditarRelacionamentosRegra();
+  const dryRunMutation = useDryRunRegra(regra ? { id: regra.id } : undefined);
+  const ativarMutation = useAtivarRegra();
   const { toast } = useToast();
 
   const pending = createRegra.isPending || editRegra.isPending;
 
   // Estado local de erro do backend (PT-BR), separado dos erros do zod.
   const [apiError, setApiError] = useState<string | null>(null);
+
+  // Resultado do ultimo dry-run FRESCO (F3). Null enquanto nao simulado.
+  const [dryRun, setDryRun] = useState<DryRunResponse | null>(null);
+
+  // Estado da confirmacao dupla da ativacao (gate S7).
+  const [confirmAtivar, setConfirmAtivar] = useState(false);
+  const [confirmarEfeito, setConfirmarEfeito] = useState(false);
+  const [motivoAtivar, setMotivoAtivar] = useState("");
 
   const defaults: RegraFormValues = useMemo(
     () => (isEdit && regra ? regraUpdateDefaults(regra) : regraCreateDefaults()),
@@ -108,9 +133,33 @@ export function RegraForm({
   });
 
   const origemTipo = watch("origem_tipo");
+  const campoOrigem = watch("campo_origem");
   const destinoTipo = watch("destino_tipo");
   const campoDestino = watch("campo_destino");
   const combinacao = watch("combinacao");
+  const sequencia = watch("sequencia");
+
+  /**
+   * Hash dos campos de MATCHING do form ATUAL (gate de frescor E9). Espelha
+   * a normalizacao da regra persistida: sequencia so conta em regra composta.
+   * Comparado ao `regra_hash` do ultimo dry-run - se divergir, a simulacao
+   * esta obsoleta e a ativacao fica bloqueada (o servidor repete o gate).
+   */
+  const formHash = useMemo(
+    () =>
+      hashRegraMatching({
+        origem_tipo: origemTipo,
+        campo_origem: (campoOrigem ?? "").trim(),
+        destino_tipo: destinoTipo,
+        campo_destino: (campoDestino ?? "").trim(),
+        combinacao,
+        sequencia:
+          combinacao === "composta"
+            ? sequencia.map((s) => s.trim()).filter(Boolean)
+            : null,
+      }),
+    [origemTipo, campoOrigem, destinoTipo, campoDestino, combinacao, sequencia],
+  );
 
   /**
    * Allowlist de campos por tipo de no. Hardcoded intencionalmente: a
@@ -135,7 +184,85 @@ export function RegraForm({
   const isHardBlocked =
     combinacao === "simples" && campoDestino === "numero_pregao";
 
+  /** Gate de ativacao (S7) ---------------------------------------------- */
+
+  // A simulacao so faz sentido para uma regra ja salva (tem regra_id).
+  const podeTestar = isEdit && Boolean(regra?.id);
+
+  // Dry-run "fresco": existe E seu hash bate com os campos atuais do form.
+  const dryRunFresh = dryRun !== null && dryRun.regra_hash === formHash;
+
+  // Bloqueio DURO por risco (limite tecnico => nivel 'bloqueio').
+  const bloqueadoPorRisco = dryRun?.score_risco.nivel === "bloqueio";
+
+  // Habilita Ativar apenas com dry-run fresco, sem bloqueio e sem hard-block.
+  // Avisos SOFT (nivel='aviso') NAO desabilitam: o humano decide e prossegue.
+  const podeAtivar =
+    podeTestar && dryRunFresh && !bloqueadoPorRisco && !isHardBlocked;
+
+  // Motivo do bloqueio (title do botao Ativar) quando desabilitado.
+  const motivoBloqueio = !podeTestar
+    ? "Salve a regra antes de simular e ativar."
+    : !dryRun
+      ? "Rode a simulação (Testar) antes de ativar."
+      : !dryRunFresh
+        ? "A regra mudou desde a última simulação. Simule novamente para ativar."
+        : bloqueadoPorRisco
+          ? "Ativação bloqueada: o limite técnico foi atingido. Ajuste a regra."
+          : isHardBlocked
+            ? REL_NUMERO_PREGAO_MSG
+            : null;
+
   /** Handlers ------------------------------------------------------------ */
+
+  /** Dispara o dry-run (F3, read-only) da regra salva. */
+  async function handleTestar() {
+    if (!regra?.id) return;
+    setApiError(null);
+    try {
+      const res = await dryRunMutation.mutateAsync({ id: regra.id });
+      setDryRun(res);
+    } catch (err) {
+      const msg = mapDryRunErrorToPtBr(err);
+      setApiError(msg);
+      toast({ title: "Erro ao simular regra", description: msg, variant: "danger" });
+    }
+  }
+
+  /** Abre a confirmacao dupla da ativacao (gate S7). */
+  function openConfirmAtivar() {
+    setConfirmarEfeito(false);
+    setMotivoAtivar("");
+    setConfirmAtivar(true);
+  }
+
+  /** Confirma a ativacao: dispara o backfill (efeito permanente). */
+  async function handleConfirmAtivar() {
+    if (!regra?.id || !dryRun) return;
+    try {
+      const res = await ativarMutation.mutateAsync({
+        regra_id: regra.id,
+        regra_hash: dryRun.regra_hash,
+        confirmar: true,
+        confirmar_efeito_permanente: confirmarEfeito,
+        motivo: motivoAtivar.trim() || undefined,
+      });
+      toast({
+        title: "Regra ativada",
+        description: `Backfill disparado - ${res.arestas_afetadas} aresta(s) afetada(s).`,
+        variant: "ok",
+      });
+      setConfirmAtivar(false);
+      setConfirmarEfeito(false);
+      setMotivoAtivar("");
+    } catch (err) {
+      toast({
+        title: "Erro ao ativar regra",
+        description: mapAtivarErrorToPtBr(err),
+        variant: "danger",
+      });
+    }
+  }
 
   function applySugestaoComposta() {
     setValue("combinacao", "composta", { shouldDirty: true, shouldValidate: true });
@@ -184,6 +311,7 @@ export function RegraForm({
   /** Render -------------------------------------------------------------- */
 
   return (
+    <>
     <form
       data-form="regra"
       onSubmit={handleSubmit(onSubmit)}
@@ -503,11 +631,28 @@ export function RegraForm({
             <span>Cancelar</span>
           </Button>
         ) : null}
+        {podeTestar ? (
+          <Button
+            type="button"
+            variant="default"
+            onClick={handleTestar}
+            disabled={dryRunMutation.isPending || pending}
+            data-btn="regra-testar"
+            title="Simula o impacto da regra sem persistir nada."
+          >
+            {dryRunMutation.isPending ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <FlaskConical aria-hidden="true" />
+            )}
+            <span>{dryRunMutation.isPending ? "Simulando…" : "Testar"}</span>
+          </Button>
+        ) : null}
         <Button
           type="submit"
           variant="primary"
           disabled={pending || isHardBlocked}
-          data-btn="salvar-regra"
+          data-btn="regra-salvar"
           title={isHardBlocked ? REL_NUMERO_PREGAO_MSG : undefined}
           aria-disabled={pending || isHardBlocked}
         >
@@ -531,6 +676,105 @@ export function RegraForm({
         </p>
       ) : null}
     </form>
+
+    {/* Painel de resultado do dry-run (F3) ------------------------------- */}
+    {dryRun ? (
+      <div className="mt-4">
+        {!dryRunFresh ? (
+          <div
+            role="status"
+            data-msg="dry-run-obsoleto"
+            className="mb-3 flex items-start gap-2 rounded-md border border-warn/40 bg-warn-bg/40 px-3 py-2.5 text-[12.5px] text-fg"
+          >
+            <TriangleAlert className="mt-0.5 size-4 flex-none text-warn" aria-hidden="true" />
+            <span>
+              A regra mudou desde esta simulação. Clique em <strong>Testar</strong>{" "}
+              novamente para poder ativar.
+            </span>
+          </div>
+        ) : null}
+        <DryRunResultPanel
+          data={dryRun}
+          podeAtivar={podeAtivar}
+          motivoBloqueio={motivoBloqueio}
+          ativando={ativarMutation.isPending}
+          onAtivarClick={openConfirmAtivar}
+        />
+      </div>
+    ) : null}
+
+    {/* Confirmacao dupla da ativacao (gate S7) --------------------------- */}
+    <Modal
+      open={confirmAtivar}
+      onClose={() => setConfirmAtivar(false)}
+      title="Ativar regra - efeito permanente"
+      description="A ativação dispara o backfill e cria/atualiza arestas no grafo. Esta ação não pode ser desfeita automaticamente."
+      width={480}
+      closeOnScrim={!ativarMutation.isPending}
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setConfirmAtivar(false)}
+            disabled={ativarMutation.isPending}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            onClick={handleConfirmAtivar}
+            disabled={!confirmarEfeito || ativarMutation.isPending}
+            aria-disabled={!confirmarEfeito || ativarMutation.isPending}
+            data-btn="confirmar-ativar-regra"
+          >
+            {ativarMutation.isPending ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Check aria-hidden="true" />
+            )}
+            <span>{ativarMutation.isPending ? "Ativando…" : "Confirmar ativação"}</span>
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <label className="flex items-start gap-2 text-[13px] text-fg">
+          <input
+            type="checkbox"
+            checked={confirmarEfeito}
+            onChange={(e) => setConfirmarEfeito(e.target.checked)}
+            data-input="confirmar-efeito-permanente"
+            className="mt-0.5 size-3.5 accent-[color:var(--accent)]"
+          />
+          <span>
+            Entendo o <strong>efeito permanente</strong> desta ação.
+          </span>
+        </label>
+        <div className="flex flex-col gap-1.5">
+          <label
+            htmlFor="ativar-motivo"
+            className="text-[12.5px] font-medium text-muted"
+          >
+            Motivo (opcional)
+          </label>
+          <Input
+            id="ativar-motivo"
+            type="text"
+            placeholder="ex.: Consolidar vínculos aviso → produto do pregão X"
+            value={motivoAtivar}
+            onChange={(e) => setMotivoAtivar(e.target.value)}
+            data-input="ativar-motivo"
+            disabled={ativarMutation.isPending}
+          />
+          <p className="text-[11.5px] text-faint">
+            Registrado na auditoria da ativação.
+          </p>
+        </div>
+      </div>
+    </Modal>
+    </>
   );
 }
 
@@ -549,4 +793,31 @@ function mapApiErrorToPtBr(err: unknown): string {
     return err.message || "Não foi possível salvar a regra. Tente novamente.";
   }
   return "Não foi possível salvar a regra. Tente novamente.";
+}
+
+/** Erros esperados do dry-run (F3, read-only). */
+function mapDryRunErrorToPtBr(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 400) return "Não foi possível simular: regra inválida.";
+    if (err.status === 404) return "Esta regra não existe mais.";
+    return err.message || "Falha na simulação. Tente novamente.";
+  }
+  return "Falha na simulação. Tente novamente.";
+}
+
+/**
+ * Erros esperados da guarda de ativacao (gate S7):
+ *   422 - confirmacao dupla faltando; 409 - regra mudou desde o dry-run OU
+ *   backfill ja em andamento.
+ */
+function mapAtivarErrorToPtBr(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 422)
+      return "Confirmação incompleta: marque que entende o efeito permanente.";
+    if (err.status === 409)
+      return "A regra mudou desde a simulação ou há um backfill em andamento. Simule novamente.";
+    if (err.status === 404) return "Esta regra não existe mais.";
+    return err.message || "Não foi possível ativar a regra. Tente novamente.";
+  }
+  return "Não foi possível ativar a regra. Tente novamente.";
 }

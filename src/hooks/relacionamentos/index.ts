@@ -41,3 +41,24 @@ export {
   useDispararRelacionamentosBackfill,
   useReprocessarRelacionamentos,
 } from "./use-relacionamentos-leitura";
+
+export {
+  useMarcarArestaVista,
+  useSinalizarArestaIncorreta,
+} from "./use-aresta-feedback";
+
+export {
+  useDryRunRegra,
+  useAtivarRegra,
+} from "./use-relacionamentos-dry-run";
+
+export {
+  useRelacionamentosAbreviacoes,
+  useEditarAbreviacoes,
+} from "./use-relacionamentos-abreviacoes";
+
+export {
+  useRelacionamentosRegrasSemanticas,
+  useAcaoRegraSemantica,
+  type RegrasSemanticasAgregado,
+} from "./use-relacionamentos-regras-semanticas";

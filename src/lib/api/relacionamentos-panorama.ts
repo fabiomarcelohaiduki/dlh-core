@@ -9,8 +9,11 @@
 // Respostas e payloads permanecem em snake_case (campos do JSON).
 // =====================================================================
 
-import { apiFetch } from "@/lib/api/client";
-import type { PanoramaResponse } from "@/lib/api/relacionamentos-types";
+import { apiFetch, buildQuery } from "@/lib/api/client";
+import type {
+  PanoramaParams,
+  PanoramaResponse,
+} from "@/lib/api/relacionamentos-types";
 
 // ---------------------------------------------------------------------
 // Helpers
@@ -23,10 +26,21 @@ const PATH = "relacionamentos-panorama";
 // ---------------------------------------------------------------------
 
 /**
- * Le o panorama atual de relacionamentos da org. Aplica o cap_panorama da
- * config; quando excedido, devolve `truncado: true` com o subconjunto
- * truncado (ate `cap` nos).
+ * Le o panorama de UM dos dois grafos de relacionamentos (V2). Envia:
+ *   - tipo         (hierarquico|semantico) - omitido => default da org
+ *   - no_id        (uuid) - ancora o panorama e devolve a vizinhanca
+ *   - profundidade (int)  - profundidade da vizinhanca ancorada [0..5]
+ *
+ * Aplica o cap por grafo (cap_por_grafo ?? 200); quando
+ * excedido, devolve `truncado: true` com o subconjunto truncado.
  */
-export function getRelacionamentosPanorama(): Promise<PanoramaResponse> {
-  return apiFetch<PanoramaResponse>(PATH, { method: "GET" });
+export function getRelacionamentosPanorama(
+  params: PanoramaParams = {},
+): Promise<PanoramaResponse> {
+  const query = buildQuery({
+    tipo: params.tipo,
+    no_id: params.no_id ?? undefined,
+    profundidade: params.profundidade ?? undefined,
+  });
+  return apiFetch<PanoramaResponse>(`${PATH}${query}`, { method: "GET" });
 }

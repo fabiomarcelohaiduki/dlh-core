@@ -2,9 +2,11 @@
 
 // =====================================================================
 // GrafoToolbar - barra de acoes do grafo. Botoes:
-//   1) Refresh              - recarrega panorama + vizinhanca
-//   2) Reprocessar          - dispara useReprocessarRelacionamentos
-//   3) Simular 10k          - toggle GATED por NEXT_PUBLIC_RELACIONAMENTOS_DEV_10K
+//   1) Toggle Hierarquico/Semantico - alterna qual dos dois grafos (V2)
+//                            e carregado (param `tipo` do panorama).
+//   2) Refresh              - recarrega panorama + vizinhanca
+//   3) Reprocessar          - dispara useReprocessarRelacionamentos
+//   4) Simular 10k          - toggle GATED por NEXT_PUBLIC_RELACIONAMENTOS_DEV_10K
 //                            Em prod (flag ausente/false), nem entra no DOM.
 //
 // Comportamentos:
@@ -15,12 +17,15 @@
 // =====================================================================
 
 import { useEffect, useState } from "react";
-import { FlaskConical, PlayCircle, RefreshCcw } from "lucide-react";
+import { FlaskConical, Network, PlayCircle, RefreshCcw, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { cn } from "@/lib/utils";
 import { ApiError } from "@/lib/api/client";
-import type { BackfillResultado } from "@/lib/api/relacionamentos-types";
+import type {
+  BackfillResultado,
+  RelacionamentoTipoGrafo,
+} from "@/lib/api/relacionamentos-types";
 
 // ---------------------------------------------------------------------
 // Tipos.
@@ -33,11 +38,36 @@ export interface GrafoToolbarProps {
   reprocessStartedAt: number | null;
   /** Resultado do ultimo reprocessamento bem-sucedido. */
   ultimoResultado: BackfillResultado | null;
+  /** Grafo carregado atualmente (hierarquico | semantico). */
+  tipo: RelacionamentoTipoGrafo;
+  /** Alterna o grafo carregado (param `tipo` do panorama). */
+  onTipoChange: (tipo: RelacionamentoTipoGrafo) => void;
   onRefresh: () => void;
   onReprocessar: () => void;
   onSimular10kChange: (value: boolean) => void;
   simular10k: boolean;
 }
+
+// Segmentos do toggle Hierarquico/Semantico (V2).
+const TIPO_SEGMENTOS: ReadonlyArray<{
+  value: RelacionamentoTipoGrafo;
+  label: string;
+  Icon: typeof Network;
+  hint: string;
+}> = [
+  {
+    value: "hierarquico",
+    label: "Hierárquico",
+    Icon: Network,
+    hint: "Grafo estrutural (relações de composição e hierarquia)",
+  },
+  {
+    value: "semantico",
+    label: "Semântico",
+    Icon: Share2,
+    hint: "Grafo inferido (relações semânticas descobertas)",
+  },
+];
 
 // Feature flag de DEV (variavel publica NEXT_PUBLIC_*).
 const FEATURE_10K = process.env.NEXT_PUBLIC_RELACIONAMENTOS_DEV_10K === "true";
@@ -78,6 +108,8 @@ export function GrafoToolbar({
   isReprocessing,
   reprocessStartedAt,
   ultimoResultado,
+  tipo,
+  onTipoChange,
   onRefresh,
   onReprocessar,
   onSimular10kChange,
@@ -106,6 +138,44 @@ export function GrafoToolbar({
       )}
     >
       <div className="flex flex-wrap items-center gap-2">
+        {/* Toggle Hierarquico/Semantico (V2) - alterna o grafo carregado. */}
+        <div
+          role="radiogroup"
+          aria-label="Tipo de grafo (Hierárquico ou Semântico)"
+          data-grafo-tipo-toggle
+          data-grafo-tipo={tipo}
+          className={cn(
+            "inline-flex items-center gap-0.5 rounded-md border border-border bg-surface-3/60 p-0.5",
+          )}
+        >
+          {TIPO_SEGMENTOS.map(({ value, label, Icon, hint }) => {
+            const active = tipo === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => onTipoChange(value)}
+                disabled={isFetching || isReprocessing}
+                title={hint}
+                data-btn={`grafo-tipo-${value}`}
+                data-btn-state={active ? "on" : "off"}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-[6px] px-2.5 py-1 text-[12px] font-semibold transition-colors",
+                  "disabled:cursor-not-allowed disabled:opacity-60",
+                  active
+                    ? "bg-accent text-accent-fg shadow-[var(--shadow-tooltip)]"
+                    : "text-muted hover:text-fg",
+                )}
+              >
+                <Icon aria-hidden="true" className="size-3.5" />
+                <span>{label}</span>
+              </button>
+            );
+          })}
+        </div>
+
         {/* Refresh */}
         <Button
           type="button"
