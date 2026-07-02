@@ -10,7 +10,7 @@
 //   - relacionamentosLeituraKeys.abreviacoes()   (a legenda le a versao nova)
 //   - relacionamentosLeituraKeys.panoramaPrefix  (os nos do grafo herdam a
 //     nova abreviacao/cor na proxima leitura; propagacao nao e realtime)
-//   - relacionamentosConfigKeys.tipos()          (a metadata dos tipos mudou)
+//   - relacionamentosTiposNoKeys.all             (a metadata dos tipos mudou)
 // =====================================================================
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,7 +20,7 @@ import {
 } from "@/lib/api/relacionamentos-abreviacoes";
 import type { AbreviacoesPatchInput } from "@/lib/api/relacionamentos-types";
 import { relacionamentosLeituraKeys } from "./use-relacionamentos-leitura";
-import { relacionamentosConfigKeys } from "./use-relacionamentos-config";
+import { relacionamentosTiposNoKeys } from "./use-relacionamentos-tipos-no";
 
 /** useRelacionamentosAbreviacoes - GET /relacionamentos-abreviacoes. */
 export function useRelacionamentosAbreviacoes() {
@@ -41,7 +41,7 @@ export function useEditarAbreviacoes() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: relacionamentosLeituraKeys.abreviacoes() });
       queryClient.invalidateQueries({ queryKey: relacionamentosLeituraKeys.panoramaPrefix });
-      queryClient.invalidateQueries({ queryKey: relacionamentosConfigKeys.tipos() });
+      queryClient.invalidateQueries({ queryKey: relacionamentosTiposNoKeys.all });
     },
   });
 }

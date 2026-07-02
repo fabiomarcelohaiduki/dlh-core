@@ -15,20 +15,6 @@ import { z } from "zod";
 // Enums e constantes compartilhadas com o backend.
 // ---------------------------------------------------------------------
 
-export const RELACIONAMENTOS_TIPOS_NO = [
-  "aviso",
-  "processo",
-  "documento",
-  "pessoa",
-  "produto",
-  "linha",
-  "sku",
-  "preco",
-  "politica",
-  "cotacao_diretriz",
-] as const;
-export type RelacionamentoTipoNoZod = (typeof RELACIONAMENTOS_TIPOS_NO)[number];
-
 export const RELACIONAMENTOS_COMBINACOES = ["simples", "composta"] as const;
 export type RelacionamentoCombinacaoZod = (typeof RELACIONAMENTOS_COMBINACOES)[number];
 
@@ -48,12 +34,18 @@ export const REL_NUMERO_PREGAO_MSG =
 // Schemas para o catalogo de regras humanas (catalogo_regras_vinculo).
 // ---------------------------------------------------------------------
 
-const relacionamentoTipoNoEnum = z.enum(RELACIONAMENTOS_TIPOS_NO, {
-  errorMap: () => ({
-    message:
-      "tipo invalido (use: aviso, processo, documento, pessoa, produto, linha, sku, preco, politica, cotacao_diretriz)",
-  }),
-});
+// Tipos de no deixaram de ser enum fechado: agora sao DADOS por org em
+// config_tipos_no (administraveis pelo cockpit). O schema valida apenas o
+// FORMATO do identificador (espelha o backend + CHECK da tabela).
+const relacionamentoTipoNoEnum = z
+  .string({ required_error: "tipo e obrigatorio", invalid_type_error: "tipo deve ser string" })
+  .trim()
+  .min(1, "tipo nao pode ser vazio")
+  .max(60, "tipo muito longo")
+  .regex(
+    /^[a-z][a-z0-9_]*$/,
+    "tipo invalido (use minusculas, digitos e underscore, comecando por letra)",
+  );
 
 const relacionamentoCombinacaoEnum = z.enum(RELACIONAMENTOS_COMBINACOES, {
   errorMap: () => ({ message: "combinacao invalida (use: simples, composta)" }),
@@ -369,82 +361,6 @@ export const configUpdateSchema = z
         code: z.ZodIssueCode.custom,
         path: ["(corpo)"],
         message: "informe ao menos um campo para atualizar",
-      });
-    }
-  });
-
-/** Schema de POST /relacionamentos-config/tipos (criar tipo de no). */
-export const configTipoCreateSchema = z
-  .object({
-    tipo: relacionamentoTipoNoEnum,
-    label: z
-      .string({
-        required_error: "label e obrigatorio",
-        invalid_type_error: "label deve ser string",
-      })
-      .trim()
-      .min(1, "label nao pode ser vazio")
-      .max(80, "label muito longo"),
-    icone: z
-      .string({
-        required_error: "icone e obrigatorio",
-        invalid_type_error: "icone deve ser string",
-      })
-      .trim()
-      .min(1, "icone nao pode ser vazio")
-      .max(80, "icone muito longo"),
-    cor: z
-      .string({ required_error: "cor e obrigatoria", invalid_type_error: "cor deve ser string" })
-      .trim()
-      .regex(/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/, "cor deve ser um hex (#RRGGBB ou #RRGGBBAA)"),
-    ordem: z
-      .number({ invalid_type_error: "ordem deve ser numero" })
-      .int("ordem deve ser inteiro")
-      .min(0, "ordem nao pode ser negativa")
-      .optional(),
-    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
-  })
-  .strict();
-
-/**
- * Schema de PUT /relacionamentos-config/tipos (atualizar tipo de no).
- * Exige `id` OU `tipo` como identificador.
- */
-export const configTipoUpdateSchema = z
-  .object({
-    id: z.string().uuid("id invalido").optional(),
-    tipo: relacionamentoTipoNoEnum.optional(),
-    label: z
-      .string()
-      .trim()
-      .min(1, "label nao pode ser vazio")
-      .max(80, "label muito longo")
-      .optional(),
-    icone: z
-      .string()
-      .trim()
-      .min(1, "icone nao pode ser vazio")
-      .max(80, "icone muito longo")
-      .optional(),
-    cor: z
-      .string()
-      .trim()
-      .regex(/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/, "cor deve ser um hex (#RRGGBB ou #RRGGBBAA)")
-      .optional(),
-    ordem: z
-      .number({ invalid_type_error: "ordem deve ser numero" })
-      .int("ordem deve ser inteiro")
-      .min(0, "ordem nao pode ser negativa")
-      .optional(),
-    ativo: z.boolean({ invalid_type_error: "ativo deve ser booleano" }).optional(),
-  })
-  .strict()
-  .superRefine((val, ctx) => {
-    if (val.id === undefined && val.tipo === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["(corpo)"],
-        message: "informe ao menos um identificador (id ou tipo)",
       });
     }
   });

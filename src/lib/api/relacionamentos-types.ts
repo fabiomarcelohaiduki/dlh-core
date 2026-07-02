@@ -18,18 +18,13 @@
 // Enums canonicos (espelham supabase/functions/_shared/validation.ts).
 // ---------------------------------------------------------------------
 
-/** Tipos de no permitidos nas relacoes (allowlist deterministica). */
-export type RelacionamentoTipoNo =
-  | "aviso"
-  | "processo"
-  | "documento"
-  | "pessoa"
-  | "produto"
-  | "linha"
-  | "sku"
-  | "preco"
-  | "politica"
-  | "cotacao_diretriz";
+/**
+ * Tipo de no de uma relacao. Deixou de ser enum fechado: os tipos sao DADOS
+ * por org em config_tipos_no (administraveis pelo cockpit via a Edge
+ * relacionamentos-tipos-no). O formato do identificador e validado no zod
+ * (minusculas/digitos/underscore) e no CHECK da tabela.
+ */
+export type RelacionamentoTipoNo = string;
 
 /** Combinacao possivel de uma regra (simples OU composta). */
 export type RelacionamentoCombinacao = "simples" | "composta";
@@ -211,44 +206,6 @@ export interface ConfigRelacionamentosUpdateInput {
   cap_vizinhanca?: number;
   profundidade_max_lia?: number;
   profundidade_default_panorama?: number;
-}
-
-/** Metadata visual de um tipo de no (config_tipos_no). */
-export interface ConfigTipoNo {
-  id: string;
-  org_id: string;
-  tipo: RelacionamentoTipoNo;
-  label: string;
-  /** Identificador do icone (lucide-react); resolvido pela UI. */
-  icone: string;
-  /** Cor hex do no (#RRGGBB ou #RRGGBBAA). */
-  cor: string;
-  ordem: number;
-  ativo: boolean;
-  versao: number;
-  created_at: string;
-  updated_at: string;
-}
-
-/** Input para criacao de um tipo de no. */
-export interface ConfigTipoNoCreateInput {
-  tipo: RelacionamentoTipoNo;
-  label: string;
-  icone: string;
-  cor: string;
-  ordem?: number;
-  ativo?: boolean;
-}
-
-/** Input para atualizacao de um tipo de no (id ou tipo obrigatorio). */
-export interface ConfigTipoNoUpdateInput {
-  id?: string;
-  tipo?: RelacionamentoTipoNo;
-  label?: string;
-  icone?: string;
-  cor?: string;
-  ordem?: number;
-  ativo?: boolean;
 }
 
 // ---------------------------------------------------------------------

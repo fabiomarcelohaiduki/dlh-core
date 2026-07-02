@@ -34,19 +34,19 @@ import {
 } from "lucide-react";
 import {
   REL_NUMERO_PREGAO_MSG,
-  RELACIONAMENTOS_TIPOS_NO,
   regraCreateSchema,
   regraUpdateSchema,
 } from "@/lib/api/relacionamentos-zod";
 import {
-  CAMPOS_POR_TIPO,
   type RegraFormValues,
-  type RelacaoTipoNoCampo,
   regraCreateDefaults,
   regraUpdateDefaults,
   toRegraCreateInput,
   toRegraUpdateInput,
 } from "./regras-form-helpers";
+import { tipoNoLabel } from "./tipo-no-meta";
+import { useRelacionamentosTiposNo } from "@/hooks/relacionamentos/use-relacionamentos-tipos-no";
+import type { TipoNoCampo } from "@/lib/api/relacionamentos-tipos-no";
 import { DryRunResultPanel } from "./DryRunResultPanel";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
@@ -66,21 +66,33 @@ import type {
 } from "@/lib/api/relacionamentos-types";
 
 // ---------------------------------------------------------------------
-// Helpers visuais (rotulos em PT-BR para tipos de no).
+// Helpers de opcoes dos selects (tipos e campos vem do servidor).
 // ---------------------------------------------------------------------
 
-const TIPO_NO_LABEL: Record<RelacaoTipoNoCampo["tipo"], string> = {
-  aviso: "Aviso",
-  processo: "Processo",
-  documento: "Documento",
-  pessoa: "Pessoa",
-  produto: "Produto",
-  linha: "Linha",
-  sku: "SKU",
-  preco: "Preço",
-  politica: "Política",
-  cotacao_diretriz: "Diretriz",
-};
+interface SelectOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * Opcoes do select de campo: colunas reais da tabela_fonte do tipo + o
+ * valor atual quando ele nao existe mais na tabela (campo legado fica
+ * visivel e sinalizado em vez de sumir silenciosamente do form).
+ */
+function campoOptions(
+  campos: ReadonlyArray<TipoNoCampo>,
+  current: string,
+): SelectOption[] {
+  const opts: SelectOption[] = campos.map((c) => ({
+    value: c.campo,
+    label: c.campo,
+  }));
+  if (current && !opts.some((o) => o.value === current)) {
+    opts.push({ value: current, label: `${current} (campo inexistente)` });
+  }
+  if (!current) opts.unshift({ value: "", label: "Selecione…" });
+  return opts;
+}
 
 /** Indica se o formulario esta no modo edicao. */
 export function RegraForm({
@@ -162,19 +174,59 @@ export function RegraForm({
   );
 
   /**
-   * Allowlist de campos por tipo de no. Hardcoded intencionalmente: a
-   * sugestao de chave vem do dominio (aviso.pregao, processo.numero etc)
-   * e precisa ser estavel para que a correspondencia no backfill seja
-   * deterministica.
+   * Tipos de no da org (config_tipos_no) com os campos reais da
+   * tabela_fonte de cada um, direto do servidor. Tipo novo cadastrado
+   * pelo cockpit aparece aqui sem mexer em codigo.
+   */
+  const tiposNoQuery = useRelacionamentosTiposNo();
+  const tiposNo = useMemo(
+    () => tiposNoQuery.data?.tipos ?? [],
+    [tiposNoQuery.data],
+  );
+
+  /**
+   * Opcoes do select de tipo: tipos ativos + o valor atual do form quando
+   * ele esta inativo ou nao existe mais (regra legada continua legivel).
+   */
+  const tipoOptions = useMemo(() => {
+    return (current: string): SelectOption[] => {
+      const opts = tiposNo
+        .filter((t) => t.ativo || t.tipo === current)
+        .map((t) => ({ value: t.tipo, label: t.label || tipoNoLabel(t.tipo) }));
+      if (current && !opts.some((o) => o.value === current)) {
+        opts.push({ value: current, label: tipoNoLabel(current) });
+      }
+      return opts;
+    };
+  }, [tiposNo]);
+
+  /**
+   * Campos reais do tipo selecionado. Lista vazia (tipo sem tabela_fonte
+   * mapeada) degrada o select para input de texto livre.
    */
   const camposOrigem = useMemo(
-    () => CAMPOS_POR_TIPO[origemTipo] ?? [],
-    [origemTipo],
+    () => tiposNo.find((t) => t.tipo === origemTipo)?.campos ?? [],
+    [tiposNo, origemTipo],
   );
   const camposDestino = useMemo(
-    () => CAMPOS_POR_TIPO[destinoTipo] ?? [],
-    [destinoTipo],
+    () => tiposNo.find((t) => t.tipo === destinoTipo)?.campos ?? [],
+    [tiposNo, destinoTipo],
   );
+
+  /** Troca de tipo: reseta o campo do lado para a 1a coluna real do tipo. */
+  function handleTipoChange(
+    lado: "origem" | "destino",
+    tipo: string,
+    onChange: (value: string) => void,
+  ) {
+    onChange(tipo);
+    const campos = tiposNo.find((t) => t.tipo === tipo)?.campos ?? [];
+    setValue(
+      lado === "origem" ? "campo_origem" : "campo_destino",
+      campos[0]?.campo ?? "",
+      { shouldDirty: true, shouldValidate: true },
+    );
+  }
 
   /**
    * Hard block: regra simples onde o unico campo destino e `numero_pregao`
@@ -308,6 +360,18 @@ export function RegraForm({
     setApiError(null);
   }, [origemTipo, destinoTipo, combinacao]);
 
+  // Auto-preenche campo vazio com a 1a coluna real do tipo assim que os
+  // tipos carregam do servidor (modo criacao). Nunca sobrescreve valor
+  // ja escolhido; tipo sem campos (input livre) fica intocado.
+  useEffect(() => {
+    if (!campoOrigem && camposOrigem.length > 0) {
+      setValue("campo_origem", camposOrigem[0].campo, { shouldValidate: true });
+    }
+    if (!campoDestino && camposDestino.length > 0) {
+      setValue("campo_destino", camposDestino[0].campo, { shouldValidate: true });
+    }
+  }, [campoOrigem, campoDestino, camposOrigem, camposDestino, setValue]);
+
   /** Render -------------------------------------------------------------- */
 
   return (
@@ -364,11 +428,11 @@ export function RegraForm({
               <Select
                 id="regra-origem-tipo"
                 value={field.value}
-                onChange={(e) => field.onChange(e.target.value)}
+                onChange={(e) => handleTipoChange("origem", e.target.value, field.onChange)}
               >
-                {RELACIONAMENTOS_TIPOS_NO.map((t) => (
-                  <option key={t} value={t}>
-                    {TIPO_NO_LABEL[t]}
+                {tipoOptions(field.value).map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
                   </option>
                 ))}
               </Select>
@@ -392,24 +456,29 @@ export function RegraForm({
           <Controller
             control={control}
             name="campo_origem"
-            render={({ field }) => (
-              <Select
-                id="regra-campo-origem"
-                value={field.value}
-                onChange={(e) => field.onChange(e.target.value)}
-                disabled={camposOrigem.length === 0}
-              >
-                {camposOrigem.length === 0 ? (
-                  <option value="">-</option>
-                ) : (
-                  camposOrigem.map((c) => (
-                    <option key={c.value} value={c.value}>
-                      {c.label}
+            render={({ field }) =>
+              camposOrigem.length > 0 ? (
+                <Select
+                  id="regra-campo-origem"
+                  value={field.value}
+                  onChange={(e) => field.onChange(e.target.value)}
+                >
+                  {campoOptions(camposOrigem, field.value).map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
                     </option>
-                  ))
-                )}
-              </Select>
-            )}
+                  ))}
+                </Select>
+              ) : (
+                <Input
+                  id="regra-campo-origem"
+                  type="text"
+                  placeholder="nome_da_coluna"
+                  value={field.value}
+                  onChange={(e) => field.onChange(e.target.value)}
+                />
+              )
+            }
           />
           {errors.campo_origem ? (
             <p className="flex items-center gap-1 text-[11.5px] text-err">
@@ -436,11 +505,11 @@ export function RegraForm({
               <Select
                 id="regra-destino-tipo"
                 value={field.value}
-                onChange={(e) => field.onChange(e.target.value)}
+                onChange={(e) => handleTipoChange("destino", e.target.value, field.onChange)}
               >
-                {RELACIONAMENTOS_TIPOS_NO.map((t) => (
-                  <option key={t} value={t}>
-                    {TIPO_NO_LABEL[t]}
+                {tipoOptions(field.value).map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
                   </option>
                 ))}
               </Select>
@@ -464,24 +533,29 @@ export function RegraForm({
           <Controller
             control={control}
             name="campo_destino"
-            render={({ field }) => (
-              <Select
-                id="regra-campo-destino"
-                value={field.value}
-                onChange={(e) => field.onChange(e.target.value)}
-                disabled={camposDestino.length === 0}
-              >
-                {camposDestino.length === 0 ? (
-                  <option value="">-</option>
-                ) : (
-                  camposDestino.map((c) => (
-                    <option key={c.value} value={c.value}>
-                      {c.label}
+            render={({ field }) =>
+              camposDestino.length > 0 ? (
+                <Select
+                  id="regra-campo-destino"
+                  value={field.value}
+                  onChange={(e) => field.onChange(e.target.value)}
+                >
+                  {campoOptions(camposDestino, field.value).map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
                     </option>
-                  ))
-                )}
-              </Select>
-            )}
+                  ))}
+                </Select>
+              ) : (
+                <Input
+                  id="regra-campo-destino"
+                  type="text"
+                  placeholder="nome_da_coluna"
+                  value={field.value}
+                  onChange={(e) => field.onChange(e.target.value)}
+                />
+              )
+            }
           />
           {errors.campo_destino ? (
             <p className="flex items-center gap-1 text-[11.5px] text-err">

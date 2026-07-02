@@ -30,9 +30,14 @@ export {
   relacionamentosConfigKeys,
   useRelacionamentosConfig,
   useUpdateRelacionamentosConfig,
-  useRelacionamentosTipos,
-  useUpsertRelacionamentosTipo,
 } from "./use-relacionamentos-config";
+
+export {
+  relacionamentosTiposNoKeys,
+  useRelacionamentosTiposNo,
+  useCriarRelacionamentosTipoNo,
+  useEditarRelacionamentosTipoNo,
+} from "./use-relacionamentos-tipos-no";
 
 export {
   relacionamentosLeituraKeys,

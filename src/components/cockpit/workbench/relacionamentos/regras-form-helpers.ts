@@ -9,8 +9,11 @@
 //     de string|null, e combinacao como enum);
 //   - Defaults para criacao e para edicao (hidratacao a partir de Regra);
 //   - Conversao dos valores tipados para o payload do backend
-//     (toRegraCreateInput / toRegraUpdateInput), mantendo snake_case;
-//   - Tabela de campos permitidos por tipo de no (allowlist de origem/destino).
+//     (toRegraCreateInput / toRegraUpdateInput), mantendo snake_case.
+//
+// Os campos disponiveis por tipo de no NAO moram mais aqui: vem do
+// servidor (Edge relacionamentos-tipos-no, que le a tabela_fonte de cada
+// tipo em config_tipos_no via information_schema).
 //
 // Esses helpers sao separados do componente para preservar o corpo do
 // form limpo e permitir testes unitarios futuros sem renderizar React.
@@ -38,21 +41,19 @@ export interface RegraFormValues {
   ativa: boolean;
 }
 
-/** Item da tabela de campos permitidos por tipo de no. */
-export interface RelacaoTipoNoCampo {
-  tipo: RelacionamentoTipoNo;
-  campos: ReadonlyArray<{ value: string; label: string }>;
-}
-
-/** Defaults limpos para o modo criacao. */
+/**
+ * Defaults limpos para o modo criacao. Os campos comecam vazios: o form
+ * preenche com a 1a coluna real do tipo assim que os tipos carregam do
+ * servidor (nada de nome de campo chutado aqui).
+ */
 export function regraCreateDefaults(): RegraFormValues {
   return {
     nome: "",
     origem_tipo: "aviso",
-    campo_origem: "numero_pregao",
+    campo_origem: "",
     destino_tipo: "produto",
-    campo_destino: "sku",
-    combinacao: "composta",
+    campo_destino: "",
+    combinacao: "simples",
     sequencia: [],
     modo_disparo: "agendado",
     ativa: true,
@@ -113,81 +114,3 @@ export function toRegraUpdateInput(values: RegraFormValues): RegraUpdateInput {
   input.nome = nome ? nome : null;
   return input;
 }
-
-// ---------------------------------------------------------------------
-// Tabela dominio: tipo de no -> campos permitidos (allowlist).
-// Hardcoded intencionalmente: precisa ser estavel para que o match no
-// backfill seja deterministico.
-// ---------------------------------------------------------------------
-
-type CamposPorTipo = Record<
-  RelacionamentoTipoNo,
-  ReadonlyArray<{ value: string; label: string }>
->;
-
-export const CAMPOS_POR_TIPO: CamposPorTipo = {
-  aviso: [
-    { value: "numero_pregao", label: "Número do pregão" },
-    { value: "uasg", label: "UASG" },
-    { value: "orgao_codigo", label: "Órgão (código)" },
-    { value: "orgao_nome", label: "Órgão (nome)" },
-    { value: "modalidade", label: "Modalidade" },
-    { value: "data_abertura", label: "Data de abertura" },
-    { value: "objeto_resumido", label: "Objeto (resumido)" },
-  ],
-  processo: [
-    { value: "numero_processo", label: "Número do processo" },
-    { value: "data_inicio", label: "Data de início" },
-    { value: "status", label: "Status" },
-    { value: "descricao", label: "Descrição" },
-  ],
-  documento: [
-    { value: "nome_anexo", label: "Nome do anexo" },
-    { value: "extensao", label: "Extensão" },
-    { value: "hash_documento", label: "Hash" },
-    { value: "tipo_documento", label: "Tipo do documento" },
-  ],
-  pessoa: [
-    { value: "cpf_cnpj", label: "CPF/CNPJ" },
-    { value: "nome", label: "Nome" },
-    { value: "email", label: "E-mail" },
-    { value: "telefone", label: "Telefone" },
-    { value: "tipo_pessoa", label: "Tipo de pessoa" },
-  ],
-  produto: [
-    { value: "sku", label: "SKU" },
-    { value: "nome_produto", label: "Nome do produto" },
-    { value: "codigo_interno", label: "Código interno" },
-    { value: "categoria", label: "Categoria" },
-  ],
-  linha: [
-    { value: "codigo_linha", label: "Código da linha" },
-    { value: "nome_linha", label: "Nome da linha" },
-  ],
-  sku: [
-    { value: "codigo_sku", label: "Código do SKU" },
-    { value: "nome_sku", label: "Nome do SKU" },
-    { value: "tipo_sku", label: "Tipo do SKU" },
-  ],
-  preco: [
-    { value: "sku_id", label: "SKU" },
-    { value: "regiao", label: "Região" },
-    { value: "patamar", label: "Patamar" },
-    { value: "estado", label: "Estado" },
-  ],
-  politica: [
-    { value: "nivel", label: "Nível" },
-    { value: "escopo_id", label: "Escopo" },
-    { value: "participa", label: "Participa" },
-  ],
-  cotacao_diretriz: [
-    { value: "nivel", label: "Nível" },
-    { value: "escopo_id", label: "Escopo" },
-    { value: "texto", label: "Texto" },
-  ],
-};
-
-/** Lista derivada para componentes que precisam enumerar todos os tipos. */
-export const CAMPOS_POR_TIPO_LISTA: ReadonlyArray<RelacaoTipoNoCampo> = (
-  Object.keys(CAMPOS_POR_TIPO) as RelacionamentoTipoNo[]
-).map((tipo) => ({ tipo, campos: CAMPOS_POR_TIPO[tipo] }));

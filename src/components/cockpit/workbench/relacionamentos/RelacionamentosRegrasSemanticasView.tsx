@@ -4,15 +4,17 @@
 // RelacionamentosRegrasSemanticasView - sub-secao "Regras semanticas" do
 // painel de Relacionamentos (F4). Substitui a antiga "Parametros".
 //
-// 2 blocos + editor de abreviacoes:
+// Blocos:
 //   A) "O que pode ser cruzado" (candidatos)
 //      - vinculos inferidos AUDITAVEIS (vinculos_inferidos_lia). Colunas:
 //        descricao, origem, data_origem, contexto_origem, status + acoes.
 //      - ativar/desativar 1 candidato. Desativar EXIGE motivo (modal).
 //      - paginacao KEYSET ("Carregar mais"), sem truncamento silencioso.
 //      - empty-state: "Nenhum candidato cadastrado ainda."
-//   B) Editor de abreviacoes/cores por tipo (AbreviacoesEditor).
-//   C) "Ajustes tecnicos da Lia" (config_relacionamentos) RENDER-ONLY, com
+//   B) Gestao dos tipos de no (TiposNoCard) — cadastrar/editar tipo e
+//      apontar a tabela_fonte que alimenta os campos das regras humanas.
+//   C) Editor de abreviacoes/cores por tipo (AbreviacoesEditor).
+//   D) "Ajustes tecnicos da Lia" (config_relacionamentos) RENDER-ONLY, com
 //      badge "interno" (RNF-15) — nunca editavel por esta UI.
 // =====================================================================
 
@@ -52,6 +54,7 @@ import type {
   RelacionamentoVinculoStatus,
 } from "@/lib/api/relacionamentos-types";
 import { AbreviacoesEditor } from "./AbreviacoesEditor";
+import { TiposNoCard } from "./TiposNoCard";
 
 // ---------------------------------------------------------------------
 // Labels PT-BR.
@@ -355,10 +358,13 @@ export function RelacionamentosRegrasSemanticasView() {
         )}
       </section>
 
-      {/* Bloco B - editor de abreviacoes */}
+      {/* Bloco B - tipos de no (tabela_fonte -> campos das regras humanas) */}
+      <TiposNoCard />
+
+      {/* Bloco C - editor de abreviacoes */}
       <AbreviacoesEditor />
 
-      {/* Bloco C - ajustes tecnicos da Lia (render-only) */}
+      {/* Bloco D - ajustes tecnicos da Lia (render-only) */}
       <AjustesTecnicosCard ajustes={ajustes} isLoading={isLoading} />
 
       {/* Modal de desativacao (motivo obrigatorio) */}
