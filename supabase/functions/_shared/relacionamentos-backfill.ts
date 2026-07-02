@@ -78,6 +78,16 @@ interface InsercaoRelacao {
   confianca: number;
 }
 
+/**
+ * Deriva o tipo_relacionamento (D1, §4.11) a partir do metodo da aresta:
+ * deterministico -> hierarquico; sugerido -> semantico. Sem essa derivacao
+ * a coluna cai no DEFAULT 'semantico' e a aresta deterministica vai pro
+ * grafo errado (mesmo mapeamento do backfill F0 sobre as arestas legadas).
+ */
+function tipoRelacionamentoDe(metodo: InsercaoRelacao["metodo"]): "hierarquico" | "semantico" {
+  return metodo === "deterministico" ? "hierarquico" : "semantico";
+}
+
 interface ResultadoInsercao {
   criadas: number;
   duplicadas: number;
@@ -119,6 +129,7 @@ async function inserirRelacoesIdempotente(
         destino_id: aresta.destino_id,
         relacao: aresta.relacao,
         metodo: aresta.metodo,
+        tipo_relacionamento: tipoRelacionamentoDe(aresta.metodo),
         chave: aresta.chave,
         confianca: aresta.confianca,
       }));

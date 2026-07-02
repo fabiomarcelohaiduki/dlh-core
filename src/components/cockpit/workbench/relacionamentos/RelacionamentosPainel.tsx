@@ -4,17 +4,17 @@
 // RelacionamentosPainel - container da Sub-tab "Relacionamentos" da
 // view de Coleta (Ingestao).
 //
-// Container com 4 sub-abas. As sub-views entregues:
-//   - A. Grafo                          (panorama + vizinhanca)
+// Container com 4 sub-abas:
+//   - A. Grafo                          (panorama + vizinhanca + lista de
+//                                        arestas com feedback inline)
 //   - B. Regras humanas                 (catalogo_regras_vinculo)
 //   - C. Regras inferidas pela Lia      (vinculos_inferidos_lia)
-//   - E. Parametros                     (config_relacionamentos +
-//                                        config_tipos_no)
+//   - D. Regras semanticas              (candidatos + ajustes tecnicos,
+//                                        v2 §3.2 - substitui "Parametros")
 //
 // F1: a sub-aba "Aprovacoes pendentes" foi removida - o workflow de
-// aprovacao deu lugar ao feedback inline visto/incorreta nas arestas.
-// F5: a view correspondente foi esvaziada (tombstone), aguardando
-// remocao fisica do arquivo pelo revisor.
+// aprovacao deu lugar ao feedback inline visto/incorreta nas arestas
+// (F5 ja removeu fisicamente a view correspondente).
 //
 // Sub-aba default: "Grafo" (A), conforme SPEC.
 // =====================================================================
@@ -38,7 +38,7 @@ const SUBABAS: ReadonlyArray<{ value: Subaba; label: string }> = [
   { value: "regras-semanticas", label: "Regras semânticas" },
 ];
 
-/** Container com 5 sub-abas e views proprias. */
+/** Container com 4 sub-abas e views proprias. */
 export function RelacionamentosPainel() {
   const [subaba, setSubaba] = useState<Subaba>("grafo");
 
