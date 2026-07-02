@@ -3,10 +3,12 @@
 -- Migration parte 1/3: SEED INICIAL da feature Relacionamentos.
 --
 -- Insere de forma IDEMPOTENTE para cada org em public.org:
---   (a) 5 regras macro humanas em catalogo_regras_vinculo (todas ativa=false),
---       conforme tabela 2.5.2 da SPEC. A regra #5 (aviso+numero_pregao+uasg)
---       e COMPOSTA com sequencia ['numero_pregao','uasg']; as 4 primeiras
---       sao SIMPLES.
+--   (a) 4 regras macro humanas em catalogo_regras_vinculo (todas ativa=false),
+--       conforme tabela 2.5.2 da SPEC. A regra #4 (aviso+numero_pregao+uasg)
+--       e COMPOSTA com sequencia ['payload_bruto.processo','payload_bruto.uasg'];
+--       as 3 primeiras sao SIMPLES. (A antiga regra processo/serie_m foi
+--       REMOVIDA por nao ter fonte valida em nomus_processos - ver
+--       20260702130000_relacionamentos_remove_serie_m.sql.)
 --   (b) 10 tipos de no por org em config_tipos_no, com labels, icones
 --       Lucide e cores da PALETA CANONICA OFICIAL (E8) da SPEC 2.5.1
 --       (amber #e27300 marca; demais conforme tabela). Token DLH4
@@ -35,7 +37,7 @@
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
--- (a) 5 REGRAS MACRO HUMANAS (todas ativa=false) - POR ORG.
+-- (a) 4 REGRAS MACRO HUMANAS (todas ativa=false) - POR ORG.
 --
 -- O seed itera sobre TODAS as orgs existentes na tabela public.org
 -- via INSERT ... SELECT FROM public.org, garantindo 1 linha por org
@@ -69,13 +71,7 @@ cross join (
     ('Pessoa <-> Pessoa por Razao Social',
      'pessoa', 'nome_razao_social', 'pessoa', 'nome_razao_social',
      'simples', array['nome_razao_social']::text[], false),
-    -- #4 processo<->processo por serie_m (simples). SEM fonte valida hoje
-    --    (nem coluna fisica nem chave jsonb em nomus_processos); fica inerte
-    --    (ativa=false) ate o dono definir a chave real.
-    ('Processo <-> Processo por Serie M',
-     'processo', 'serie_m', 'processo', 'serie_m',
-     'simples', array['serie_m']::text[], false),
-    -- #5 aviso<->aviso por (numero do pregao, uasg) (composta). Ambas as
+    -- #4 aviso<->aviso por (numero do pregao, uasg) (composta). Ambas as
     --    chaves vivem no jsonb payload_bruto (o numero do pregao e a chave
     --    `processo`). O pregao sozinho repete entre UASGs -> so composto.
     ('Aviso <-> Aviso por Numero do pregao + UASG',

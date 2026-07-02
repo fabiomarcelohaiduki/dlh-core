@@ -19,9 +19,9 @@
 --                           -> aviso/[payload_bruto.processo, payload_bruto.uasg]
 --
 -- #2 pessoa/cnpj JA aponta pra coluna fisica valida (nao mexe).
--- #4 processo/serie_m NAO tem fonte valida (nem coluna nem chave jsonb em
---    nomus_processos): fica como esta (ativa=false, inerte). A correcao de
---    negocio dessa regra depende de decisao do dono - nao inventamos campo.
+-- #4 processo/serie_m NAO tinha fonte valida (nem coluna nem chave jsonb em
+--    nomus_processos). Decisao do dono (2026-07-02): REMOVER a regra em vez
+--    de mante-la inerte -> ver 20260702130000_relacionamentos_remove_serie_m.sql.
 -- =====================================================================
 
 -- #1 aviso/uasg -> payload_bruto.uasg (simples).
