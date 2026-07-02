@@ -561,6 +561,19 @@ function resolverTabelaFonte(tipo: string): string | null {
 }
 
 /**
+ * Escopo da FASE 2 - consumo do `modo_disparo` (esboco §4.5).
+ *   - `regraId`: restringe a UMA regra (usado pelo relacionamentos-ativar).
+ *     Ignora modo_disparo: o humano pediu explicitamente ESTA regra.
+ *   - `modos`: allowlist de modo_disparo no disparo global. O cron usa
+ *     ['imediato','agendado'] para NUNCA rodar regra 'on-demand' fora de
+ *     um clique humano. Ausente = todos os modos (disparo manual global).
+ */
+interface EscopoFase2 {
+  regraId?: string;
+  modos?: readonly string[];
+}
+
+/**
  * Executor da FASE 2 com isolamento de falhas por regra (RNF-11). Consulta
  * apenas as regras ativas DA ORG ATIVA (catalogo_regras_vinculo e POR ORG;
  * o filtro WHERE ativa=true AND org_id=:orgAtiva e obrigatorio). As arestas
@@ -571,14 +584,21 @@ async function executarFase2(
   db: ServiceClient,
   erros: Record<string, string>,
   orgId: string,
+  escopo: EscopoFase2 = {},
 ): Promise<ResultadoInsercao> {
-  const { data: regras, error: regrasErr } = await db
+  let query = db
     .from("catalogo_regras_vinculo")
     .select(
       "id, org_id, origem_tipo, campo_origem, destino_tipo, campo_destino, combinacao, sequencia",
     )
     .eq("ativa", true)
     .eq("org_id", orgId);
+  if (escopo.regraId) {
+    query = query.eq("id", escopo.regraId);
+  } else if (escopo.modos) {
+    query = query.in("modo_disparo", [...escopo.modos]);
+  }
+  const { data: regras, error: regrasErr } = await query;
   if (regrasErr) {
     erros["fase2_listar_regras"] = regrasErr.message;
     return { criadas: 0, duplicadas: 0 };
@@ -740,7 +760,19 @@ export interface RunBackfillOptions {
   /** Identificador da execucao ja inserida (single-flight). Pode ser null para
    * que o helper insira a propria execucao ANTES do trabalho (atomicidade). */
   execucaoId?: string;
+  /**
+   * Restringe o run a UMA regra do catalogo (usado pelo relacionamentos-ativar,
+   * gate S7). Quando presente: pula as Fases 1 e 3 e roda SO a Fase 2 desta
+   * regra, ignorando `modo_disparo` (o humano pediu explicitamente ESTA regra).
+   */
+  regraId?: string;
 }
+
+/**
+ * Modos de disparo que o cron pode rodar (esboco §4.5). Regra 'on-demand'
+ * NUNCA entra no backfill agendado - so roda em clique humano explicito.
+ */
+const MODOS_DISPARO_AGENDADO = ["imediato", "agendado"] as const;
 
 /**
  * Insere um registro em `public.execucoes` representando o run de backfill.
@@ -814,13 +846,18 @@ async function finalizarExecucao(
  * Insere execucao, executa as 3 fases do backfill com isolamento por sub-rotina
  * (RNF-11) e finaliza a execucao. Retorna o agregado final.
  *
+ * Escopo (esboco §4.5):
+ *   - `regraId` presente -> roda SO a Fase 2 daquela regra (ativacao S7).
+ *   - gatilho 'agendada' -> Fase 2 pula regras `on-demand` (so clique humano).
+ *   - gatilho 'manual' global -> todas as fases, todos os modos.
+ *
  * Single-flight NAO e tratado aqui - caller deve fazer antes de chamar
  * (consulta etapa_atual='relacionamentos-backfill' AND status='em_andamento').
  */
 export async function runRelacionamentosBackfill(
   opts: RunBackfillOptions,
 ): Promise<BackfillResult> {
-  const { db, etapa, gatilho, orgId } = opts;
+  const { db, etapa, gatilho, orgId, regraId } = opts;
   const t0 = performance.now();
 
   const execucaoId = opts.execucaoId ?? (await inserirExecucaoBackfill(db, gatilho));
@@ -829,18 +866,29 @@ export async function runRelacionamentosBackfill(
   let criadas = 0;
   let duplicadas = 0;
 
-  try {
-    const r1 = await executarFase1(db, erros);
-    criadas += r1.criadas;
-    duplicadas += r1.duplicadas;
+  // Escopo da Fase 2 conforme a origem do disparo (ver doc acima).
+  const escopoFase2: EscopoFase2 = regraId
+    ? { regraId }
+    : gatilho === "agendada"
+    ? { modos: MODOS_DISPARO_AGENDADO }
+    : {};
 
-    const r2 = await executarFase2(db, erros, orgId);
+  try {
+    if (!regraId) {
+      const r1 = await executarFase1(db, erros);
+      criadas += r1.criadas;
+      duplicadas += r1.duplicadas;
+    }
+
+    const r2 = await executarFase2(db, erros, orgId, escopoFase2);
     criadas += r2.criadas;
     duplicadas += r2.duplicadas;
 
-    const r3 = await executarFase3(db, erros);
-    criadas += r3.criadas;
-    duplicadas += r3.duplicadas;
+    if (!regraId) {
+      const r3 = await executarFase3(db, erros);
+      criadas += r3.criadas;
+      duplicadas += r3.duplicadas;
+    }
   } catch (err) {
     // Defesa extra: mesmo com try/catch por sub-rotina, qualquer escape
     // derruba a execucao para 'erro' (a falha de uma fase NAO deve matar o job).

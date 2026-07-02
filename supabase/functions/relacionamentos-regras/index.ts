@@ -42,7 +42,7 @@ import {
 
 const FUNCTION_SEGMENT = "relacionamentos-regras";
 const REGRA_COLUMNS =
-  "id, org_id, nome, origem_tipo, campo_origem, destino_tipo, campo_destino, combinacao, sequencia, ativa, versao, created_at, updated_at";
+  "id, org_id, nome, origem_tipo, campo_origem, destino_tipo, campo_destino, combinacao, sequencia, modo_disparo, ativa, versao, created_at, updated_at";
 
 /** Erro canonico de validacao para reproduzir a mensagem do trigger SQL. */
 const NUMERO_PREGAO_BLOCKER_MESSAGE = REL_NUMERO_PREGAO_REFINADO_MSG;
@@ -147,6 +147,7 @@ async function createRegra(
     campo_destino: input.campo_destino,
     combinacao: input.combinacao,
     sequencia: input.sequencia ?? null,
+    modo_disparo: input.modo_disparo ?? "agendado",
     ativa: input.ativa ?? false,
   };
 
@@ -175,6 +176,7 @@ async function createRegra(
       campo_destino: data.campo_destino,
       combinacao: data.combinacao,
       sequencia: data.sequencia,
+      modo_disparo: data.modo_disparo,
       ativa: data.ativa,
     },
   });
@@ -226,6 +228,7 @@ async function updateRegra(
     "campo_destino",
     "combinacao",
     "sequencia",
+    "modo_disparo",
     "ativa",
   ]);
   if (Object.keys(payload).length === 0) {
@@ -269,6 +272,7 @@ async function updateRegra(
       campo_destino: previous.campo_destino,
       combinacao: previous.combinacao,
       sequencia: previous.sequencia,
+      modo_disparo: previous.modo_disparo,
       ativa: previous.ativa,
     },
     dadosNovos: payload,

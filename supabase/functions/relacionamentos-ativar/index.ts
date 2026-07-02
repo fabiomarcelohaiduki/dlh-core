@@ -144,11 +144,14 @@ async function handler(req: Request): Promise<Response> {
       },
     });
 
+    // Backfill restrito a ESTA regra (esboco §4.5): pula as Fases 1 e 3 e
+    // roda so a Fase 2 da regra ativada, ignorando modo_disparo.
     const resultado = await runRelacionamentosBackfill({
       db,
       etapa: FUNCTION_SEGMENT,
       gatilho: "manual",
       orgId,
+      regraId: regra.id,
     });
 
     return jsonResponse(
