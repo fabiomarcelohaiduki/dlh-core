@@ -182,14 +182,15 @@ export function RelacionamentosRegrasView() {
           prioridade.
         </p>
         <p className="m-0 text-[12.5px] text-warn">
-          <strong>Hard block ativo:</strong> regras simples com campo destino
+          <strong>Hard block ativo:</strong> regras simples com campo destino no
+          numero do pregao sozinho
           <code className="mx-1 rounded-sm bg-surface-3 px-1 py-px font-mono text-[11px]">
-            numero_pregao
+            payload_bruto.processo
           </code>
           sao bloqueadas - esse cenario gera falsos positivos. Use regra composta
           com
           <code className="mx-1 rounded-sm bg-surface-3 px-1 py-px font-mono text-[11px]">
-            uasg
+            payload_bruto.uasg
           </code>
           .
         </p>

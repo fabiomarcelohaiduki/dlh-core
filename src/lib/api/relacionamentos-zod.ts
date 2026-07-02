@@ -30,6 +30,14 @@ export const RELACIONAMENTOS_FEEDBACK_ACOES = ["visto", "incorreta"] as const;
 export const REL_NUMERO_PREGAO_MSG =
   "Numero do pregao sozinho gera falsos positivos. Use regra composta com UASG.";
 
+/**
+ * Campos que representam o numero do pregao sozinho (falso-positivo em regra
+ * simples). O numero do pregao real vive na chave jsonb `payload_bruto.processo`;
+ * `numero_pregao` e o nome legado. Bloquear os dois cobre dado antigo e novo.
+ * IDENTICO ao backend (validation.ts) e ao trigger SQL.
+ */
+export const REL_CAMPOS_NUMERO_PREGAO = ["numero_pregao", "payload_bruto.processo"] as const;
+
 // ---------------------------------------------------------------------
 // Schemas para o catalogo de regras humanas (catalogo_regras_vinculo).
 // ---------------------------------------------------------------------
@@ -103,7 +111,10 @@ const catalogoRegraBaseSchema = z.object({
 export const regraCreateSchema = catalogoRegraBaseSchema
   .strict()
   .superRefine((val, ctx) => {
-    if (val.combinacao === "simples" && val.campo_destino === "numero_pregao") {
+    if (
+      val.combinacao === "simples" &&
+      (REL_CAMPOS_NUMERO_PREGAO as readonly string[]).includes(val.campo_destino)
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["campo_destino"],
@@ -120,7 +131,7 @@ export const regraUpdateSchema = catalogoRegraBaseSchema
     if (
       val.combinacao === "simples" &&
       val.campo_destino !== undefined &&
-      val.campo_destino === "numero_pregao"
+      (REL_CAMPOS_NUMERO_PREGAO as readonly string[]).includes(val.campo_destino)
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

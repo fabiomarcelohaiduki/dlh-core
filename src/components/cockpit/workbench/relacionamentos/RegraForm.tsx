@@ -9,11 +9,13 @@
 //   1) Campos: origem_tipo, campo_origem, destino_tipo, campo_destino,
 //      combinacao (radio), sequencia (visivel so se composta), ativa,
 //      nome opcional;
-//   2) Hard block anti `numero_pregao` (simples + campo_destino=) conforme
+//   2) Hard block anti numero do pregao sozinho (simples + campo_destino =
+//      `payload_bruto.processo` real ou `numero_pregao` legado) conforme
 //      RNF-14 e US-12 CA-03 - botao Salvar desabilitado com tooltip
 //      explicando que essa combinacao gera falsos positivos;
-//   3) Chip de sugestao "Sugerir regra composta (numero_pregao + uasg)"
-//      que preenche sequencia=['numero_pregao','uasg'] e combinacao=composta;
+//   3) Chip de sugestao "Sugerir regra composta (nº do pregão + UASG)" que
+//      preenche sequencia=['payload_bruto.processo','payload_bruto.uasg'] e
+//      combinacao=composta;
 //   4) Sem botao "salvar mesmo assim" - o gate e definitivo (RNF-14);
 //   5) Toasts verde "Regra salva" / vermelho em PT-BR para 422/409/etc.
 //
@@ -33,6 +35,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  REL_CAMPOS_NUMERO_PREGAO,
   REL_NUMERO_PREGAO_MSG,
   regraCreateSchema,
   regraUpdateSchema,
@@ -229,12 +232,14 @@ export function RegraForm({
   }
 
   /**
-   * Hard block: regra simples onde o unico campo destino e `numero_pregao`
-   * tem alta taxa de falso positivo. A UI deve impedir o envio; o backend
-   * e o trigger SQL repetem o gate. Sem bypass.
+   * Hard block: regra simples cujo campo destino e o numero do pregao sozinho
+   * (`payload_bruto.processo` real ou `numero_pregao` legado) tem alta taxa de
+   * falso positivo. A UI deve impedir o envio; o backend e o trigger SQL
+   * repetem o gate. Sem bypass.
    */
   const isHardBlocked =
-    combinacao === "simples" && campoDestino === "numero_pregao";
+    combinacao === "simples" &&
+    (REL_CAMPOS_NUMERO_PREGAO as readonly string[]).includes(campoDestino);
 
   /** Gate de ativacao (S7) ---------------------------------------------- */
 
@@ -317,10 +322,14 @@ export function RegraForm({
   }
 
   function applySugestaoComposta() {
+    // O numero do pregao e a UASG vivem como chaves jsonb em payload_bruto.
     setValue("combinacao", "composta", { shouldDirty: true, shouldValidate: true });
-    setValue("sequencia", ["numero_pregao", "uasg"], { shouldDirty: true, shouldValidate: true });
-    setValue("campo_destino", "numero_pregao", { shouldDirty: true, shouldValidate: true });
-    setValue("campo_origem", "numero_pregao", { shouldDirty: true, shouldValidate: true });
+    setValue("sequencia", ["payload_bruto.processo", "payload_bruto.uasg"], {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    setValue("campo_destino", "payload_bruto.processo", { shouldDirty: true, shouldValidate: true });
+    setValue("campo_origem", "payload_bruto.processo", { shouldDirty: true, shouldValidate: true });
   }
 
   function formatZodError(message: string | undefined, fallback: string): string {
@@ -624,7 +633,7 @@ export function RegraForm({
                 <Input
                   id="regra-sequencia"
                   type="text"
-                  placeholder="ex.: numero_pregao, uasg"
+                  placeholder="ex.: payload_bruto.processo, payload_bruto.uasg"
                   value={Array.isArray(field.value) ? field.value.join(", ") : ""}
                   onChange={(e) => {
                     const arr = e.target.value
@@ -664,7 +673,7 @@ export function RegraForm({
           <Lightbulb className="mt-0.5 size-4 flex-none text-warn" aria-hidden="true" />
           <span className="flex flex-col gap-0.5">
             <span className="text-[12.5px] font-semibold text-fg">
-              Sugerir regra composta (numero_pregao + uasg)
+              Sugerir regra composta (nº do pregão + UASG)
             </span>
             <span className="text-[11.5px] text-muted">
               Clique para preencher a sequência com 2 chaves estaveis - reduz
